@@ -1,0 +1,297 @@
+"""
+Async CRUD operations for theValyze Credit report database.
+
+All functions accept an AsyncSession and operate on the reports
+and uploaded_files tables.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database.db import ReportRow, UploadedFileRow
+from models.report_schema import FullReport, build_empty_report
+
+
+# ---------------------------------------------------------------------------
+# Report CRUD
+# ---------------------------------------------------------------------------
+
+async def create_report(
+    db: AsyncSession,
+    report_id: str,
+    files_info: Optional[List[dict]] = None,
+) -> FullReport:
+    """Create a new report row with an empty FullReport JSON."""
+    report = build_empty_report(report_id)
+    row = ReportRow(
+        id=report_id,
+        status=report.status,
+        report_json=report.model_dump_json(),
+        extraction_stats_json=report.extraction_stats.model_dump_json(),
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return report
+
+
+async def get_report(db: AsyncSession, report_id: str) -> Optional[FullReport]:
+    """Return the full FullReport object for a given report_id, or None."""
+    result = await db.execute(select(ReportRow).where(ReportRow.id == report_id))
+    row = result.scalar_one_or_none()
+    if row is None:
+        return None
+    if row.report_json:
+        return FullReport.model_validate_json(row.report_json)
+    return build_empty_report(report_id)
+
+
+async def update_report_field(
+    db: AsyncSession,
+    report_id: str,
+    field_name: str,
+    value: Any,
+    confidence: str = "high",
+    source: str = "user",
+) -> Optional[FullReport]:
+    """Update a single field in the report JSON and persist."""
+    report = await get_report(db, report_id)
+    if report is None:
+        return None
+
+    if field_name in report.fields:
+        report.fields[field_name].value = value
+        report.fields[field_name].confidence = confidence
+        report.fields[field_name].source = source
+
+    # Recalculate stats
+    report.extraction_stats = _calc_stats(report)
+    report.updated_at = datetime.now(timezone.utc).isoformat()
+
+    await _save_report(db, report_id, report)
+    return report
+
+
+async def update_report_fields_bulk(
+    db: AsyncSession,
+    report_id: str,
+    fields_dict: Dict[str, Any],
+) -> Optional[FullReport]:
+    """Update multiple fields at once."""
+    report = await get_report(db, report_id)
+    if report is None:
+        return None
+
+    for field_name, value in fields_dict.items():
+        if field_name in report.fields:
+            report.fields[field_name].value = value
+            report.fields[field_name].confidence = "high"
+            report.fields[field_name].source = "user"
+
+    report.extraction_stats = _calc_stats(report)
+    report.updated_at = datetime.now(timezone.utc).isoformat()
+
+    await _save_report(db, report_id, report)
+    return report
+
+
+async def update_report_status(
+    db: AsyncSession,
+    report_id: str,
+    status: str,
+) -> bool:
+    """Update only the status column and the JSON status field."""
+    report = await get_report(db, report_id)
+    if report is None:
+        return False
+
+    report.status = status
+    report.updated_at = datetime.now(timezone.utc).isoformat()
+
+    await db.execute(
+        update(ReportRow)
+        .where(ReportRow.id == report_id)
+        .values(
+            status=status,
+            report_json=report.model_dump_json(),
+            updated_at=datetime.now(timezone.utc),
+        )
+    )
+    await db.commit()
+    return True
+
+
+async def get_all_reports(db: AsyncSession) -> List[dict]:
+    """Return a lightweight list of all reports."""
+    result = await db.execute(select(ReportRow))
+    rows = result.scalars().all()
+    reports = []
+    for row in rows:
+        info: dict = {
+            "id": row.id,
+            "status": row.status,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        # Try to pull company_name from JSON
+        if row.report_json:
+            try:
+                data = json.loads(row.report_json)
+                company_field = data.get("fields", {}).get("company_name", {})
+                info["company_name"] = company_field.get("value")
+            except (json.JSONDecodeError, AttributeError):
+                info["company_name"] = None
+        else:
+            info["company_name"] = None
+        reports.append(info)
+    return reports
+
+
+async def delete_report(db: AsyncSession, report_id: str) -> bool:
+    """Delete a report and all associated file records."""
+    await db.execute(
+        delete(UploadedFileRow).where(UploadedFileRow.report_id == report_id)
+    )
+    result = await db.execute(
+        delete(ReportRow).where(ReportRow.id == report_id)
+    )
+    await db.commit()
+    return result.rowcount > 0
+
+
+async def save_report_json(
+    db: AsyncSession,
+    report_id: str,
+    full_json: str,
+) -> bool:
+    """Overwrite the report_json column with the given JSON string."""
+    print(f"[SAVE] Starting save_report_json for {report_id}")
+    try:
+        result = await db.execute(
+            update(ReportRow)
+            .where(ReportRow.id == report_id)
+            .values(
+                report_json=full_json,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        print(f"[SAVE] Execute returned, rowcount: {result.rowcount}")
+        await db.commit()
+        print(f"[SAVE] Commit successful for {report_id}")
+        return result.rowcount > 0
+    except Exception as e:
+        print(f"[SAVE] ERROR in save_report_json: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def get_report_json(db: AsyncSession, report_id: str) -> Optional[str]:
+    """Return the raw JSON string stored for a report."""
+    result = await db.execute(select(ReportRow).where(ReportRow.id == report_id))
+    row = result.scalar_one_or_none()
+    if row is None:
+        return None
+    return row.report_json
+
+
+# ---------------------------------------------------------------------------
+# Uploaded files helpers
+# ---------------------------------------------------------------------------
+
+async def add_uploaded_file(
+    db: AsyncSession,
+    report_id: str,
+    filename: str,
+    file_path: str,
+    file_type: str,
+    file_size: int,
+) -> UploadedFileRow:
+    """Record a newly uploaded file."""
+    row = UploadedFileRow(
+        report_id=report_id,
+        filename=filename,
+        file_path=file_path,
+        file_type=file_type,
+        file_size=file_size,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+async def get_uploaded_files(
+    db: AsyncSession, report_id: str
+) -> List[UploadedFileRow]:
+    """Return all uploaded file records for a report."""
+    result = await db.execute(
+        select(UploadedFileRow).where(UploadedFileRow.report_id == report_id)
+    )
+    return list(result.scalars().all())
+
+
+async def delete_uploaded_file(
+    db: AsyncSession, report_id: str, filename: str
+) -> bool:
+    """Delete a single uploaded file record by report_id and filename."""
+    result = await db.execute(
+        delete(UploadedFileRow).where(
+            UploadedFileRow.report_id == report_id,
+            UploadedFileRow.filename == filename,
+        )
+    )
+    await db.commit()
+    return result.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+async def _save_report(db: AsyncSession, report_id: str, report: FullReport):
+    """Persist the full report JSON back to the database."""
+    await db.execute(
+        update(ReportRow)
+        .where(ReportRow.id == report_id)
+        .values(
+            report_json=report.model_dump_json(),
+            extraction_stats_json=report.extraction_stats.model_dump_json(),
+            updated_at=datetime.now(timezone.utc),
+        )
+    )
+    await db.commit()
+
+
+def _calc_stats(report: FullReport):
+    """Recalculate extraction statistics from current field values."""
+    from models.report_schema import ExtractionStats
+
+    total = len(report.fields)
+    high = 0
+    medium = 0
+    missing = 0
+    calculated = 0
+
+    for fd in report.fields.values():
+        if fd.confidence == "high":
+            high += 1
+        elif fd.confidence == "medium":
+            medium += 1
+        elif fd.confidence == "calculated":
+            calculated += 1
+        else:
+            missing += 1
+
+    return ExtractionStats(
+        total_fields=total,
+        high_confidence=high,
+        medium_confidence=medium,
+        missing=missing,
+        calculated=calculated,
+    )

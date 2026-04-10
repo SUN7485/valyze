@@ -1,0 +1,104 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-primary: #F59E0B;
+    --color-secondary: #FBBF24;
+    --color-cta: #8B5CF6;
+    --color-background: #ffffff;
+    --color-surface: #F8FAFC;
+    --color-surface-hover: #F1F5F9;
+    --color-text: #0F172A;
+    --color-text-secondary: #475569;
+    --color-text-muted: #94A3B8;
+    --color-border: #E2E8F0;
+    --color-border-soft: #F1F5F9;
+    --color-border-strong: #CBD5E1;
+    --color-success: #10B981;
+    --color-warning: #F59E0B;
+    --color-danger: #EF4444;
+    --color-info: #3B82F6;
+  }
+
+  .dark {
+    --color-background: #0F172A;
+    --color-surface: #1E293B;
+    --color-surface-hover: #334155;
+    --color-text: #F8FAFC;
+    --color-text-secondary: #94A3B8;
+    --color-text-muted: #64748B;
+    --color-border: #334155;
+    --color-border-soft: #1E293B;
+    --color-border-strong: #475569;
+  }
+
+  body {
+    @apply font-sans antialiased transition-colors duration-300;
+    background-color: var(--color-background);
+    color: var(--color-text);
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+  }
+
+  body .dark &,
+  body.dark {
+    background-color: var(--color-background);
+    color: var(--color-text);
+  }
+}
+
+@layer components {
+  .glass {
+    @apply backdrop-blur-md bg-white/70 dark:bg-[#0F172A]/70 border border-white/20 dark:border-white/10;
+  }
+  
+  .glass-card {
+    @apply glass rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer;
+  }
+
+  .btn-premium {
+    @apply px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all duration-300 active:scale-95 cursor-pointer;
+  }
+
+  .card {
+    @apply bg-white dark:bg-white/5 rounded-2xl shadow-sm border border-gray-100 dark:border-white/10;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 bg-[var(--color-background)] dark:bg-white/5 
+        border-2 border-[var(--color-border)] dark:border-white/10
+        rounded-xl text-[var(--color-text)] dark:text-white 
+        focus:bg-[var(--color-surface)] dark:focus:bg-white/10 focus:ring-2 focus:ring-primary/20 
+        focus:border-primary outline-none transition-all duration-200
+        placeholder-[var(--color-text-muted)] dark:placeholder-slate-500;
+  }
+
+  .section-title {
+    @apply text-2xl font-black text-gray-900 dark:text-white tracking-tight;
+  }
+
+  .section-subtitle {
+    @apply text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em];
+  }
+
+  .label-text {
+    @apply text-[9px] font-bold text-[var(--color-text-muted)] dark:text-slate-500 uppercase;
+  }
+
+  .text-primary {
+    @apply text-gray-900 dark:text-white;
+  }
+
+  .text-secondary {
+    @apply text-gray-600 dark:text-slate-400;
+  }
+
+  .text-muted {
+    @apply text-gray-500 dark:text-slate-500;
+  }
+}

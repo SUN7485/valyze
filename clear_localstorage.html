@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Clear LocalStorage</title>
+    <script>
+        function clearLocalStorage() {
+            localStorage.removeItem('current_report_id');
+            alert('LocalStorage cleared! current_report_id has been removed.');
+        }
+    </script>
+</head>
+
+<body>
+    <h1>Clear LocalStorage</h1>
+    <button onclick="clearLocalStorage()">Clear current_report_id</button>
+    <p>Current localStorage:
+    <pre id="currentStorage"></pre>
+    </p>
+
+    <script>
+        document.getElementById('currentStorage').textContent = JSON.stringify(localStorage, null, 2);
+    </script>
+</body>
+
+</html>
