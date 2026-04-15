@@ -2,20 +2,40 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import * as mammoth from "mammoth";
 
 const COLORS = {
-  background: "#0f172a",
-  surface: "#1e293b",
-  surfaceHover: "#334155",
-  text: "#f1f5f9",
-  textSecondary: "#94a3b8",
-  textMuted: "#64748b",
-  border: "#1e293b",
-  borderSoft: "#0f172a",
-  primary: "#f59e0b",
-  cta: "#8b5cf6",
-  info: "#3b82f6",
-  success: "#22c55e",
-  warning: "#f59e0b",
-  danger: "#ef4444",
+  dark: {
+    bg: '#0f172a',
+    surface: '#1e293b', 
+    surfaceHover: '#334155',
+    text: '#f1f5f9',
+    textSecondary: '#94a3b8',
+    textMuted: '#64748b',
+    border: '#1e293b',
+    borderSoft: '#0f172a',
+    borderStrong: '#334155',
+    primary: '#f59e0b',
+    cta: '#8b5cf6',
+    info: '#3b82f6',
+    success: '#22c55e',
+    warning: '#f59e0b',
+    danger: '#ef4444',
+  },
+  light: {
+    bg: '#ffffff',
+    surface: '#f8fafc',
+    surfaceHover: '#f1f5f9', 
+    text: '#0f172a',
+    textSecondary: '#475569',
+    textMuted: '#94a3b8',
+    border: '#e2e8f0',
+    borderSoft: '#f1f5f9',
+    borderStrong: '#cbd5e1',
+    primary: '#f59e0b',
+    cta: '#8b5cf6',
+    info: '#3b82f6',
+    success: '#22c55e',
+    warning: '#f59e0b',
+    danger: '#ef4444',
+  }
 };
 
 const loadPdfJs = () => new Promise((resolve, reject) => {
@@ -248,6 +268,10 @@ export default function ValyzeExtractor() {
   const [patchError, setPatchError]     = useState("");
   const [apiKey, setApiKey]             = useState(() => localStorage.getItem("valyze_api_key") || "");
   const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem("valyze_api_key"));
+  const [darkMode, setDarkMode]         = useState(true);
+
+  const toggleDarkMode = () => setDarkMode(d => !d);
+  const C = COLORS[darkMode ? 'dark' : 'light'];
 
   useEffect(() => { if (apiKey) localStorage.setItem("valyze_api_key", apiKey); }, [apiKey]);
 
@@ -434,88 +458,89 @@ export default function ValyzeExtractor() {
     const c = { Low:"#22c55e",Medium:"#f59e0b",High:"#ef4444",Critical:"#7c3aed",green:"#22c55e",yellow:"#f59e0b",red:"#ef4444" };
     const bg = color || c[v] || "#6b7280";
     return v ? <span style={{ background:bg,color:"#fff",borderRadius:6,padding:"2px 10px",fontSize:12,fontWeight:700 }}>{v}</span>
-              : <span style={{ color:COLORS.textMuted }}>—</span>;
+              : <span style={{ color:C.textMuted }}>—</span>;
   };
   const Bar = ({ label, val, color, invert }) => {
     const w = Math.max(0, Math.min(100, invert ? 100-(+val||0) : (+val||0)));
     const defaultBg = w>70?"#22c55e":w>40?"#f59e0b":"#ef4444";
     const bg = color || defaultBg;
-    return <div style={{ marginBottom:10 }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3 }}><span style={{ color:COLORS.textSecondary }}>{label}</span><span style={{ color:COLORS.text,fontWeight:600 }}>{val??"—"}</span></div><div style={{ background:COLORS.borderSoft,borderRadius:4,height:6 }}><div style={{ width:`${w}%`,background:bg,height:6,borderRadius:4,transition:"width 0.8s" }}/></div></div>;
+    return <div style={{ marginBottom:10 }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3 }}><span style={{ color:C.textSecondary }}>{label}</span><span style={{ color:C.text,fontWeight:600 }}>{val??"—"}</span></div><div style={{ background:C.borderSoft,borderRadius:4,height:6 }}><div style={{ width:`${w}%`,background:bg,height:6,borderRadius:4,transition:"width 0.8s" }}/></div></div>;
   };
   const Sec = ({ title, ch }) => (
-    <div style={{ background:COLORS.surface,border:"1px solid "+COLORS.borderSoft,borderRadius:10,padding:18,marginBottom:14 }}>
-      <div style={{ color:COLORS.textMuted,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:12 }}>{title}</div>
+    <div style={{ background:C.surface,border:"1px solid "+C.borderSoft,borderRadius:10,padding:18,marginBottom:14 }}>
+      <div style={{ color:C.textMuted,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:12 }}>{title}</div>
       {ch}
     </div>
   );
   const F = ({ l, v }) => (
-    <div style={{ display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid "+COLORS.borderSoft,fontSize:13 }}>
-      <span style={{ color:COLORS.textMuted,flexShrink:0,marginRight:8 }}>{l}</span>
-      <span style={{ color:COLORS.text,fontWeight:500,maxWidth:"62%",textAlign:"right" }}>{v??"—"}</span>
+    <div style={{ display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid "+C.borderSoft,fontSize:13 }}>
+      <span style={{ color:C.textMuted,flexShrink:0,marginRight:8 }}>{l}</span>
+      <span style={{ color:C.text,fontWeight:500,maxWidth:"62%",textAlign:"right" }}>{v??"—"}</span>
     </div>
   );
-  const THead = ({ cols }) => <thead><tr>{cols.map(h=><th key={h} style={{ background:"linear-gradient(135deg,rgba(59,130,246,0.1),rgba(6,182,212,0.1))",color:COLORS.info,padding:"6px 8px",textAlign:"left",fontSize:12,fontWeight:700,borderBottom:"2px solid "+COLORS.border }}>{h}</th>)}</tr></thead>;
-  const TRow  = ({ row }) => <tr>{row.map((c,i)=><td key={i} style={{ padding:"5px 8px",borderBottom:"1px solid "+COLORS.borderSoft,fontSize:12,color:i===0?COLORS.textSecondary:COLORS.text }}>{c||"—"}</td>)}</tr>;
+  const THead = ({ cols }) => <thead><tr>{cols.map(h=><th key={h} style={{ background:"linear-gradient(135deg,rgba(59,130,246,0.1),rgba(6,182,212,0.1))",color:C.info,padding:"6px 8px",textAlign:"left",fontSize:12,fontWeight:700,borderBottom:"2px solid "+C.border }}>{h}</th>)}</tr></thead>;
+  const TRow  = ({ row }) => <tr>{row.map((c,i)=><td key={i} style={{ padding:"5px 8px",borderBottom:"1px solid "+C.borderSoft,fontSize:12,color:i===0?C.textSecondary:C.text }}>{c||"—"}</td>)}</tr>;
   const Table = ({ cols, rows }) => <table style={{ width:"100%",borderCollapse:"collapse" }}><THead cols={cols}/><tbody>{rows.map((r,i)=><TRow key={i} row={r}/>)}</tbody></table>;
 
   const TABS = ["summary","operations","financials","ratios","risk","legal","news","recommendation","json","patch"];
 
   return (
-    <div style={{ background:COLORS.background,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:COLORS.text }}>
+    <div style={{ background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text }}>
 
       <div style={{ 
-        borderBottom:"1px solid "+COLORS.borderSoft,padding:"14px 20px",display:"flex",alignItems:"center",gap:12,
-        background:COLORS.background,
+        borderBottom:"1px solid "+C.borderSoft,padding:"14px 20px",display:"flex",alignItems:"center",gap:12,
+        background:C.bg,
       }}>
         <div style={{ background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15 }}>⚡</div>
         <div style={{ flex:1 }}>
-          <div style={{ fontWeight:700,fontSize:14,color:COLORS.text }}>Valyze Credit Intelligence v5</div>
-          <div style={{ color:COLORS.textMuted,fontSize:11 }}>Smart PDF Extraction · Hybrid OCR · Claude Sonnet 4</div>
+          <div style={{ fontWeight:700,fontSize:14,color:C.text }}>Valyze Credit Intelligence v5</div>
+          <div style={{ color:C.textMuted,fontSize:11 }}>Smart PDF Extraction · Hybrid OCR · Claude Sonnet 4</div>
         </div>
         <button 
+          onClick={toggleDarkMode}
           style={{
-            background:COLORS.surface,
-            border:"1px solid "+COLORS.borderSoft,
+            background:C.surface,
+            border:"1px solid "+C.borderSoft,
             borderRadius:8,
             width:36,height:36,
             display:"flex",alignItems:"center",justifyContent:"center",
             cursor:"pointer",
-            color:COLORS.textSecondary,
+            color:C.textSecondary,
             fontSize:16,
             transition:"all 0.2s"
           }}
         >
-          ☀️
+          {darkMode ? '☀️' : '🌙'}
         </button>
         {!showKeyInput && !status.includes("loading") && !status.includes("done") && (
-          <button onClick={()=>setShowKeyInput(true)} style={{ background:COLORS.surface,border:"1px solid "+COLORS.border,borderRadius:6,padding:"5px 10px",color:COLORS.textSecondary,fontSize:11,cursor:"pointer" }}>
+          <button onClick={()=>setShowKeyInput(true)} style={{ background:C.surface,border:"1px solid "+C.border,borderRadius:6,padding:"5px 10px",color:C.textSecondary,fontSize:11,cursor:"pointer" }}>
             🔑 Change Key
           </button>
         )}
       </div>
 
       {(showKeyInput || !apiKey) && status !== "loading" && status !== "done" && (
-        <div style={{ background:`linear-gradient(135deg,${COLORS.surface},${COLORS.background})`,borderBottom:"1px solid "+COLORS.border,padding:"16px 20px" }}>
+        <div style={{ background:`linear-gradient(135deg,${C.surface},${C.bg})`,borderBottom:"1px solid "+C.border,padding:"16px 20px" }}>
           <div style={{ display:"flex",gap:10,alignItems:"center",flexWrap:"wrap" }}>
             <div style={{ flex:1,minWidth:200 }}>
-              <div style={{ color:COLORS.textSecondary,fontSize:12,marginBottom:6,fontWeight:600 }}>🔐 Anthropic API Key</div>
+              <div style={{ color:C.textSecondary,fontSize:12,marginBottom:6,fontWeight:600 }}>🔐 Anthropic API Key</div>
               <input 
                 type="password" 
                 value={apiKey} 
                 onChange={e=>setApiKey(e.target.value)} 
                 placeholder="sk-ant-api03-..."
-                style={{ width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid "+COLORS.border,background:COLORS.background,color:COLORS.text,fontSize:13,fontFamily:"monospace",boxSizing:"border-box" }}
+                style={{ width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid "+C.border,background:C.bg,color:C.text,fontSize:13,fontFamily:"monospace",boxSizing:"border-box" }}
               />
             </div>
             <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
               <button 
                 onClick={()=>{if(apiKey.startsWith("sk-ant-")){localStorage.setItem("valyze_api_key",apiKey);setShowKeyInput(false)}}} 
                 disabled={!apiKey.startsWith("sk-ant-")}
-                style={{ padding:"10px 20px",borderRadius:8,border:"none",background:apiKey.startsWith("sk-ant-")?"linear-gradient(135deg,#22c55e,#16a34a)":COLORS.surface,color:apiKey.startsWith("sk-ant-")?"#fff":COLORS.textMuted,fontWeight:700,fontSize:13,cursor:apiKey.startsWith("sk-ant-")?"pointer":"default" }}
+                style={{ padding:"10px 20px",borderRadius:8,border:"none",background:apiKey.startsWith("sk-ant-")?"linear-gradient(135deg,#22c55e,#16a34a)":C.surface,color:apiKey.startsWith("sk-ant-")?"#fff":C.textMuted,fontWeight:700,fontSize:13,cursor:apiKey.startsWith("sk-ant-")?"pointer":"default" }}
               >
                 ✓ Save Key
               </button>
-              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style={{ color:COLORS.textMuted,fontSize:11,textAlign:"center" }}>Get API Key →</a>
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style={{ color:C.textMuted,fontSize:11,textAlign:"center" }}>Get API Key →</a>
             </div>
           </div>
         </div>
@@ -525,79 +550,79 @@ export default function ValyzeExtractor() {
 
         {status !== "done" && <>
           <div onDragOver={e=>e.preventDefault()} onDrop={onDrop} onClick={()=>fileRef.current.click()}
-            style={{ border:"2px dashed "+COLORS.border,borderRadius:12,padding:"36px 24px",textAlign:"center",cursor:"pointer",background:COLORS.surface,marginBottom:12 }}>
+            style={{ border:"2px dashed "+C.border,borderRadius:12,padding:"36px 24px",textAlign:"center",cursor:"pointer",background:C.surface,marginBottom:12 }}>
             <input ref={fileRef} type="file" multiple accept={ACCEPT} style={{ display:"none" }} onChange={e=>addFiles(e.target.files)}/>
             <div style={{ fontSize:32,marginBottom:8 }}>📂</div>
-            <div style={{ fontWeight:600,marginBottom:4,color:COLORS.text }}>Drop company documents here</div>
-            <div style={{ color:COLORS.textSecondary,fontSize:13 }}>PDF · Word · Images · Excel · CSV · TXT — up to 5 files</div>
-            <div style={{ color:COLORS.textMuted,fontSize:12,marginTop:6 }}>Text pages → text · Scanned pages → vision</div>
+            <div style={{ fontWeight:600,marginBottom:4,color:C.text }}>Drop company documents here</div>
+            <div style={{ color:C.textSecondary,fontSize:13 }}>PDF · Word · Images · Excel · CSV · TXT — up to 5 files</div>
+            <div style={{ color:C.textMuted,fontSize:12,marginTop:6 }}>Text pages → text · Scanned pages → vision</div>
           </div>
           {files.map((f,i)=>(
-            <div key={i} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",background:COLORS.surface,border:"1px solid "+COLORS.borderSoft,borderRadius:8,padding:"9px 14px",marginBottom:6 }}>
-              <span style={{ fontSize:13,color:COLORS.textSecondary }}>{fIcon(f)} {f.name} <span style={{ color:COLORS.textMuted }}>({(f.size/1024).toFixed(0)} KB)</span></span>
-              <button onClick={()=>setFiles(p=>p.filter((_,j)=>j!==i))} style={{ background:"none",border:"none",color:COLORS.danger,cursor:"pointer",fontSize:16 }}>✕</button>
+            <div key={i} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",background:C.surface,border:"1px solid "+C.borderSoft,borderRadius:8,padding:"9px 14px",marginBottom:6 }}>
+              <span style={{ fontSize:13,color:C.textSecondary }}>{fIcon(f)} {f.name} <span style={{ color:C.textMuted }}>({(f.size/1024).toFixed(0)} KB)</span></span>
+              <button onClick={()=>setFiles(p=>p.filter((_,j)=>j!==i))} style={{ background:"none",border:"none",color:C.danger,cursor:"pointer",fontSize:16 }}>✕</button>
             </div>
           ))}
         </>}
 
         {status === "loading" && (
-          <div style={{ background:COLORS.surface,border:"1px solid "+COLORS.borderSoft,borderRadius:12,padding:28,textAlign:"center",marginBottom:16 }}>
+          <div style={{ background:C.surface,border:"1px solid "+C.borderSoft,borderRadius:12,padding:28,textAlign:"center",marginBottom:16 }}>
             <div style={{ fontSize:28,marginBottom:6 }}>⚙️</div>
-            <div style={{ color:COLORS.primary,fontSize:26,fontWeight:800,marginBottom:6,fontFamily:"monospace" }}>{fmtTime(elapsed)}</div>
-            <div style={{ color:COLORS.textSecondary,fontSize:13,marginBottom:16,minHeight:20 }}>{logMsg}</div>
+            <div style={{ color:C.primary,fontSize:26,fontWeight:800,marginBottom:6,fontFamily:"monospace" }}>{fmtTime(elapsed)}</div>
+            <div style={{ color:C.textSecondary,fontSize:13,marginBottom:16,minHeight:20 }}>{logMsg}</div>
             <div style={{ display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap",marginBottom:16 }}>
               {STAGES.map((s,i)=>(
-                <div key={i} style={{ padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:600,background:i<=stage?"linear-gradient(135deg,#3b82f6,#8b5cf6)":COLORS.surface,color:i<=stage?"#fff":COLORS.textMuted,transition:"all 0.4s" }}>
+                <div key={i} style={{ padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:600,background:i<=stage?"linear-gradient(135deg,#3b82f6,#8b5cf6)":C.surface,color:i<=stage?"#fff":C.textMuted,transition:"all 0.4s" }}>
                   {i<stage?"✓":i===stage?"◐":"○"} {s}
                 </div>
               ))}
             </div>
-            <button onClick={cancel} style={{ padding:"7px 20px",borderRadius:8,border:"1px solid "+COLORS.danger,background:"rgba(239,68,68,0.1)",color:COLORS.danger,cursor:"pointer",fontSize:13,fontWeight:600 }}>✕ Cancel</button>
+            <button onClick={cancel} style={{ padding:"7px 20px",borderRadius:8,border:"1px solid "+C.danger,background:"rgba(239,68,68,0.1)",color:C.danger,cursor:"pointer",fontSize:13,fontWeight:600 }}>✕ Cancel</button>
           </div>
         )}
 
         {status === "error" && (
-          <div style={{ background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:14,marginBottom:16,color:COLORS.danger,fontSize:13,whiteSpace:"pre-line" }}>⚠️ {error}</div>
+          <div style={{ background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:14,marginBottom:16,color:C.danger,fontSize:13,whiteSpace:"pre-line" }}>⚠️ {error}</div>
         )}
 
         {status !== "done" && <>
           <button onClick={extract} disabled={!files.length||status==="loading"}
-            style={{ width:"100%",padding:13,borderRadius:10,border:"none",background:!files.length||status==="loading"?COLORS.surface:"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:!files.length||status==="loading"?COLORS.textMuted:"#fff",fontWeight:700,fontSize:15,cursor:!files.length||status==="loading"?"default":"pointer",marginBottom:10 }}>
+            style={{ width:"100%",padding:13,borderRadius:10,border:"none",background:!files.length||status==="loading"?C.surface:"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:!files.length||status==="loading"?C.textMuted:"#fff",fontWeight:700,fontSize:15,cursor:!files.length||status==="loading"?"default":"pointer",marginBottom:10 }}>
             {status==="loading"?"Extracting...":"⚡ Run Credit Intelligence Extraction"}
           </button>
           <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:10 }}>
-            <div onClick={()=>setUseWebSearch(v=>!v)} style={{ width:36,height:20,borderRadius:10,background:useWebSearch?COLORS.primary:COLORS.surface,position:"relative",cursor:"pointer",flexShrink:0,transition:"background 0.2s",border:"1px solid "+COLORS.borderSoft }}>
+            <div onClick={()=>setUseWebSearch(v=>!v)} style={{ width:36,height:20,borderRadius:10,background:useWebSearch?C.primary:C.surface,position:"relative",cursor:"pointer",flexShrink:0,transition:"background 0.2s",border:"1px solid "+C.borderSoft }}>
               <div style={{ position:"absolute",top:3,left:useWebSearch?18:3,width:14,height:14,borderRadius:"50%",background:"#fff",transition:"left 0.2s" }}/>
             </div>
-            <span style={{ fontSize:13,color:COLORS.textSecondary,cursor:"pointer",userSelect:"none" }} onClick={()=>setUseWebSearch(v=>!v)}>
-              🔍 Web search {useWebSearch?<span style={{ color:COLORS.warning }}>ON</span>:<span style={{ color:COLORS.success }}>OFF</span>}
+            <span style={{ fontSize:13,color:C.textSecondary,cursor:"pointer",userSelect:"none" }} onClick={()=>setUseWebSearch(v=>!v)}>
+              🔍 Web search {useWebSearch?<span style={{ color:C.warning }}>ON</span>:<span style={{ color:C.success }}>OFF</span>}
             </span>
           </div>
           <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginTop:8,fontSize:12 }}>
-            <span style={{ color:COLORS.textMuted }}>OCR:</span>
+            <span style={{ color:C.textMuted }}>OCR:</span>
             {["text","smart","vision"].map(m=>(
-              <button key={m} onClick={()=>setExtractMode(m)} style={{ padding:"3px 8px",borderRadius:4,border:"none",background:extractMode===m?COLORS.primary:COLORS.surface,color:extractMode===m?"#fff":COLORS.textSecondary,cursor:"pointer",textTransform:"capitalize",fontSize:11 }}>
+              <button key={m} onClick={()=>setExtractMode(m)} style={{ padding:"3px 8px",borderRadius:4,border:"none",background:extractMode===m?C.primary:C.surface,color:extractMode===m?"#fff":C.textSecondary,cursor:"pointer",textTransform:"capitalize",fontSize:11 }}>
                 {m}
               </button>
             ))}
-            <span style={{ color:COLORS.textMuted,fontSize:10 }}>{extractMode==="text"?"(cheap)":extractMode==="vision"?"(max data)":"(balanced)"}</span>
+            <span style={{ color:C.textMuted,fontSize:10 }}>{extractMode==="text"?"(cheap)":extractMode==="vision"?"(max data)":"(balanced)"}</span>
           </div>
         </>}
 
         {status === "done" && result && (
           <div>
-            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:12,padding:4,background:COLORS.surface,borderRadius:12,border:"1px solid "+COLORS.borderSoft }}>
+            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:12,padding:4,background:C.surface,borderRadius:12,border:"1px solid "+C.borderSoft }}>
               {TABS.map(t=>(
-                <button key={t} onClick={()=>setTab(t)} style={{ padding:"5px 11px",borderRadius:8,border:"none",background:tab===t?COLORS.primary:"transparent",color:tab===t?"#fff":COLORS.textSecondary,fontWeight:600,fontSize:12,cursor:"pointer",textTransform:"capitalize" }}>
+                <button key={t} onClick={()=>setTab(t)} style={{ padding:"5px 11px",borderRadius:8,border:"none",background:tab===t?C.primary:"transparent",color:tab===t?"#fff":C.textSecondary,fontWeight:600,fontSize:12,cursor:"pointer",textTransform:"capitalize" }}>
                   {t==="json"?"Raw JSON":t==="patch"?"🔧 Patch":t}
                 </button>
               ))}
             </div>
 
             <div style={{ display:"flex",gap:8,marginBottom:16,flexWrap:"wrap" }}>
-              <button onClick={copyJSON} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid "+COLORS.border,background:COLORS.surface,color:COLORS.textSecondary,cursor:"pointer",fontSize:13 }}>{copied?"✓ Copied":"Copy JSON"}</button>
-              <button onClick={downloadJSON} style={{ padding:"7px 12px",borderRadius:8,border:"none",background:COLORS.success,color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13 }}>⬇ Download JSON</button>
-              <button onClick={()=>{setStatus("idle");setFiles([]);setResult(null);setLogMsg("");}} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid "+COLORS.border,background:COLORS.surface,color:COLORS.textSecondary,cursor:"pointer",fontSize:13 }}>New Report</button>
+              <button onClick={copyJSON} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid "+C.border,background:C.surface,color:C.textSecondary,cursor:"pointer",fontSize:13 }}>{copied?"✓ Copied":"Copy JSON"}</button>
+              <button onClick={downloadJSON} style={{ padding:"7px 12px",borderRadius:8,border:"none",background:C.success,color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13 }}>⬇ Download JSON</button>
+              <button onClick={()=>{setStatus("idle");setFiles([]);setResult(null);setLogMsg("");}} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid "+C.border,background:C.surface,color:C.textSecondary,cursor:"pointer",fontSize:13 }}>New Report</button>
               <button 
                 onClick={() => {
                   if (result) {
@@ -627,14 +652,14 @@ export default function ValyzeExtractor() {
 
             {tab==="summary"&&<div>
               <Sec title="Company Identity" ch={<><F l="Legal Name" v={d.legal_name}/><F l="Trade Names" v={d.trade_names}/><F l="CR / Reg No." v={d.cr_number}/><F l="Unified No." v={d.unified_number}/><F l="Country / City" v={`${d.country||"—"} / ${d.city||"—"}`}/><F l="Industry" v={d.industry}/><F l="Type / Status" v={`${d.company_type||"—"} / ${d.company_status||"—"}`}/><F l="Incorporated" v={d.incorporation_date}/><F l="Capital" v={d.capital}/><F l="Employees" v={d.employee_count}/><F l="Website" v={d.website}/><F l="Email" v={d.email}/><F l="Phone" v={d.phone}/></>}/>
-              <Sec title="Executive Summary" ch={<><div style={{ color:COLORS.textSecondary,fontSize:13,lineHeight:1.7,marginBottom:10 }}>{d.executive_summary_text||"—"}</div><div style={{ color:COLORS.textMuted,fontSize:12,fontStyle:"italic",lineHeight:1.6 }}>{d.company_history_text}</div></>}/>
+              <Sec title="Executive Summary" ch={<><div style={{ color:C.textSecondary,fontSize:13,lineHeight:1.7,marginBottom:10 }}>{d.executive_summary_text||"—"}</div><div style={{ color:C.textMuted,fontSize:12,fontStyle:"italic",lineHeight:1.6 }}>{d.company_history_text}</div></>}/>
               <Sec title="Key Ratios" ch={<><F l="Current Ratio" v={d.exec_current_ratio}/><F l="Equity Ratio" v={d.exec_equity_ratio}/><F l="EBIT Margin" v={d.exec_ebit_margin}/><F l="Debt/Equity" v={d.exec_debt_equity}/><F l="Net Margin" v={d.exec_profitability}/></>}/>
               <Sec title="Ownership" ch={<><F l="UBO" v={d.ultimate_beneficial_owner}/><F l="Parent" v={d.parent_company}/><F l="Subsidiaries" v={d.subsidiaries}/>{(d.shareholders||[]).map((s,i)=><F key={i} l={`Shareholder ${i+1}`} v={`${s.name} · ${s.percentage}% · ${s.nationality}`}/>)}</>}/>
-              <Sec title="Management" ch={(d.management_team||[]).map((m,i)=><div key={i} style={{ borderBottom:"1px solid "+COLORS.borderSoft,padding:"8px 0" }}><div style={{ color:COLORS.info,fontWeight:600,fontSize:13 }}>{m.name} <span style={{ color:COLORS.textMuted }}>· {m.title}</span></div><div style={{ color:COLORS.textSecondary,fontSize:12,marginTop:3 }}>{m.bio}</div></div>)}/>
+              <Sec title="Management" ch={(d.management_team||[]).map((m,i)=><div key={i} style={{ borderBottom:"1px solid "+C.borderSoft,padding:"8px 0" }}><div style={{ color:C.info,fontWeight:600,fontSize:13 }}>{m.name} <span style={{ color:C.textMuted }}>· {m.title}</span></div><div style={{ color:C.textSecondary,fontSize:12,marginTop:3 }}>{m.bio}</div></div>)}/>
             </div>}
 
             {tab==="operations"&&<div>
-              <Sec title="Activities" ch={<div style={{ color:COLORS.textSecondary,fontSize:13,lineHeight:1.7 }}>{d.registration_activities_description||d.activities_full_description||"—"}</div>}/>
+              <Sec title="Activities" ch={<div style={{ color:C.textSecondary,fontSize:13,lineHeight:1.7 }}>{d.registration_activities_description||d.activities_full_description||"—"}</div>}/>
               <Sec title="Classification" ch={<><F l="NACE" v={`${d.nace_codes||"—"} — ${d.nace_description||""}`}/><F l="HS Codes" v={`${d.hs_codes||"—"} — ${d.hs_description||""}`}/><F l="SIC" v={d.sic_codes}/></>}/>
               <Sec title="Operations" ch={<><F l="Employees" v={`${d.employee_count||"—"} · ${d.employee_location||""}`}/><F l="Facilities" v={`${d.facilities_count||"—"} · ${d.main_facility_location||""}`}/><F l="Markets" v={`${d.markets_count||"—"} · ${d.markets_regions||""}`}/></>}/>
               <Sec title="Supply Chain — Purchasing" ch={<><F l="Main Suppliers" v={d.main_suppliers}/><F l="Local Sourcing" v={`${d.local_purchasing_pct||0}% — ${d.local_purchasing_detail||""}`}/><F l="Imports" v={`${d.import_purchasing_pct||0}% from ${d.import_countries||"—"}`}/><F l="Items" v={d.import_items}/><F l="Payment" v={`${d.supplier_payment_method||"—"} · ${d.supplier_payment_terms||""}`}/></>}/>
@@ -651,53 +676,53 @@ export default function ValyzeExtractor() {
 
             {tab==="ratios"&&<div>
               {[["Liquidity",[["Current Ratio",d.current_ratio,d.current_ratio_industry,d.current_ratio_label,d.current_ratio_interpretation],["Quick Ratio",d.quick_ratio,d.quick_ratio_industry,d.quick_ratio_label,d.quick_ratio_interpretation]]],["Profitability",[["Gross Margin",`${d.gross_margin||"—"}%`,`${d.gross_margin_industry||"—"}%`,d.gross_margin_label,d.gross_margin_interpretation],["EBITDA Margin",`${d.ebitda_margin||"—"}%`,`${d.ebitda_margin_industry||"—"}%`,d.ebitda_margin_label,d.ebitda_margin_interpretation],["EBIT Margin",`${d.ebit_margin||"—"}%`,`${d.ebit_margin_industry||"—"}%`,d.ebit_margin_label,d.ebit_margin_interpretation],["Net Margin",`${d.net_margin||"—"}%`,`${d.net_margin_industry||"—"}%`,d.net_margin_label,d.net_margin_interpretation]]],["Leverage",[["Debt/Equity",d.debt_equity,d.debt_equity_industry,d.debt_equity_label,d.debt_equity_interpretation],["Equity Ratio",`${d.equity_ratio||"—"}%`,`${d.equity_ratio_industry||"—"}%`,d.equity_ratio_label,d.equity_ratio_interpretation]]],["Efficiency",[["Asset Turnover",d.asset_turnover,d.asset_turnover_industry,d.asset_turnover_label,d.asset_turnover_interpretation],["DSO",`${d.dso||"—"}d`,`${d.dso_industry||"—"}d`,d.dso_label,d.dso_interpretation],["DPO",`${d.dpo||"—"}d`,`${d.dpo_industry||"—"}d`,d.dpo_label,d.dpo_interpretation]]]].map(([title,rows])=>(
-                <Sec key={title} title={`${title} Ratios`} ch={rows.map(([l,v,ind,lbl,interp])=><div key={l} style={{ borderBottom:"1px solid "+COLORS.borderSoft,padding:"8px 0" }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}><span style={{ color:COLORS.textMuted }}>{l}</span><span style={{ color:COLORS.text,fontWeight:600 }}>{v??"—"}</span></div><div style={{ fontSize:12,color:COLORS.textSecondary,marginTop:2 }}>Industry avg: {ind??"—"} · {lbl??"—"}</div>{interp&&<div style={{ fontSize:11,color:COLORS.textMuted,marginTop:2 }}>{interp}</div>}</div>)}/>
+                <Sec key={title} title={`${title} Ratios`} ch={rows.map(([l,v,ind,lbl,interp])=><div key={l} style={{ borderBottom:"1px solid "+C.borderSoft,padding:"8px 0" }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}><span style={{ color:C.textMuted }}>{l}</span><span style={{ color:C.text,fontWeight:600 }}>{v??"—"}</span></div><div style={{ fontSize:12,color:C.textSecondary,marginTop:2 }}>Industry avg: {ind??"—"} · {lbl??"—"}</div>{interp&&<div style={{ fontSize:11,color:C.textMuted,marginTop:2 }}>{interp}</div>}</div>)}/>
               ))}
             </div>}
 
             {tab==="risk"&&<div>
-              <Sec title="Credit Rating" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:28,fontWeight:800 }}>{d.credit_rating||"—"}</div><div style={{ color:COLORS.textSecondary,fontSize:12 }}>Credit Rating</div></div><Badge v={d.risk_level} color={d.risk_color}/></div><Bar label="Health Score" val={d.health_score} color={d.viability_color}/><Bar label="Viability Score" val={d.viability_score} color={d.viability_color}/><Bar label="Payment Score" val={d.payment_score} color={d.payment_color}/><Bar label="Delinquency Risk" val={d.delinquency_score} color={d.delinquency_color} invert/><Bar label="Failure Risk" val={d.failure_score} color={d.failure_color} invert/><F l="PAYDEX" v={d.paydex_score}/><F l="Company Size" v={d.company_size}/><F l="Annual Revenue" v={d.annual_revenue}/></>}/>
+              <Sec title="Credit Rating" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:28,fontWeight:800 }}>{d.credit_rating||"—"}</div><div style={{ color:C.textSecondary,fontSize:12 }}>Credit Rating</div></div><Badge v={d.risk_level} color={d.risk_color}/></div><Bar label="Health Score" val={d.health_score} color={d.viability_color}/><Bar label="Viability Score" val={d.viability_score} color={d.viability_color}/><Bar label="Payment Score" val={d.payment_score} color={d.payment_color}/><Bar label="Delinquency Risk" val={d.delinquency_score} color={d.delinquency_color} invert/><Bar label="Failure Risk" val={d.failure_score} color={d.failure_color} invert/><F l="PAYDEX" v={d.paydex_score}/><F l="Company Size" v={d.company_size}/><F l="Annual Revenue" v={d.annual_revenue}/></>}/>
               <Sec title="Payment Behavior" ch={<><F l="Avg Days Beyond Terms" v={d.avg_dbt!=null?`${d.avg_dbt} days`:null}/><F l="% On Time" v={d.pct_on_time!=null?`${d.pct_on_time}%`:null}/><F l="Prompt" v={d.prompt_pct!=null?`${d.prompt_pct}% · ${d.prompt_amount}`:null}/><F l="1–30 Days Slow" v={d.slow_30_pct!=null?`${d.slow_30_pct}% · ${d.slow_30_amount}`:null}/><F l="90+ Days Slow" v={d.slow_90plus_pct!=null?`${d.slow_90plus_pct}% · ${d.slow_90plus_amount}`:null}/></>}/>
               <Sec title="Alerts" ch={(d.alerts||[]).map((a,i)=><div key={i} style={{ background:a.alert_type==="danger"?"rgba(239,68,68,0.1)":a.alert_type==="warning"?"rgba(245,158,11,0.1)":a.alert_type==="success"?"rgba(16,185,129,0.1)":"rgba(59,130,246,0.1)",borderRadius:8,padding:"8px 12px",marginBottom:6,fontSize:13,border:"1px solid",borderColor:a.alert_type==="danger"?"rgba(239,68,68,0.2)":a.alert_type==="warning"?"rgba(245,158,11,0.2)":a.alert_type==="success"?"rgba(16,185,129,0.2)":"rgba(59,130,246,0.2)" }}>{a.alert_icon} {a.alert_message}</div>)}/>
             </div>}
 
             {tab==="legal"&&<div>
-              <Sec title="Legal Summary" ch={[["Lawsuits",d.lawsuit_count,d.lawsuit_amount,d.lawsuit_status],["Liens",d.lien_count,d.lien_amount,d.lien_status],["Judgments",d.judgment_count,d.judgment_amount,d.judgment_status]].map(([t,c,a,s])=><div key={t} style={{ borderBottom:"1px solid "+COLORS.borderSoft,padding:"8px 0" }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}><span style={{ color:COLORS.textMuted }}>{t}</span><span>Count: {c??"—"} · {a||"—"}</span></div><div style={{ fontSize:12,color:COLORS.textSecondary }}>Status: {s||"—"}</div></div>)}/>
+              <Sec title="Legal Summary" ch={[["Lawsuits",d.lawsuit_count,d.lawsuit_amount,d.lawsuit_status],["Liens",d.lien_count,d.lien_amount,d.lien_status],["Judgments",d.judgment_count,d.judgment_amount,d.judgment_status]].map(([t,c,a,s])=><div key={t} style={{ borderBottom:"1px solid "+C.borderSoft,padding:"8px 0" }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}><span style={{ color:C.textMuted }}>{t}</span><span>Count: {c??"—"} · {a||"—"}</span></div><div style={{ fontSize:12,color:C.textSecondary }}>Status: {s||"—"}</div></div>)}/>
               <Sec title="Compliance" ch={<><F l="License" v={`${d.license_status||"—"} (exp: ${d.license_expiry||"—"})`}/><F l="Tax Status" v={d.tax_status}/></>}/>
-              {(d.legal_details||[]).length>0&&<Sec title="Legal Details" ch={(d.legal_details).map((l,i)=><div key={i} style={{ background:COLORS.surface,borderRadius:8,padding:12,marginBottom:8,fontSize:13,border:"1px solid "+COLORS.borderSoft }}><strong style={{ color:COLORS.info }}>{l.event_type} · {l.event_date}</strong><div style={{ color:COLORS.textSecondary,marginTop:4 }}>{l.event_description}</div></div>)}/>}
+              {(d.legal_details||[]).length>0&&<Sec title="Legal Details" ch={(d.legal_details).map((l,i)=><div key={i} style={{ background:C.surface,borderRadius:8,padding:12,marginBottom:8,fontSize:13,border:"1px solid "+C.borderSoft }}><strong style={{ color:C.info }}>{l.event_type} · {l.event_date}</strong><div style={{ color:C.textSecondary,marginTop:4 }}>{l.event_description}</div></div>)}/>}
             </div>}
 
             {tab==="news"&&<div>
-              <Sec title="News & Events (2024+)" ch={!(d.news_events||[]).length?<div style={{ color:COLORS.textMuted,fontSize:13 }}>No 2024+ news found.</div>:(d.news_events).map((n,i)=><div key={i} style={{ background:COLORS.surface,borderRadius:8,padding:"10px 14px",marginBottom:8,fontSize:13,border:"1px solid "+COLORS.borderSoft }}><div style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}><span style={{ color:COLORS.textMuted,fontSize:11 }}>{n.event_date}</span><span style={{ background:n.event_sentiment==="positive"?"rgba(16,185,129,0.1)":n.event_sentiment==="negative"?"rgba(239,68,68,0.1)":"rgba(59,130,246,0.1)",color:COLORS.text,borderRadius:4,padding:"1px 8px",fontSize:11 }}>{n.event_sentiment_label}</span></div><strong style={{ color:COLORS.info }}>{n.event_title}</strong><div style={{ color:COLORS.textSecondary,marginTop:4 }}>{n.event_summary}</div></div>)}/>
+              <Sec title="News & Events (2024+)" ch={!(d.news_events||[]).length?<div style={{ color:C.textMuted,fontSize:13 }}>No 2024+ news found.</div>:(d.news_events).map((n,i)=><div key={i} style={{ background:C.surface,borderRadius:8,padding:"10px 14px",marginBottom:8,fontSize:13,border:"1px solid "+C.borderSoft }}><div style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}><span style={{ color:C.textMuted,fontSize:11 }}>{n.event_date}</span><span style={{ background:n.event_sentiment==="positive"?"rgba(16,185,129,0.1)":n.event_sentiment==="negative"?"rgba(239,68,68,0.1)":"rgba(59,130,246,0.1)",color:C.text,borderRadius:4,padding:"1px 8px",fontSize:11 }}>{n.event_sentiment_label}</span></div><strong style={{ color:C.info }}>{n.event_title}</strong><div style={{ color:C.textSecondary,marginTop:4 }}>{n.event_summary}</div></div>)}/>
             </div>}
 
             {tab==="recommendation"&&<div>
-              <Sec title="Credit Decision" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:26,fontWeight:800 }}>{d.final_credit_rating||"—"}</div><div style={{ color:COLORS.textSecondary,fontSize:12 }}>Final Rating</div></div><Badge v={d.final_risk_level} color={d.final_risk_color}/></div><F l="Credit Limit (USD)" v={d.recommended_credit_limit}/><F l="Max Exposure (USD)" v={d.maximum_exposure}/><F l="Payment Terms" v={d.recommended_payment_terms}/><F l="Review Frequency" v={d.review_frequency}/><F l="Collateral" v={d.collateral_requirements}/>{d.credit_opinion_text&&<div style={{ background:COLORS.surface,borderRadius:8,padding:14,marginTop:12,fontSize:13,color:COLORS.textSecondary,lineHeight:1.7,border:"1px solid "+COLORS.borderSoft }}><strong style={{ color:COLORS.info,display:"block",marginBottom:6 }}>📋 Credit Opinion</strong>{d.credit_opinion_text}</div>}</>}/>
-              {(d.risk_mitigations||[]).length>0&&<Sec title="Risk Mitigations" ch={(d.risk_mitigations).map((m,i)=><div key={i} style={{ borderBottom:"1px solid "+COLORS.borderSoft,padding:"8px 0" }}><div style={{ color:COLORS.info,fontSize:13,fontWeight:600 }}>{m.strategy}</div><div style={{ color:COLORS.textSecondary,fontSize:12 }}>{m.expected_outcome}</div></div>)}/>}
-              <Sec title="Monitoring Triggers" ch={(d.monitoring_triggers||[]).map((t,i)=><div key={i} style={{ borderBottom:"1px solid "+COLORS.borderSoft,padding:"8px 0" }}><div style={{ color:COLORS.warning,fontSize:13,fontWeight:600 }}>⚠️ {t.trigger_event}</div><div style={{ color:COLORS.textSecondary,fontSize:12 }}>{t.trigger_action}</div></div>)}/>
+              <Sec title="Credit Decision" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:26,fontWeight:800 }}>{d.final_credit_rating||"—"}</div><div style={{ color:C.textSecondary,fontSize:12 }}>Final Rating</div></div><Badge v={d.final_risk_level} color={d.final_risk_color}/></div><F l="Credit Limit (USD)" v={d.recommended_credit_limit}/><F l="Max Exposure (USD)" v={d.maximum_exposure}/><F l="Payment Terms" v={d.recommended_payment_terms}/><F l="Review Frequency" v={d.review_frequency}/><F l="Collateral" v={d.collateral_requirements}/>{d.credit_opinion_text&&<div style={{ background:C.surface,borderRadius:8,padding:14,marginTop:12,fontSize:13,color:C.textSecondary,lineHeight:1.7,border:"1px solid "+C.borderSoft }}><strong style={{ color:C.info,display:"block",marginBottom:6 }}>📋 Credit Opinion</strong>{d.credit_opinion_text}</div>}</>}/>
+              {(d.risk_mitigations||[]).length>0&&<Sec title="Risk Mitigations" ch={(d.risk_mitigations).map((m,i)=><div key={i} style={{ borderBottom:"1px solid "+C.borderSoft,padding:"8px 0" }}><div style={{ color:C.info,fontSize:13,fontWeight:600 }}>{m.strategy}</div><div style={{ color:C.textSecondary,fontSize:12 }}>{m.expected_outcome}</div></div>)}/>}
+              <Sec title="Monitoring Triggers" ch={(d.monitoring_triggers||[]).map((t,i)=><div key={i} style={{ borderBottom:"1px solid "+C.borderSoft,padding:"8px 0" }}><div style={{ color:C.warning,fontSize:13,fontWeight:600 }}>⚠️ {t.trigger_event}</div><div style={{ color:C.textSecondary,fontSize:12 }}>{t.trigger_action}</div></div>)}/>
             </div>}
 
-            {tab==="json"&&<div style={{ background:COLORS.surface,border:"1px solid "+COLORS.borderSoft,borderRadius:10,padding:18 }}><pre style={{ color:COLORS.success,fontSize:11,overflowX:"auto",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-word" }}>{JSON.stringify(result,null,2)}</pre></div>}
+            {tab==="json"&&<div style={{ background:C.surface,border:"1px solid "+C.borderSoft,borderRadius:10,padding:18 }}><pre style={{ color:C.success,fontSize:11,overflowX:"auto",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-word" }}>{JSON.stringify(result,null,2)}</pre></div>}
 
             {tab==="patch"&&(
               <div>
-                <div style={{ background:COLORS.surface,border:"1px solid rgba(59,130,246,0.3)",borderRadius:10,padding:18,marginBottom:14 }}>
-                  <div style={{ color:COLORS.info,fontSize:12,fontWeight:700,marginBottom:10 }}>🔧 PASTE YOUR JSON</div>
+                <div style={{ background:C.surface,border:"1px solid rgba(59,130,246,0.3)",borderRadius:10,padding:18,marginBottom:14 }}>
+                  <div style={{ color:C.info,fontSize:12,fontWeight:700,marginBottom:10 }}>🔧 PASTE YOUR JSON</div>
                   <textarea value={patchJSON} onChange={e=>setPatchJSON(e.target.value)} placeholder="Paste your credit report JSON here..."
-                    style={{ width:"100%",minHeight:180,background:COLORS.background,border:"1px solid "+COLORS.border,borderRadius:8,color:COLORS.success,fontSize:11,padding:12,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box" }}/>
-                  {result&&<button onClick={()=>setPatchJSON(JSON.stringify(result,null,2))} style={{ marginTop:8,padding:"5px 12px",borderRadius:6,border:"none",background:"rgba(59,130,246,0.2)",color:COLORS.info,cursor:"pointer",fontSize:12 }}>↑ Load current report JSON</button>}
+                    style={{ width:"100%",minHeight:180,background:C.bg,border:"1px solid "+C.border,borderRadius:8,color:C.success,fontSize:11,padding:12,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box" }}/>
+                  {result&&<button onClick={()=>setPatchJSON(JSON.stringify(result,null,2))} style={{ marginTop:8,padding:"5px 12px",borderRadius:6,border:"none",background:"rgba(59,130,246,0.2)",color:C.info,cursor:"pointer",fontSize:12 }}>↑ Load current report JSON</button>}
                 </div>
-                <div style={{ background:COLORS.surface,border:"1px solid "+COLORS.borderSoft,borderRadius:10,padding:18,marginBottom:14 }}>
-                  <div style={{ color:COLORS.warning,fontSize:12,fontWeight:700,marginBottom:10 }}>📋 PATCH INSTRUCTIONS</div>
+                <div style={{ background:C.surface,border:"1px solid "+C.borderSoft,borderRadius:10,padding:18,marginBottom:14 }}>
+                  <div style={{ color:C.warning,fontSize:12,fontWeight:700,marginBottom:10 }}>📋 PATCH INSTRUCTIONS</div>
                   <textarea value={patchInstructions} onChange={e=>setPatchInstructions(e.target.value)}
                     placeholder={"## WRONG VALUES\n1. \"field\": \"old\" → \"new\"\n\n## EMPTY FIELDS\n2. \"field\": \"\" → \"value\"\n\n## ADD NEW FIELDS\n3. Add after \"field\":\n   \"new_field\": \"value\""}
-                    style={{ width:"100%",minHeight:240,background:COLORS.background,border:"1px solid "+COLORS.border,borderRadius:8,color:COLORS.text,fontSize:12,padding:12,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box" }}/>
+                    style={{ width:"100%",minHeight:240,background:C.bg,border:"1px solid "+C.border,borderRadius:8,color:C.text,fontSize:12,padding:12,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box" }}/>
                 </div>
-                {patchStatus==="error"&&<div style={{ background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:8,padding:12,marginBottom:12,color:COLORS.danger,fontSize:13 }}>⚠️ {patchError}</div>}
-                {patchStatus==="done"&&<div style={{ background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:8,padding:12,marginBottom:12,color:COLORS.success,fontSize:13 }}>✓ JSON patched! Switched to Raw JSON tab — download to save.</div>}
-                {patchStatus==="loading"&&<div style={{ background:COLORS.surface,border:"1px solid "+COLORS.borderSoft,borderRadius:8,padding:10,marginBottom:12,color:COLORS.textSecondary,fontSize:13,textAlign:"center" }}>⚙️ Applying patches with Haiku…</div>}
+                {patchStatus==="error"&&<div style={{ background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:8,padding:12,marginBottom:12,color:C.danger,fontSize:13 }}>⚠️ {patchError}</div>}
+                {patchStatus==="done"&&<div style={{ background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:8,padding:12,marginBottom:12,color:C.success,fontSize:13 }}>✓ JSON patched! Switched to Raw JSON tab — download to save.</div>}
+                {patchStatus==="loading"&&<div style={{ background:C.surface,border:"1px solid "+C.borderSoft,borderRadius:8,padding:10,marginBottom:12,color:C.textSecondary,fontSize:13,textAlign:"center" }}>⚙️ Applying patches with Haiku…</div>}
                 <button onClick={runPatch} disabled={!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"}
-                  style={{ width:"100%",padding:13,borderRadius:10,border:"none",background:!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"?COLORS.surface:"linear-gradient(135deg,"+COLORS.warning+",#d97706)",color:!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"?COLORS.textMuted:"#fff",fontWeight:700,fontSize:15,cursor:patchStatus==="loading"?"default":"pointer" }}>
+                  style={{ width:"100%",padding:13,borderRadius:10,border:"none",background:!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"?C.surface:"linear-gradient(135deg,"+C.warning+",#d97706)",color:!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"?C.textMuted:"#fff",fontWeight:700,fontSize:15,cursor:patchStatus==="loading"?"default":"pointer" }}>
                   {patchStatus==="loading"?"Applying patches...":"🔧 Apply Patches"}
                 </button>
               </div>
