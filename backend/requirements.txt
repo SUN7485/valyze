@@ -4,6 +4,7 @@ python-multipart
 pydantic
 sqlalchemy
 aiosqlite
+asyncpg
 python-dotenv
 httpx
 aiohttp
@@ -23,3 +24,6 @@ pdf2image
 camelot-py
 ghostscript
 chevron
+openpyxl
+lxml
+supabase

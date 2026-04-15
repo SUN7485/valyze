@@ -16,6 +16,58 @@ ICON_MAP = {
     "times-circle": "❌",
 }
 
+OPERATIONS_FIELDS = [
+    "registration_activities_description",
+    "activities_full_description",
+    "nace_codes",
+    "nace_description",
+    "hs_codes",
+    "hs_description",
+    "employee_count",
+    "employee_location",
+    "facilities_count",
+    "main_facility_location",
+    "markets_count",
+    "markets_regions",
+    "premises_type",
+    "premises_size",
+    "premises_owned_rental",
+    "vehicles",
+    "equipment",
+    "brands",
+]
+
+SUPPLY_CHAIN_PURCHASING_FIELDS = [
+    "main_suppliers",
+    "local_purchasing_pct",
+    "local_purchasing_detail",
+    "import_purchasing_pct",
+    "import_countries",
+    "import_items",
+    "supplier_payment_method",
+    "supplier_payment_terms",
+    "suppliers_number",
+]
+
+SUPPLY_CHAIN_SALES_FIELDS = [
+    "key_customers",
+    "local_sales_pct",
+    "local_sales_detail",
+    "export_sales_pct",
+    "export_countries",
+    "export_items",
+    "customer_payment_method",
+    "customer_payment_terms",
+    "clients_number",
+]
+
+REGISTRATION_LICENSE_FIELDS = [
+    "industrial_license_number",
+    "import_license_number",
+    "export_license_number",
+    "lei_number",
+]
+
 
 class PDFGenerator:
     def __init__(self):
@@ -63,6 +115,20 @@ class PDFGenerator:
         if isinstance(v, str):
             return ICON_MAP.get(v, v)
         return v
+
+    def _has_field_data(self, fields: dict, field_list: list) -> bool:
+        """Check if any field in the list has actual data (not N/A or empty)"""
+        for key in field_list:
+            val = fields.get(key)
+            if val is None:
+                continue
+            if hasattr(val, "value"):
+                val = val.value
+            elif isinstance(val, dict):
+                val = val.get("value")
+            if val and str(val).strip() and str(val).strip() not in ("N/A", ""):
+                return True
+        return False
 
     def _clean_pct(self, val: Any) -> str:
         """
@@ -472,6 +538,15 @@ class PDFGenerator:
         show_saudi = self._boolify(gf("show_saudi_fields", False), False)
         show_egypt = self._boolify(gf("show_egypt_fields", False), False)
 
+        # -- auto-show flags for sections ----------------------------------
+        has_ops = self._has_field_data(fields, OPERATIONS_FIELDS)
+        has_purchasing = self._has_field_data(fields, SUPPLY_CHAIN_PURCHASING_FIELDS)
+        has_sales = self._has_field_data(fields, SUPPLY_CHAIN_SALES_FIELDS)
+        has_licenses = self._has_field_data(fields, REGISTRATION_LICENSE_FIELDS)
+
+        # Show registration if any license fields exist
+        show_registration = show_egypt and has_licenses
+
         # -- management team (flat field OR arrays) -----------------------
         mgmt = ga("management_team")
         if not mgmt:
@@ -619,6 +694,24 @@ class PDFGenerator:
             "export_countries": gf("export_countries"),
             "export_items": gf("export_items"),
             "customer_payment_method": gf("customer_payment_method"),
+            # -- AUTO-SHOW FLAGS --------------------------------------------
+            "show_operations": has_ops,
+            "show_supply_chain_purchasing": has_purchasing,
+            "show_supply_chain_sales": has_sales,
+            "show_registration_licenses": show_registration,
+            # Add the new fields too
+            "premises_type": gf("premises_type"),
+            "premises_size": gf("premises_size"),
+            "premises_owned_rental": gf("premises_owned_rental"),
+            "vehicles": gf("vehicles"),
+            "equipment": gf("equipment"),
+            "brands": gf("brands"),
+            "suppliers_number": gf("suppliers_number"),
+            "clients_number": gf("clients_number"),
+            "industrial_license_number": gf("industrial_license_number"),
+            "import_license_number": gf("import_license_number"),
+            "export_license_number": gf("export_license_number"),
+            "lei_number": gf("lei_number"),
             # -- BANKING --------------------------------------------------
             "primary_bank": gf("primary_bank"),
             "total_banks": gf("total_banks"),

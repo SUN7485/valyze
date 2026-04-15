@@ -120,10 +120,14 @@ app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
 from api.upload import router as upload_router
 from api.report import router as report_router
 from api.pdf import router as pdf_router
+from api.export import router as export_router
+from api.search import router as search_router
 
 app.include_router(upload_router)
 app.include_router(report_router)
 app.include_router(pdf_router)
+app.include_router(export_router)
+app.include_router(search_router)
 
 
 # ---------------------------------------------------------------------------

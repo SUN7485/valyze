@@ -126,6 +126,29 @@ export const reportAPI = {
 
     getDownloadURL: (reportId) =>
         `${API_BASE}/pdf/download/${reportId}`,
+
+    // -- Export -------------------------------------
+
+    exportJSON: (reportId) =>
+        api.post(`/export/json/${reportId}`),
+
+    exportXML: (reportId) =>
+        api.post(`/export/xml/${reportId}`),
+
+    exportExcel: (reportId) =>
+        api.post(`/export/excel/${reportId}`),
+
+    exportCSV: (reportId) =>
+        api.post(`/export/csv/${reportId}`),
+
+    exportWord: (reportId) =>
+        api.post(`/export/word/${reportId}`),
+
+    getExportStatus: (reportId) =>
+        api.get(`/export/status/${reportId}`),
+
+    getExportDownloadURL: (reportId, format) =>
+        `${API_BASE}/export/download/${reportId}/${format}`,
 }
 
 export default api

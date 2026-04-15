@@ -61,6 +61,9 @@ export default function EditorPage() {
     const [showEasyWay, setShowEasyWay]   = useState(false)
     const [pdfError, setPdfError]         = useState('')
     const [pdfSuccess, setPdfSuccess]     = useState(false)
+    const [exportingFormat, setExportingFormat] = useState('')
+    const [exportSuccess, setExportSuccess] = useState({})
+    const [exportError, setExportError]   = useState({})
 
     useEffect(() => {
         if (reportId) {
@@ -187,6 +190,49 @@ export default function EditorPage() {
         window.open(url, '_blank')
     }
 
+    const handleExport = async (format) => {
+        if (!hasData) {
+            setExportError(prev => ({ ...prev, [format]: 'No company data found. Please use Easy Way Import first.' }))
+            return
+        }
+
+        setExportError(prev => ({ ...prev, [format]: '' }))
+        setExportingFormat(format)
+
+        try {
+            const exportAPI = {
+                json: reportAPI.exportJSON,
+                xml: reportAPI.exportXML,
+                xlsx: reportAPI.exportExcel,
+                csv: reportAPI.exportCSV,
+                docx: reportAPI.exportWord,
+            }[format]
+
+            const res = await exportAPI(reportId)
+
+            if (res.data?.success) {
+                setExportSuccess(prev => ({ ...prev, [format]: true }))
+
+                setTimeout(() => {
+                    const downloadUrl = reportAPI.getExportDownloadURL(reportId, format)
+                    const link = document.createElement('a')
+                    link.href = downloadUrl
+                    link.download = `CreditReport_${companyName.replace(/\s+/g, '_').slice(0,30)}.${format}`
+                    document.body.appendChild(link)
+                    link.click()
+                    document.body.removeChild(link)
+                    setExportSuccess(prev => ({ ...prev, [format]: false }))
+                }, 500)
+            }
+        } catch (err) {
+            const msg = err.message || `${format.toUpperCase()} export failed`
+            setExportError(prev => ({ ...prev, [format]: msg }))
+            console.error(`[Export] ${format} error:`, err)
+        } finally {
+            setExportingFormat('')
+        }
+    }
+
     return (
         <div className="flex min-h-[calc(100vh-65px)]">
 
@@ -275,56 +321,116 @@ export default function EditorPage() {
                             <Eye size={14} className="text-primary group-hover:scale-110 transition-transform" /> Quick View
                         </button>
 
-                        {/* Generate PDF */}
-                        <div className="relative">
+                        {/* Export Dropdown */}
+                        <div className="relative group">
                             <button
-                                onClick={handleGeneratePDF}
-                                disabled={!hasData || generatingPDF}
                                 className={`flex items-center gap-2
                                             px-5 py-2 text-[9px] font-semibold uppercase tracking-wider rounded-lg
                                             transition-all duration-200 shadow-md cursor-pointer
-                                            ${generatingPDF ? 'bg-emerald-400 text-white animate-pulse' : 
-                                              pdfSuccess ? 'bg-emerald-600 text-white' : 
-                                              !hasData ? 'bg-slate-200 dark:bg-white/5 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none' : 
+                                            ${!hasData ? 'bg-slate-200 dark:bg-white/5 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none' : 
                                               'bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-emerald-900/20'}`}
-                                title={
-                                    !hasData
-                                        ? 'Import data first using Easy Way Import'
-                                        : 'Generate PDF report'
-                                }
+                                disabled={!hasData}
+                                title={!hasData ? 'Import data first using Easy Way Import' : 'Export in various formats'}
                             >
-                                {generatingPDF ? 'Generating...' : pdfSuccess ? 'Ready' : 'Export PDF'}
+                                Export
                             </button>
+                            
+                            {/* Export Options Dropdown */}
+                            <div className="absolute right-0 top-full mt-2 w-48
+                                            bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-white/10
+                                            shadow-xl overflow-hidden hidden group-hover:block z-50">
+                                <div className="py-2">
+                                    {/* PDF */}
+                                    <button
+                                        onClick={handleGeneratePDF}
+                                        disabled={!hasData || generatingPDF}
+                                        className="w-full px-4 py-2.5 text-left text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3"
+                                    >
+                                        <span className="w-8 text-red-500 text-xs">PDF</span>
+                                        {generatingPDF ? 'Generating...' : 'PDF Document'}
+                                    </button>
 
-                            {/* Error tooltip */}
-                            {pdfError && (
-                                <div className="absolute right-0 top-full
-                                                mt-3 w-72 bg-rose-600
-                                                text-white text-[9px] uppercase tracking-wider font-semibold
-                                                rounded-xl p-4 z-50
-                                                shadow-xl animate-in slide-in-from-top-2 duration-300">
-                                    <div className="flex items-start gap-2.5">
-                                        <div className="w-5 h-5 bg-white/20 rounded-md flex items-center justify-center shrink-0">
-                                            <Info size={12} />
-                                        </div>
-                                        <div>
-                                            <div className="mb-1 font-bold">
-                                                Export System Error
-                                            </div>
-                                            <div className="opacity-80 normal-case font-medium">
-                                                {pdfError}
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={() => setPdfError('')}
-                                            className="ml-auto opacity-70 hover:opacity-100 text-lg leading-none"
-                                        >
-                                            &times;
-                                        </button>
-                                    </div>
+                                    {/* JSON */}
+                                    <button
+                                        onClick={() => handleExport('json')}
+                                        disabled={!hasData || exportingFormat === 'json'}
+                                        className="w-full px-4 py-2.5 text-left text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3"
+                                    >
+                                        <span className="w-8 text-orange-500 text-xs">JSON</span>
+                                        {exportingFormat === 'json' ? 'Exporting...' : 'JSON Data'}
+                                    </button>
+
+                                    {/* XML */}
+                                    <button
+                                        onClick={() => handleExport('xml')}
+                                        disabled={!hasData || exportingFormat === 'xml'}
+                                        className="w-full px-4 py-2.5 text-left text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3"
+                                    >
+                                        <span className="w-8 text-blue-500 text-xs">XML</span>
+                                        {exportingFormat === 'xml' ? 'Exporting...' : 'XML Document'}
+                                    </button>
+
+                                    {/* Excel */}
+                                    <button
+                                        onClick={() => handleExport('xlsx')}
+                                        disabled={!hasData || exportingFormat === 'xlsx'}
+                                        className="w-full px-4 py-2.5 text-left text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3"
+                                    >
+                                        <span className="w-8 text-green-600 text-xs">XLSX</span>
+                                        {exportingFormat === 'xlsx' ? 'Exporting...' : 'Excel Workbook'}
+                                    </button>
+
+                                    {/* CSV */}
+                                    <button
+                                        onClick={() => handleExport('csv')}
+                                        disabled={!hasData || exportingFormat === 'csv'}
+                                        className="w-full px-4 py-2.5 text-left text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3"
+                                    >
+                                        <span className="w-8 text-teal-500 text-xs">CSV</span>
+                                        {exportingFormat === 'csv' ? 'Exporting...' : 'CSV File'}
+                                    </button>
+
+                                    {/* Word */}
+                                    <button
+                                        onClick={() => handleExport('docx')}
+                                        disabled={!hasData || exportingFormat === 'docx'}
+                                        className="w-full px-4 py-2.5 text-left text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3"
+                                    >
+                                        <span className="w-8 text-blue-700 text-xs">DOCX</span>
+                                        {exportingFormat === 'docx' ? 'Exporting...' : 'Word Document'}
+                                    </button>
                                 </div>
-                            )}
+                            </div>
                         </div>
+
+                        {/* Error display */}
+                        {(pdfError || Object.keys(exportError).some(k => exportError[k])) && (
+                            <div className="absolute right-0 top-full
+                                            mt-3 w-72 bg-rose-600
+                                            text-white text-[9px] uppercase tracking-wider font-semibold
+                                            rounded-xl p-4 z-50
+                                            shadow-xl animate-in slide-in-from-top-2 duration-300">
+                                <div className="flex items-start gap-2.5">
+                                    <div className="w-5 h-5 bg-white/20 rounded-md flex items-center justify-center shrink-0">
+                                        <Info size={12} />
+                                    </div>
+                                    <div>
+                                        <div className="mb-1 font-bold">
+                                            Export Error
+                                        </div>
+                                        <div className="opacity-80 normal-case font-medium">
+                                            {pdfError || Object.values(exportError).find(e => e)}
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => { setPdfError(''); setExportError({}); }}
+                                        className="ml-auto opacity-70 hover:opacity-100 text-lg leading-none"
+                                    >
+                                        &times;
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </header>
 

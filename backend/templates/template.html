@@ -815,6 +815,26 @@
       overflow: hidden !important;
       white-space: normal !important;
     }
+
+    /* ============ HIDE EMPTY ELEMENTS ============ */
+    /* Hide elements that are completely empty */
+    .info-row:empty,
+    .info-card:empty,
+    .reg-row:empty,
+    .reg-grid:empty,
+    .metric-box:empty,
+    .sc-row:empty,
+    .sc-panel-body:empty,
+    .subsection:empty,
+    .section-header:empty,
+    .metrics-row:empty {
+      display: none !important;
+    }
+
+    /* Hide empty subsections entirely */
+    .subsection:not(:has(*)) {
+      display: none !important;
+    }
   </style>
 </head>
 
@@ -1236,6 +1256,20 @@
           <div class="reg-value">{{gafi_registration}}</div>
           {{/show_egypt_fields}}
 
+          {{#show_registration_licenses}}
+          <div class="reg-label">Industrial License No.</div>
+          <div class="reg-value">{{industrial_license_number}}</div>
+
+          <div class="reg-label">Import License No.</div>
+          <div class="reg-value">{{import_license_number}}</div>
+
+          <div class="reg-label">Export License No.</div>
+          <div class="reg-value">{{export_license_number}}</div>
+
+          <div class="reg-label">LEI Number</div>
+          <div class="reg-value">{{lei_number}}</div>
+          {{/show_registration_licenses}}
+
           <!-- ── Saudi-specific ── -->
           {{#show_saudi_fields}}
           <div class="reg-label">GOSI Registration</div>
@@ -1425,6 +1459,7 @@
         <span><strong>{{group_hq_name}}</strong> – {{group_hq_location}}</span>
       </div>
     </div>
+    {{#show_operations}}
     <!-- ============ SECTION 7: OPERATIONS OVERVIEW ============ -->
     <div class="section-header">⚙️ 7. OPERATIONS OVERVIEW</div>
 
@@ -1483,6 +1518,30 @@
       </div>
     </div>
 
+    <!-- Physical Assets -->
+    <div class="subsection">
+      <div class="subsection-title">Physical Assets</div>
+      <div class="metrics-row">
+        <div class="metric-box">
+          <div class="metric-label">Premises</div>
+          <div class="metric-value">{{premises_type}}</div>
+          <div class="metric-subtext">{{premises_size}} • {{premises_owned_rental}}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Vehicles</div>
+          <div class="metric-value">{{vehicles}}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Equipment</div>
+          <div class="metric-value">{{equipment}}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Brands</div>
+          <div class="metric-value">{{brands}}</div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── SUPPLY CHAIN: Purchasing vs Sales ── -->
     <div class="subsection" style="margin-bottom:10px;page-break-before:avoid;">
       <div class="subsection-title">Supply Chain</div>
@@ -1490,6 +1549,7 @@
       <div class="sc-grid">
 
         <!-- LEFT: PURCHASING -->
+        {{#show_supply_chain_purchasing}}
         <div class="sc-panel">
           <div class="sc-panel-header purchasing">📥 Purchasing (Inbound)</div>
           <div class="sc-panel-body">
@@ -1532,10 +1592,17 @@
               <div class="sc-row-value">{{supplier_payment_terms}}</div>
             </div>
 
+            <div class="sc-row">
+              <div class="sc-row-label">Suppliers:</div>
+              <div class="sc-row-value">{{suppliers_number}}</div>
+            </div>
+
           </div>
         </div>
+        {{/show_supply_chain_purchasing}}
 
         <!-- RIGHT: SALES -->
+        {{#show_supply_chain_sales}}
         <div class="sc-panel">
           <div class="sc-panel-header sales">📤 Sales (Outbound)</div>
           <div class="sc-panel-body">
@@ -1578,8 +1645,14 @@
               <div class="sc-row-value">{{customer_payment_terms}}</div>
             </div>
 
+            <div class="sc-row">
+              <div class="sc-row-label">Clients:</div>
+              <div class="sc-row-value">{{clients_number}}</div>
+            </div>
+
           </div>
         </div>
+        {{/show_supply_chain_sales}}
       </div>
 
       <!-- Activities description flows below sc-grid -->
@@ -1590,6 +1663,7 @@
       </div>
       {{/activities_full_description}}
     </div>
+{{/show_operations}}
 
   </div>
 
