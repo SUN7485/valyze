@@ -81,28 +81,28 @@
 
 /* Dark Mode (Matches main app) */
 .dark {
-  --color-background: #0F172A;
-  --color-surface: #1E293B;
-  --color-surface-hover: #334155;
-  --color-text: #F8FAFC;
-  --color-text-secondary: #94A3B8;
-  --color-text-muted: #64748B;
-  --color-border: #334155;
-  --color-border-soft: #1E293B;
-  --color-border-strong: #475569;
+  --color-background: #020817;
+  --color-surface: #0f172a;
+  --color-surface-hover: #1e293b;
+  --color-text: #e2e8f0;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+  --color-border: #1e293b;
+  --color-border-soft: #0f172a;
+  --color-border-strong: #334155;
   
-  --bg-primary: #0F172A;
-  --bg-surface: #1E293B;
-  --bg-elevated: #334155;
-  --bg-input: #0F172A;
-  --border-default: #334155;
-  --text-primary: #F8FAFC;
-  --text-secondary: #94A3B8;
-  --text-muted: #64748B;
+  --bg-primary: #020817;
+  --bg-surface: #0f172a;
+  --bg-elevated: #1e293b;
+  --bg-input: #020817;
+  --border-default: #1e293b;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
   --text-disabled: #475569;
-  --text-link: #93C5FD;
-  --accent-primary: #3B82F6;
-  --accent-secondary: #06B6D4;
+  --text-link: #60a5fa;
+  --accent-primary: #3b82f6;
+  --accent-secondary: #22d3ee;
 }
 
 /* Reset & Base */

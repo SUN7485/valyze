@@ -239,7 +239,7 @@ export default function ValyzeExtractor() {
   const [darkMode, setDarkMode]         = useState(() => {
     const saved = localStorage.getItem("valyze_extractor_darkMode");
     if (saved !== null) return saved === "true";
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return true;
   });
 
   useEffect(() => {
@@ -468,7 +468,7 @@ export default function ValyzeExtractor() {
       {/* Header */}
       <div style={{ 
         borderBottom:"1px solid var(--color-border-soft)",padding:"14px 20px",display:"flex",alignItems:"center",gap:12,
-        background:darkMode?"rgba(15,23,42,0.8)":"rgba(255,255,255,0.8)",
+        background:"rgba(15,23,42,0.95)",
         backdropFilter:"blur(12px)"
       }}>
         <div style={{ background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15 }}>⚡</div>
