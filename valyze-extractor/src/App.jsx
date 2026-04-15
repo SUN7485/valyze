@@ -107,7 +107,7 @@ RULE 11 — CURRENCY DISPLAY:
 - Exchange rate field: name it exchange_rate_[local]_usd matching the company's currency (e.g. exchange_rate_sar_usd for Saudi, exchange_rate_aed_usd for UAE, exchange_rate_egp_usd for Egypt)
 
 RULE 12 — COUNTRY REGISTRATION FIELDS:
-- show_egypt_fields: true ONLY if country is Egypt. Populate: tax_registration_number, tax_card_number, trade_license_number, social_insurance_number, gafi_registration
+- show_egypt_fields: true ONLY if country is Egypt. Populate: tax_registration_number, tax_card_number, trade_license_number, social_insurance_number, gafi_registration, industrial_license_number, import_license_number, export_license_number, lei_number
 - show_saudi_fields: true ONLY if country is Saudi Arabia. Populate: zakat_certificate, zakat_number, zakat_status, zakat_alert, vat_registration_number, gosi_registration, nitaqat_band, municipality_license
 - show_uae_fields: true ONLY if country is UAE. Populate: trade_license_number, trn_vat, ded_number, freezone_license
 - For ANY OTHER country: set all three flags to false. Use extra_reg_fields:[{extra_reg_label, extra_reg_value}] for ALL country-specific registrations (tax ID, VAT, trade license, chamber of commerce, etc.)
@@ -181,7 +181,7 @@ OUTPUT: Single valid JSON only. No markdown. No code blocks. Start { end }.
 REQUIRED FIELDS:
 report_id (VCR-YYYYMMDD-XXXX), report_date, current_year, client_name, client_reference, analyst_name, analyst_id, analyst_department, analyst_email, analyst_phone, qa_reviewer_name, qa_review_date, order_comment,
 company_name, legal_name, trade_names, cr_number, unified_number, investment_license_no, license_type, issue_date, expiry_date, capital, company_type, company_duration, company_status, company_status_badge, status_badge, incorporation_date, incorporation_state, country, city, company_address, headquarters_address, phone, fax, email, website, auditor_name, sic_codes, industry, employee_count,
-show_egypt_fields (bool), tax_registration_number, tax_card_number, trade_license_number, social_insurance_number, gafi_registration,
+show_egypt_fields (bool), tax_registration_number, tax_card_number, trade_license_number, social_insurance_number, gafi_registration, industrial_license_number, import_license_number, export_license_number, lei_number,
 show_saudi_fields (bool), zakat_certificate, zakat_number, zakat_status, zakat_alert, vat_registration_number, gosi_registration, nitaqat_band, municipality_license,
 show_uae_fields (bool), trn_vat, ded_number, freezone_license,
 extra_reg_fields:[{extra_reg_label, extra_reg_value}],
@@ -195,7 +195,7 @@ show_board_of_directors (bool), board_members:[{name,role,nationality,since,bio_
 show_related_concerns (bool), group_hq_name, group_hq_location,
 branches:[{branch_name,branch_unified_no,branch_cr_no,branch_city,branch_function,branch_status,branch_status_badge}],
 regional_affiliates:[{affiliate_name}],
-registration_activities_description, activities_full_description, nace_codes, nace_description, hs_codes, hs_description, employee_location, facilities_count, main_facility_location, markets_count, markets_regions,
+registration_activities_description, activities_full_description, nace_codes, nace_description, hs_codes, hs_description, employee_location, facilities_count, main_facility_location, markets_count, markets_regions, premises_type, premises_size, premises_owned_rental, vehicles, equipment, brands, suppliers_number, clients_number,
 main_suppliers, local_purchasing_pct, local_purchasing_detail, import_purchasing_pct, import_countries, import_items, supplier_payment_method, supplier_payment_terms,
 key_customers, local_sales_pct, local_sales_detail, export_sales_pct, export_countries, export_items, customer_payment_method, customer_payment_terms,
 banking_relationships:[{bank_name,facility_type,facility_usage}], total_banks, primary_bank, group_treasury_support, banking_notes,

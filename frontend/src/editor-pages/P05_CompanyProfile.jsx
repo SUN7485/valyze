@@ -268,6 +268,10 @@ export default function P05_CompanyProfile() {
                 <FieldInput label="Tax Card Number"       fieldName="tax_card_number" type="text" />
                 <FieldInput label="Social Insurance No."  fieldName="social_insurance_number" type="text" />
                 <FieldInput label="GAFI Registration"     fieldName="gafi_registration" type="text" />
+                <FieldInput label="Industrial License Number" fieldName="industrial_license_number" type="text" />
+                <FieldInput label="Import License Number"   fieldName="import_license_number" type="text" />
+                <FieldInput label="Export License Number"   fieldName="export_license_number" type="text" />
+                <FieldInput label="LEI (Legal Entity Identifier)" fieldName="lei_number" type="text" />
               </div>
             </div>
           )}

@@ -62,6 +62,21 @@ export default function P08_Operations() {
                     <FieldInput label="Markets Served Count" fieldName="markets_count" type="text" />
                     <FieldInput label="Target Regions" fieldName="markets_regions" type="text" placeholder="e.g. GCC, Africa" />
                 </div>
+
+                {/* Physical Assets */}
+                <div className="mt-8 pt-6 border-t border-gray-100 dark:border-white/5">
+                    <h4 className="text-xs font-black text-[#1a5f7a] dark:text-blue-400 uppercase tracking-[0.15em] mb-4">
+                        Physical Assets
+                    </h4>
+                    <div className="grid grid-cols-3 gap-6">
+                        <FieldInput label="Premises (type)" fieldName="premises_type" type="text" placeholder="e.g. Warehouse, Office" />
+                        <FieldInput label="Premises (size)" fieldName="premises_size" type="text" placeholder="e.g. 500 sqm" />
+                        <FieldInput label="Premises (owned/rental)" fieldName="premises_owned_rental" type="text" placeholder="e.g. Owned, Rental" />
+                        <FieldInput label="Vehicles" fieldName="vehicles" type="text" placeholder="e.g. 5 trucks" />
+                        <FieldInput label="Equipment" fieldName="equipment" type="text" placeholder="e.g. Forklifts, Generators" />
+                        <FieldInput label="Brands" fieldName="brands" type="text" placeholder="e.g. Brand A, Brand B" />
+                    </div>
+                </div>
             </div>
 
             {/* Supply Chain — 2 columns */}
@@ -93,6 +108,7 @@ export default function P08_Operations() {
                             <FieldInput label="Imported Items" fieldName="import_items" type="text" />
                             <FieldInput label="Payment Method" fieldName="supplier_payment_method" type="text" placeholder="e.g. LC, TT, Cash" />
                             <FieldInput label="Payment Terms" fieldName="supplier_payment_terms" type="text" placeholder="e.g. 30–45 days" />
+                            <FieldInput label="Suppliers Number" fieldName="suppliers_number" type="text" placeholder="e.g. 15" />
                         </div>
                     </div>
 
@@ -118,6 +134,7 @@ export default function P08_Operations() {
                             <FieldInput label="Exported Items" fieldName="export_items" type="text" />
                             <FieldInput label="Payment Method" fieldName="customer_payment_method" type="text" placeholder="e.g. Net 30, LC" />
                             <FieldInput label="Payment Terms" fieldName="customer_payment_terms" type="text" placeholder="e.g. 30–90 days from invoice" />
+                            <FieldInput label="Clients Number" fieldName="clients_number" type="text" placeholder="e.g. 50" />
                         </div>
                     </div>
                 </div>
