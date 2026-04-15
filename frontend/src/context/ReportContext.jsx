@@ -317,6 +317,13 @@ export function ReportProvider({ children }) {
         Object.values(PAGE_FIELDS).forEach(fields => {
             fields.forEach(f => {
                 total++
+                // Check arrays first
+                const arrayData = report?.arrays?.[f]
+                if (arrayData && Array.isArray(arrayData) && arrayData.length > 0) {
+                    filled++
+                    return
+                }
+                // Check regular fields
                 const data = report?.fields?.[f]
                 const value = typeof data === 'object' ? data?.value : data
                 if (value && String(value).trim() !== '') {

@@ -5,13 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:with-proxy": "concurrently \"npm run server\" \"npm run dev\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "node server.js"
   },
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "mammoth": "^1.8.0"
+    "mammoth": "^1.8.0",
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "concurrently": "^9.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

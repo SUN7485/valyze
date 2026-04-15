@@ -27,9 +27,9 @@ const PAGES = [
 const PAGE_FIELDS = {
     1: ['company_name', 'report_date', 'credit_rating', 'client_name'],
     2: ['client_name', 'client_reference', 'analyst_name', 'company_name'],
-    3: ['credit_rating', 'risk_level', 'health_score', 'recommended_credit_limit', 'maximum_exposure', 'company_size', 'annual_revenue', 'payment_risk', 'paydex_score'],
-    4: ['executive_summary_text', 'company_history_text', 'employee_count', 'employee_location', 'capital', 'annual_turnover', 'risk_mitigations'],
-    5: ['company_name', 'cr_number', 'unified_number', 'company_type', 'company_status', 'phone', 'email', 'country', 'phone_numbers'],
+    3: ['credit_rating', 'risk_level', 'health_score', 'recommended_credit_limit', 'maximum_exposure', 'company_size', 'annual_revenue', 'payment_risk', 'paydex_score', 'risk_mitigations'],
+    4: ['executive_summary_text', 'company_history_text', 'employee_count', 'employee_location', 'capital', 'annual_turnover'],
+    5: ['company_name', 'cr_number', 'unified_number', 'company_type', 'company_status', 'email', 'country', 'phone_numbers'],
     6: ['capital'],
     7: ['parent_company'],
     8: ['industry', 'employee_count', 'employee_location', 'facilities_count', 'main_facility_location', 'markets_count', 'markets_regions', 'main_suppliers', 'key_customers'],
@@ -77,15 +77,22 @@ export default function SideNav({ currentPage, onPageChange, report, onDeletePag
         if (fields.length === 0) return 'done' // Calculated/Decorative pages
 
         const fieldData = report?.fields || {}
+        const arrayData = report?.arrays || {}
         let filledCount = 0
         let missingRequired = false
 
         fields.forEach(f => {
-            const data = fieldData[f]
-            if (data && data.value && String(data.value).trim() !== '') {
+            // Check if it's an array field
+            if (arrayData[f] && Array.isArray(arrayData[f]) && arrayData[f].length > 0) {
                 filledCount++
-            } else if (['company_name', 'client_name', 'analyst_name'].includes(f)) {
-                missingRequired = true
+            } else {
+                // Check regular field value
+                const data = fieldData[f]
+                if (data && data.value && String(data.value).trim() !== '') {
+                    filledCount++
+                } else if (['company_name', 'client_name', 'analyst_name'].includes(f)) {
+                    missingRequired = true
+                }
             }
         })
 

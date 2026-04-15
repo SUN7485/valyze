@@ -275,17 +275,6 @@ export default function EditorPage() {
                             <Eye size={14} className="text-primary group-hover:scale-110 transition-transform" /> Quick View
                         </button>
 
-                        {/* Generate AI Content */}
-                        <button
-                            onClick={handleGenerateAI}
-                            className="flex items-center gap-2 px-4 py-2
-                                       text-[9px] font-semibold bg-cta text-white uppercase tracking-wider
-                                       rounded-lg hover:opacity-90 
-                                       transition-all active:scale-[0.98] shadow-md shadow-cta/20 cursor-pointer"
-                        >
-                            <Wand2 size={14} className="animate-pulse" /> Generate
-                        </button>
-
                         {/* Generate PDF */}
                         <div className="relative">
                             <button

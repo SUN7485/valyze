@@ -1,47 +1,35 @@
 # Valyze Credit Intelligence Extractor
 
-A React application for extracting structured credit intelligence data from various document formats using Google Gemini AI.
+A React application for extracting structured credit intelligence data from various document formats using Anthropic Claude AI.
 
-## Setup Instructions
+## Quick Start
 
-1. Install dependencies:
 ```bash
 npm install
+npm run dev:with-proxy
 ```
 
-2. Start the development server:
+Two servers start:
+- Proxy server: `http://localhost:3001`
+- App: `http://localhost:5173`
+
+## Manual Start (if preferred)
+
+Terminal 1:
+```bash
+npm run server
+```
+
+Terminal 2:
 ```bash
 npm run dev
 ```
 
-The application will be available at `http://localhost:5173`
+## Getting an Anthropic API Key
 
-## Docker Instructions
-
-To run with Docker Compose:
-
-```bash
-docker compose up --build
-```
-
-The application will be available at `http://localhost:3000`
-
-## Getting a Gemini API Key
-
-1. Go to [aistudio.google.com](https://aistudio.google.com)
-2. Navigate to API Keys section
-3. Create a new API key
-4. Copy the key and add it to your `.env` file
-
-## Environment Configuration
-
-Create a `.env` file in the root directory with your Gemini API key:
-
-```
-VITE_GEMINI_KEY=your_gemini_api_key_here
-```
-
-**Important**: Never commit the `.env` file to git. The `.env` file is already included in `.gitignore` to prevent accidental commits.
+1. Go to [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)
+2. Create a new API key (starts with `sk-ant-`)
+3. Enter it in the app UI when prompted
 
 ## Features
 
@@ -60,3 +48,11 @@ VITE_GEMINI_KEY=your_gemini_api_key_here
 - Word documents (.docx)
 - Excel spreadsheets (.xlsx)
 - CSV files
+
+## Docker
+
+```bash
+docker compose up --build
+```
+
+App available at `http://localhost:3000`

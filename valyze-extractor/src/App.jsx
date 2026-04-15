@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import * as mammoth from "mammoth";
 
 // ── Load PDF.js for text-layer extraction ────────────────────────────────────
@@ -15,29 +15,41 @@ const loadPdfJs = () => new Promise((resolve, reject) => {
   document.head.appendChild(s);
 });
 
-// Returns extracted text if PDF has a real text layer, null if scanned
-const extractPdfText = async (file) => {
-  try {
-    const pdfjs = await loadPdfJs();
-    const ab = await file.arrayBuffer();
-    const pdf = await pdfjs.getDocument({ data: new Uint8Array(ab) }).promise;
-    if (pdf.numPages > 100)
-      throw new Error(`"${file.name}" has ${pdf.numPages} pages. API limit is 100.\n\nSplit into two PDFs and upload both.`);
-    let fullText = "";
-    let imagePages = 0;
-    for (let p = 1; p <= pdf.numPages; p++) {
-      const page = await pdf.getPage(p);
-      const tc = await page.getTextContent();
-      const pageText = tc.items.map(i => i.str).join(" ").trim();
-      if (pageText.length < 40) imagePages++;
-      fullText += `\n\n--- Page ${p} ---\n${pageText}`;
+// PDF extraction based on mode: smart (text+vision), text-only, or vision-only
+const extractPdf = async (file, mode) => {
+  const pdfjs = await loadPdfJs();
+  const ab = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(ab) }).promise;
+  if (pdf.numPages > 100)
+    throw new Error(`"${file.name}" has ${pdf.numPages} pages. API limit is 100.\n\nSplit into two PDFs and upload both.`);
+
+  const blocks = [];
+  let textPages = 0;
+  let imagePages = 0;
+
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const tc = await page.getTextContent();
+    const pageText = tc.items.map(i => i.str).join(" ").trim();
+
+    if (mode === "vision" || (mode === "smart" && pageText.length <= 30)) {
+      // Render as image
+      imagePages++;
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      const b64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+      blocks.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } });
+    } else {
+      // Text mode or smart with text
+      textPages++;
+      blocks.push({ type: "text", text: `[Page ${p}]\n${pageText}` });
     }
-    if (imagePages / pdf.numPages > 0.6) return null; // mostly scanned → use vision
-    return fullText.trim();
-  } catch (e) {
-    if (e.message.includes("API limit")) throw e;
-    return null; // fallback to vision on parse error
   }
+
+  return { blocks, textPages, imagePages };
 };
 
 // ── System Prompt ─────────────────────────────────────────────────────────────
@@ -69,7 +81,46 @@ RULE 12 — COUNTRY REGISTRATION FIELDS:
 - For ANY OTHER country: set all three flags to false. Use extra_reg_fields:[{extra_reg_label, extra_reg_value}] for ALL country-specific registrations (tax ID, VAT, trade license, chamber of commerce, etc.)
 - extra_reg_fields is also used for additional fields beyond the standard set for Egypt/Saudi/UAE
 
-RULE 13 — MISSING RATIO FIELDS: Always include these fields:
+RULE 14 — REPORT ID FORMAT:
+Generate report_id as VCR-[COUNTRY_CODE]-[4-DIGIT-NUMBER]
+Country codes: EGY (Egypt), UAE (United Arab Emirates), KSA (Saudi Arabia), KWT (Kuwait), QAT (Qatar), BHR (Bahrain), OMN (Oman), JOR (Jordan), LBN (Lebanon), IRQ (Iraq), GBR (UK), DEU (Germany), IND (India), USA (United States), and standard ISO 3-letter codes for all others.
+4-digit number: generate randomly e.g. 0047, 0123, 0891.
+Example: VCR-EGY-0047, VCR-UAE-0183, VCR-KSA-0056
+
+RULE 15 — MANAGEMENT TEAM INTEGRITY:
+NEVER add a management_team entry with a placeholder name like "N/A", "Unknown", or a job title in the name field.
+If a position exists but the person's name is not in source documents → do NOT add that entry at all.
+Only add management_team entries where you have the actual person's name.
+Each entry must include: name (real person), title, nationality (if known, else "N/A"), language (primary language, e.g. "Arabic", "English"), bio (real background, not invented).
+
+RULE 16 — PHONE NUMBERS:
+Populate phone_numbers as an array. Each number found in source documents gets its own entry:
+phone_numbers: [{
+  country_flag (emoji: 🇦🇪 UAE, 🇪🇬 Egypt, 🇸🇦 KSA, 🇰🇼 Kuwait, 🇶🇦 Qatar, 🇧🇭 Bahrain, 🇴🇲 Oman, 🇯🇴 Jordan, 🇱🇧 Lebanon, 🇮🇶 Iraq, 🌍 Other),
+  country_code (+971 / +20 / +966 etc.),
+  phone_number (digits only, formatted),
+  national_id (if available, else ""),
+  number_type (Mobile / Phone / Fax / WhatsApp),
+  contact_person (person name or role e.g. "Reception"),
+  comments (e.g. "Direct line", "Office hours", "Main office"),
+  is_primary ("true" for primary, "false" for others)
+}]
+If only one number found, still use the array format with one entry.
+
+RULE 17 — SHAREHOLDERS & MANAGEMENT NATIONALITY/LANGUAGE:
+shareholders entries must include: name, position, percentage, nationality, type, language (primary language spoken).
+management_team entries must include: name, title, department, nationality, language, contact_phone, contact_email, bio.
+If nationality/language not in source documents, use best estimate based on name origin and flag in data_limitations.
+
+RULE 18 — IMPORT/EXPORT COUNTRY FLAGS:
+In import_countries and export_countries fields, prefix each country with its flag emoji.
+Example: "🇨🇳 China, 🇮🇳 India, 🇩🇪 Germany" not just "China, India, Germany".
+Same for primary_supply_countries, export_destinations in supply chain fields.
+
+RULE 19 — ANNUAL TURNOVER:
+Always populate annual_turnover as a string with local currency and USD equivalent.
+Format: "SAR 496,941,199 (≈ USD 132.4M)" or "AED 185,000,000 (≈ USD 50.4M)"
+Use the most recent year's revenue as the basis. This is separate from revenue_1.
 cash_ratio, cash_ratio_prev, cash_ratio_industry, cash_ratio_status, cash_ratio_label, cash_ratio_interpretation
 ebit_margin_prev, ebit_margin_industry, ebit_margin_status, ebit_margin_label, ebit_margin_interpretation
 failure_badge (low/medium/high), payment_badge (low/medium/high)
@@ -77,6 +128,13 @@ failure_badge (low/medium/high), payment_badge (low/medium/high)
 RULE 7 — DATA TYPES: ALL values must be strings. "72" not 72.
 
 RULE 8 — STATUS: Only "success", "warning", or "danger" for _status fields.
+
+RULE 8B — COLORS: Always populate _color fields with valid hex colors:
+- "#22c55e" or "green" for positive/low/healthy
+- "#f59e0b" or "yellow" for warnings 
+- "#ef4444" or "red" for negative/high-risk
+- "#7c3aed" or "purple" for critical
+- Use specific hex codes (e.g., "#22c55e") not color names
 
 RULE 9 — BENCHMARKS: Never override analyst benchmarks.
 
@@ -97,8 +155,10 @@ show_uae_fields (bool), trn_vat, ded_number, freezone_license,
 extra_reg_fields:[{extra_reg_label, extra_reg_value}],
 executive_summary_text (max 120 words), company_history_text (max 80 words), exec_current_ratio, exec_equity_ratio, exec_ebit_margin, exec_debt_equity, exec_profitability,
 parent_company, subsidiaries, affiliates, ultimate_beneficial_owner,
-shareholders:[{name,position,percentage,nationality,type}],
-management_team:[{name,title,department,contact_phone,contact_email,bio}],
+annual_turnover,
+phone_numbers:[{country_flag,country_code,phone_number,national_id,number_type,contact_person,comments,is_primary}],
+shareholders:[{name,position,percentage,nationality,type,language}],
+management_team:[{name,title,department,nationality,language,contact_phone,contact_email,bio}],
 show_board_of_directors (bool), board_members:[{name,role,nationality,since,bio_short}],
 show_related_concerns (bool), group_hq_name, group_hq_location,
 branches:[{branch_name,branch_unified_no,branch_cr_no,branch_city,branch_function,branch_status,branch_status_badge}],
@@ -167,11 +227,17 @@ export default function ValyzeExtractor() {
   const [error, setError]               = useState("");
   const [tab, setTab]                   = useState("summary");
   const [copied, setCopied]             = useState(false);
+  const [navigating, setNavigating]     = useState(false);
   const [useWebSearch, setUseWebSearch] = useState(false);
+  const [extractMode, setExtractMode] = useState("smart"); // "smart" | "text" | "vision"
   const [patchJSON, setPatchJSON]       = useState("");
   const [patchInstructions, setPatchInstructions] = useState("");
   const [patchStatus, setPatchStatus]   = useState("idle");
   const [patchError, setPatchError]     = useState("");
+  const [apiKey, setApiKey]             = useState(() => localStorage.getItem("valyze_api_key") || "");
+  const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem("valyze_api_key"));
+
+  useEffect(() => { if (apiKey) localStorage.setItem("valyze_api_key", apiKey); }, [apiKey]);
 
   const fileRef  = useRef();
   const abortRef = useRef(null);
@@ -191,10 +257,15 @@ export default function ValyzeExtractor() {
 
   const extract = async () => {
     if (!files.length) return;
+    if (!apiKey || !apiKey.startsWith("sk-ant-")) {
+      setError("Please enter your Anthropic API key (starts with sk-ant-)\n\nGet it from: https://console.anthropic.com/settings/keys");
+      setStatus("error");
+      return;
+    }
     setStatus("loading"); setStage(0); setResult(null); setError(""); setElapsed(0); setLogMsg("Reading files…");
     clockRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
     abortRef.current = new AbortController();
-    const hardTimeout = setTimeout(() => abortRef.current?.abort(), 180000);
+    const hardTimeout = setTimeout(() => abortRef.current?.abort(), 360000);
 
     try {
       const blocks = [];
@@ -203,15 +274,9 @@ export default function ValyzeExtractor() {
         setLogMsg(`Reading ${f.name}…`);
 
         if (f.type === "application/pdf") {
-          const text = await extractPdfText(f); // throws if >100 pages
-          if (text) {
-            setLogMsg(`✓ ${f.name} — text layer extracted`);
-            blocks.push({ type: "text", text: `[PDF: ${f.name}]\n\n${text}` });
-          } else {
-            setLogMsg(`✓ ${f.name} — scanned PDF, sending as image`);
-            const b64 = await toB64(f);
-            blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } });
-          }
+          const { blocks: pdfBlocks, textPages, imagePages } = await extractPdf(f, extractMode);
+          setLogMsg(`✓ ${f.name} — ${textPages} text, ${imagePages} image${extractMode !== "smart" ? ` (${extractMode})` : ""}`);
+          blocks.push(...pdfBlocks);
         } else if (f.type?.startsWith("image/") || f.name.match(/\.(png|jpg|jpeg|webp|gif)$/i)) {
           blocks.push({ type: "image", source: { type: "base64", media_type: f.type || "image/jpeg", data: await toB64(f) } });
           setLogMsg(`✓ ${f.name} — image`);
@@ -243,9 +308,13 @@ export default function ValyzeExtractor() {
       const maxLoops = useWebSearch ? 8 : 1;
 
       for (let i = 0; i < maxLoops; i++) {
-        const res = await fetch("https://api.anthropic.com/v1/messages", {
+        const res = await fetch("http://localhost:3001/proxy", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01"
+          },
           signal: abortRef.current.signal,
           body: JSON.stringify(i === 0 ? apiBody : { ...apiBody, messages: msgs })
         });
@@ -268,9 +337,16 @@ export default function ValyzeExtractor() {
       setStage(3); setLogMsg("Done!"); setStatus("done");
 
     } catch (e) {
-      const msg = e.name === "AbortError"
-        ? "Timed out after 3 minutes.\n\n• Make sure Web Search is OFF\n• Try splitting large PDFs\n• Try again"
-        : e.message;
+      let msg;
+      if (e.name === "AbortError") {
+        msg = "Timed out after 6 minutes.\n\n• Make sure Web Search is OFF\n• Try splitting large PDFs\n• Try again";
+      } else if (e.message?.includes("Failed to fetch") || e.message?.includes("network")) {
+        msg = "Network error.\n\nPossible causes:\n1. No internet connection\n2. Proxy server not running\n3. API key invalid\n\nStart proxy: npm run server";
+      } else if (e.message?.includes("401") || e.message?.includes("403")) {
+        msg = "API key rejected.\n\n• Verify your key is correct\n• Make sure key starts with sk-ant-";
+      } else {
+        msg = e.message;
+      }
       setError(msg); setStatus("error");
     } finally {
       clearTimeout(hardTimeout); stopClock();
@@ -305,13 +381,22 @@ export default function ValyzeExtractor() {
 
   const runPatch = async () => {
     if (!patchJSON.trim() || !patchInstructions.trim()) return;
+    if (!apiKey || !apiKey.startsWith("sk-ant-")) {
+      setPatchError("Please enter your API key first");
+      setPatchStatus("error");
+      return;
+    }
     setPatchStatus("loading"); setPatchError("");
     try {
       let parsed;
       try { parsed = JSON.parse(patchJSON); } catch { throw new Error("Invalid JSON — please check your pasted JSON."); }
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("http://localhost:3001/proxy", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01"
+        },
         body: JSON.stringify({
           model: "claude-haiku-4-5-20251001",
           max_tokens: 16000,
@@ -334,14 +419,16 @@ export default function ValyzeExtractor() {
   const cf = d.financial_data || {};
   const fmtTime = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
-  const Badge = ({ v }) => {
+  const Badge = ({ v, color }) => {
     const c = { Low:"#22c55e",Medium:"#f59e0b",High:"#ef4444",Critical:"#7c3aed",green:"#22c55e",yellow:"#f59e0b",red:"#ef4444" };
-    return v ? <span style={{ background:c[v]||"#6b7280",color:"#fff",borderRadius:6,padding:"2px 10px",fontSize:12,fontWeight:700 }}>{v}</span>
+    const bg = color || c[v] || "#6b7280";
+    return v ? <span style={{ background:bg,color:"#fff",borderRadius:6,padding:"2px 10px",fontSize:12,fontWeight:700 }}>{v}</span>
               : <span style={{ color:"#475569" }}>—</span>;
   };
-  const Bar = ({ label, val, invert }) => {
+  const Bar = ({ label, val, color, invert }) => {
     const w = Math.max(0, Math.min(100, invert ? 100-(+val||0) : (+val||0)));
-    const bg = w>70?"#22c55e":w>40?"#f59e0b":"#ef4444";
+    const defaultBg = w>70?"#22c55e":w>40?"#f59e0b":"#ef4444";
+    const bg = color || defaultBg;
     return <div style={{ marginBottom:10 }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3 }}><span style={{ color:"#94a3b8" }}>{label}</span><span style={{ color:"#f1f5f9",fontWeight:600 }}>{val??"—"}</span></div><div style={{ background:"#1e293b",borderRadius:4,height:6 }}><div style={{ width:`${w}%`,background:bg,height:6,borderRadius:4,transition:"width 0.8s" }}/></div></div>;
   };
   const Sec = ({ title, ch }) => (
@@ -368,11 +455,44 @@ export default function ValyzeExtractor() {
       {/* Header */}
       <div style={{ borderBottom:"1px solid #1e293b",padding:"14px 20px",display:"flex",alignItems:"center",gap:12 }}>
         <div style={{ background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15 }}>⚡</div>
-        <div>
-          <div style={{ fontWeight:700,fontSize:14 }}>Valyze Credit Intelligence v4</div>
-          <div style={{ color:"#475569",fontSize:11 }}>Smart PDF Extraction · Template-Matched · Claude Sonnet 4</div>
+        <div style={{ flex:1 }}>
+          <div style={{ fontWeight:700,fontSize:14 }}>Valyze Credit Intelligence v5</div>
+          <div style={{ color:"#475569",fontSize:11 }}>Smart PDF Extraction · Hybrid OCR · Claude Sonnet 4</div>
         </div>
+        {!showKeyInput && !status.includes("loading") && !status.includes("done") && (
+          <button onClick={()=>setShowKeyInput(true)} style={{ background:"#1e293b",border:"1px solid #334155",borderRadius:6,padding:"5px 10px",color:"#94a3b8",fontSize:11,cursor:"pointer" }}>
+            🔑 Change Key
+          </button>
+        )}
       </div>
+
+      {/* API Key Input */}
+      {(showKeyInput || !apiKey) && status !== "loading" && status !== "done" && (
+        <div style={{ background:"linear-gradient(135deg,#1e293b,#0f172a)",borderBottom:"1px solid #334155",padding:"16px 20px" }}>
+          <div style={{ display:"flex",gap:10,alignItems:"center",flexWrap:"wrap" }}>
+            <div style={{ flex:1,minWidth:200 }}>
+              <div style={{ color:"#94a3b8",fontSize:12,marginBottom:6,fontWeight:600 }}>🔐 Anthropic API Key</div>
+              <input 
+                type="password" 
+                value={apiKey} 
+                onChange={e=>setApiKey(e.target.value)} 
+                placeholder="sk-ant-api03-..."
+                style={{ width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #334155",background:"#020817",color:"#e2e8f0",fontSize:13,fontFamily:"monospace",boxSizing:"border-box" }}
+              />
+            </div>
+            <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+              <button 
+                onClick={()=>{if(apiKey.startsWith("sk-ant-")){localStorage.setItem("valyze_api_key",apiKey);setShowKeyInput(false)}}} 
+                disabled={!apiKey.startsWith("sk-ant-")}
+                style={{ padding:"10px 20px",borderRadius:8,border:"none",background:apiKey.startsWith("sk-ant-")?"linear-gradient(135deg,#22c55e,#16a34a)":"#1e293b",color:apiKey.startsWith("sk-ant-")?"#fff":"#475569",fontWeight:700,fontSize:13,cursor:apiKey.startsWith("sk-ant-")?"pointer":"default" }}
+              >
+                ✓ Save Key
+              </button>
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style={{ color:"#64748b",fontSize:11,textAlign:"center" }}>Get API Key →</a>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ maxWidth:960,margin:"0 auto",padding:"20px 16px" }}>
 
@@ -384,7 +504,7 @@ export default function ValyzeExtractor() {
             <div style={{ fontSize:32,marginBottom:8 }}>📂</div>
             <div style={{ fontWeight:600,marginBottom:4 }}>Drop company documents here</div>
             <div style={{ color:"#475569",fontSize:13 }}>PDF · Word · Images · Excel · CSV · TXT — up to 5 files</div>
-            <div style={{ color:"#334155",fontSize:12,marginTop:6 }}>Text PDFs extracted as text (fast) · Scanned PDFs use vision · Images always use vision</div>
+            <div style={{ color:"#334155",fontSize:12,marginTop:6 }}>Text pages → text · Scanned pages → vision</div>
           </div>
           {files.map((f,i)=>(
             <div key={i} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",background:"#0f172a",border:"1px solid #1e293b",borderRadius:8,padding:"9px 14px",marginBottom:6 }}>
@@ -427,8 +547,17 @@ export default function ValyzeExtractor() {
               <div style={{ position:"absolute",top:3,left:useWebSearch?18:3,width:14,height:14,borderRadius:"50%",background:"#fff",transition:"left 0.2s" }}/>
             </div>
             <span style={{ fontSize:13,color:"#64748b",cursor:"pointer",userSelect:"none" }} onClick={()=>setUseWebSearch(v=>!v)}>
-              🔍 Web search {useWebSearch?<span style={{ color:"#f59e0b" }}>ON — fills missing fields (slower)</span>:<span style={{ color:"#22c55e" }}>OFF — fast, recommended</span>}
+              🔍 Web search {useWebSearch?<span style={{ color:"#f59e0b" }}>ON</span>:<span style={{ color:"#22c55e" }}>OFF</span>}
             </span>
+          </div>
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginTop:8,fontSize:12 }}>
+            <span style={{ color:"#64748b" }}>OCR:</span>
+            {["text","smart","vision"].map(m=>(
+              <button key={m} onClick={()=>setExtractMode(m)} style={{ padding:"3px 8px",borderRadius:4,border:"none",background:extractMode===m?"#3b82f6":"#1e293b",color:extractMode===m?"#fff":"#94a3b8",cursor:"pointer",textTransform:"capitalize",fontSize:11 }}>
+                {m}
+              </button>
+            ))}
+            <span style={{ color:"#475569",fontSize:10 }}>{extractMode==="text"?"(cheap)":extractMode==="vision"?"(max data)":"(balanced)"}</span>
           </div>
         </>}
 
@@ -449,6 +578,31 @@ export default function ValyzeExtractor() {
               <button onClick={copyJSON} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid #1e293b",background:"#0f172a",color:"#94a3b8",cursor:"pointer",fontSize:13 }}>{copied?"✓ Copied":"Copy JSON"}</button>
               <button onClick={downloadJSON} style={{ padding:"7px 12px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13 }}>⬇ Download JSON</button>
               <button onClick={()=>{setStatus("idle");setFiles([]);setResult(null);setLogMsg("");}} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid #1e293b",background:"#0f172a",color:"#94a3b8",cursor:"pointer",fontSize:13 }}>New Report</button>
+              <button 
+                onClick={() => {
+                  if (result) {
+                    setNavigating(true);
+                    localStorage.setItem("valyze_pending_import", JSON.stringify(result));
+                    window.location.href = "http://localhost:5174";
+                  }
+                }}
+                disabled={navigating || !result}
+                style={{
+                  padding: "12px 24px",
+                  borderRadius: 12,
+                  border: "none",
+                  background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 14,
+                  cursor: navigating ? "wait" : "pointer",
+                  boxShadow: "0 4px 15px rgba(99, 102, 241, 0.4), 0 0 30px rgba(139, 92, 246, 0.2)",
+                  opacity: navigating ? 0.7 : 1,
+                  transition: "all 0.2s ease"
+                }}
+              >
+                {navigating ? "Opening..." : "Continue to Editor →"}
+              </button>
             </div>
 
             {/* SUMMARY */}
@@ -475,19 +629,19 @@ export default function ValyzeExtractor() {
               <Sec title="Statement Info" ch={<><F l="Currency" v={d.fin_currency}/><F l="Scale" v={d.fin_unit_scale}/><F l="Type" v={d.fin_statement_type}/><F l="Period End" v={d.fin_period_end}/></>}/>
               <Sec title="Income Statement" ch={<Table cols={["Item",d.year_3||"Y-2",d.year_2||"Y-1",d.year_1||"Latest","Trend"]} rows={[["Revenue",d.revenue_3,d.revenue_2,d.revenue_1,d.revenue_trend],["COGS",d.cogs_3,d.cogs_2,d.cogs_1,d.cogs_trend],["Gross Profit",d.gross_profit_3,d.gross_profit_2,d.gross_profit_1,d.gross_profit_trend],["OPEX",d.opex_3,d.opex_2,d.opex_1,d.opex_trend],["EBITDA",d.ebitda_3,d.ebitda_2,d.ebitda_1,d.ebitda_trend],["Net Income",d.net_income_3,d.net_income_2,d.net_income_1,d.net_income_trend]]}/>}/>
               <Sec title="Balance Sheet" ch={<Table cols={["Item",d.year_3||"Y-2",d.year_2||"Y-1",d.year_1||"Latest","Trend"]} rows={[["Cash",d.cash_3,d.cash_2,d.cash_1,d.cash_trend],["Accounts Rec.",d.ar_3,d.ar_2,d.ar_1,d.ar_trend],["Total Assets",d.total_assets_3,d.total_assets_2,d.total_assets_1,d.total_assets_trend],["Current Liab.",d.current_liabilities_3,d.current_liabilities_2,d.current_liabilities_1,d.current_liabilities_trend],["Total Liab.",d.total_liabilities_3,d.total_liabilities_2,d.total_liabilities_1,d.total_liabilities_trend],["Equity",d.equity_3,d.equity_2,d.equity_1,d.equity_trend]]}/>}/>
-              <Sec title="Cash Flow" ch={<Table cols={["Item",d.year_3||"Y-2",d.year_2||"Y-1",d.year_1||"Latest","Trend"]} rows={[["Operating",cf.year_3?.cfo,cf.year_2?.cfo,cf.year_1?.cfo,d.cash_flow_operating_trend],["Investing",cf.year_3?.cfi,cf.year_2?.cfi,cf.year_1?.cfi,d.cash_flow_investing_trend],["Financing",cf.year_3?.cff,cf.year_2?.cff,cf.year_1?.cff,d.cash_flow_financing_trend],["Cash at End",cf.year_3?.cash_end,cf.year_2?.cash_end,cf.year_1?.cash_end,d.cash_flow_end_trend]]}/>}/>
+              <Sec title="Cash Flow" ch={<Table cols={["Item",d.year_3||"Y-2",d.year_2||"Y-1",d.year_1||"Latest","Trend"]} rows={[["Operating",cf.year_3?.cfo||"—",cf.year_2?.cfo||"—",cf.year_1?.cfo||"—",d.cash_flow_operating_trend||"—"],["Investing",cf.year_3?.cfi||"—",cf.year_2?.cfi||"—",cf.year_1?.cfi||"—",d.cash_flow_investing_trend||"—"],["Financing",cf.year_3?.cff||"—",cf.year_2?.cff||"—",cf.year_1?.cff||"—",d.cash_flow_financing_trend||"—"],["Cash at End",cf.year_3?.cash_end||"—",cf.year_2?.cash_end||"—",cf.year_1?.cash_end||"—",d.cash_flow_end_trend||"—"]]}/>}/>
             </div>}
 
             {/* RATIOS */}
             {tab==="ratios"&&<div>
-              {[["Liquidity",[["Current Ratio",d.current_ratio,d.current_ratio_industry,d.current_ratio_label,d.current_ratio_interpretation],["Quick Ratio",d.quick_ratio,d.quick_ratio_industry,d.quick_ratio_label,d.quick_ratio_interpretation]]],["Profitability",[["Gross Margin",`${d.gross_margin||"—"}%`,`${d.gross_margin_industry||"—"}%`,d.gross_margin_label,d.gross_margin_interpretation],["EBITDA Margin",`${d.ebitda_margin||"—"}%`,`${d.ebitda_margin_industry||"—"}%`,d.ebitda_margin_label,d.ebitda_margin_interpretation],["Net Margin",`${d.net_margin||"—"}%`,`${d.net_margin_industry||"—"}%`,d.net_margin_label,d.net_margin_interpretation]]],["Leverage",[["Debt/Equity",d.debt_equity,d.debt_equity_industry,d.debt_equity_label,d.debt_equity_interpretation],["Equity Ratio",`${d.equity_ratio||"—"}%`,`${d.equity_ratio_industry||"—"}%`,d.equity_ratio_label,d.equity_ratio_interpretation]]],["Efficiency",[["Asset Turnover",d.asset_turnover,d.asset_turnover_industry,d.asset_turnover_label,d.asset_turnover_interpretation],["DSO",`${d.dso||"—"}d`,`${d.dso_industry||"—"}d`,d.dso_label,d.dso_interpretation],["DPO",`${d.dpo||"—"}d`,`${d.dpo_industry||"—"}d`,d.dpo_label,d.dpo_interpretation]]]].map(([title,rows])=>(
+              {[["Liquidity",[["Current Ratio",d.current_ratio,d.current_ratio_industry,d.current_ratio_label,d.current_ratio_interpretation],["Quick Ratio",d.quick_ratio,d.quick_ratio_industry,d.quick_ratio_label,d.quick_ratio_interpretation]]],["Profitability",[["Gross Margin",`${d.gross_margin||"—"}%`,`${d.gross_margin_industry||"—"}%`,d.gross_margin_label,d.gross_margin_interpretation],["EBITDA Margin",`${d.ebitda_margin||"—"}%`,`${d.ebitda_margin_industry||"—"}%`,d.ebitda_margin_label,d.ebitda_margin_interpretation],["EBIT Margin",`${d.ebit_margin||"—"}%`,`${d.ebit_margin_industry||"—"}%`,d.ebit_margin_label,d.ebit_margin_interpretation],["Net Margin",`${d.net_margin||"—"}%`,`${d.net_margin_industry||"—"}%`,d.net_margin_label,d.net_margin_interpretation]]],["Leverage",[["Debt/Equity",d.debt_equity,d.debt_equity_industry,d.debt_equity_label,d.debt_equity_interpretation],["Equity Ratio",`${d.equity_ratio||"—"}%`,`${d.equity_ratio_industry||"—"}%`,d.equity_ratio_label,d.equity_ratio_interpretation]]],["Efficiency",[["Asset Turnover",d.asset_turnover,d.asset_turnover_industry,d.asset_turnover_label,d.asset_turnover_interpretation],["DSO",`${d.dso||"—"}d`,`${d.dso_industry||"—"}d`,d.dso_label,d.dso_interpretation],["DPO",`${d.dpo||"—"}d`,`${d.dpo_industry||"—"}d`,d.dpo_label,d.dpo_interpretation]]]].map(([title,rows])=>(
                 <Sec key={title} title={`${title} Ratios`} ch={rows.map(([l,v,ind,lbl,interp])=><div key={l} style={{ borderBottom:"1px solid #1e293b",padding:"8px 0" }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}><span style={{ color:"#64748b" }}>{l}</span><span style={{ color:"#e2e8f0",fontWeight:600 }}>{v??"—"}</span></div><div style={{ fontSize:12,color:"#475569",marginTop:2 }}>Industry avg: {ind??"—"} · {lbl??"—"}</div>{interp&&<div style={{ fontSize:11,color:"#64748b",marginTop:2 }}>{interp}</div>}</div>)}/>
               ))}
             </div>}
 
             {/* RISK */}
             {tab==="risk"&&<div>
-              <Sec title="Credit Rating" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:28,fontWeight:800 }}>{d.credit_rating||"—"}</div><div style={{ color:"#475569",fontSize:12 }}>Credit Rating</div></div><Badge v={d.risk_level}/></div><Bar label="Health Score" val={d.health_score}/><Bar label="Viability Score" val={d.viability_score}/><Bar label="Payment Score" val={d.payment_score}/><Bar label="Delinquency Risk" val={d.delinquency_score} invert/><Bar label="Failure Risk" val={d.failure_score} invert/><F l="PAYDEX" v={d.paydex_score}/><F l="Company Size" v={d.company_size}/><F l="Annual Revenue" v={d.annual_revenue}/></>}/>
+              <Sec title="Credit Rating" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:28,fontWeight:800 }}>{d.credit_rating||"—"}</div><div style={{ color:"#475569",fontSize:12 }}>Credit Rating</div></div><Badge v={d.risk_level} color={d.risk_color}/></div><Bar label="Health Score" val={d.health_score} color={d.viability_color}/><Bar label="Viability Score" val={d.viability_score} color={d.viability_color}/><Bar label="Payment Score" val={d.payment_score} color={d.payment_color}/><Bar label="Delinquency Risk" val={d.delinquency_score} color={d.delinquency_color} invert/><Bar label="Failure Risk" val={d.failure_score} color={d.failure_color} invert/><F l="PAYDEX" v={d.paydex_score}/><F l="Company Size" v={d.company_size}/><F l="Annual Revenue" v={d.annual_revenue}/></>}/>
               <Sec title="Payment Behavior" ch={<><F l="Avg Days Beyond Terms" v={d.avg_dbt!=null?`${d.avg_dbt} days`:null}/><F l="% On Time" v={d.pct_on_time!=null?`${d.pct_on_time}%`:null}/><F l="Prompt" v={d.prompt_pct!=null?`${d.prompt_pct}% · ${d.prompt_amount}`:null}/><F l="1–30 Days Slow" v={d.slow_30_pct!=null?`${d.slow_30_pct}% · ${d.slow_30_amount}`:null}/><F l="90+ Days Slow" v={d.slow_90plus_pct!=null?`${d.slow_90plus_pct}% · ${d.slow_90plus_amount}`:null}/></>}/>
               <Sec title="Alerts" ch={(d.alerts||[]).map((a,i)=><div key={i} style={{ background:a.alert_type==="danger"?"#450a0a":a.alert_type==="warning"?"#451a03":a.alert_type==="success"?"#052e16":"#0c1a2e",borderRadius:8,padding:"8px 12px",marginBottom:6,fontSize:13 }}>{a.alert_icon} {a.alert_message}</div>)}/>
             </div>}
@@ -506,7 +660,7 @@ export default function ValyzeExtractor() {
 
             {/* RECOMMENDATION */}
             {tab==="recommendation"&&<div>
-              <Sec title="Credit Decision" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:26,fontWeight:800 }}>{d.final_credit_rating||"—"}</div><div style={{ color:"#475569",fontSize:12 }}>Final Rating</div></div><Badge v={d.final_risk_level}/></div><F l="Credit Limit (USD)" v={d.recommended_credit_limit}/><F l="Max Exposure (USD)" v={d.maximum_exposure}/><F l="Payment Terms" v={d.recommended_payment_terms}/><F l="Review Frequency" v={d.review_frequency}/><F l="Collateral" v={d.collateral_requirements}/>{d.credit_opinion_text&&<div style={{ background:"#1e293b",borderRadius:8,padding:14,marginTop:12,fontSize:13,color:"#cbd5e1",lineHeight:1.7 }}><strong style={{ color:"#93c5fd",display:"block",marginBottom:6 }}>📋 Credit Opinion</strong>{d.credit_opinion_text}</div>}</>}/>
+              <Sec title="Credit Decision" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:26,fontWeight:800 }}>{d.final_credit_rating||"—"}</div><div style={{ color:"#475569",fontSize:12 }}>Final Rating</div></div><Badge v={d.final_risk_level} color={d.final_risk_color}/></div><F l="Credit Limit (USD)" v={d.recommended_credit_limit}/><F l="Max Exposure (USD)" v={d.maximum_exposure}/><F l="Payment Terms" v={d.recommended_payment_terms}/><F l="Review Frequency" v={d.review_frequency}/><F l="Collateral" v={d.collateral_requirements}/>{d.credit_opinion_text&&<div style={{ background:"#1e293b",borderRadius:8,padding:14,marginTop:12,fontSize:13,color:"#cbd5e1",lineHeight:1.7 }}><strong style={{ color:"#93c5fd",display:"block",marginBottom:6 }}>📋 Credit Opinion</strong>{d.credit_opinion_text}</div>}</>}/>
               {(d.risk_mitigations||[]).length>0&&<Sec title="Risk Mitigations" ch={(d.risk_mitigations).map((m,i)=><div key={i} style={{ borderBottom:"1px solid #1e293b",padding:"8px 0" }}><div style={{ color:"#93c5fd",fontSize:13,fontWeight:600 }}>{m.strategy}</div><div style={{ color:"#94a3b8",fontSize:12 }}>{m.expected_outcome}</div></div>)}/>}
               <Sec title="Monitoring Triggers" ch={(d.monitoring_triggers||[]).map((t,i)=><div key={i} style={{ borderBottom:"1px solid #1e293b",padding:"8px 0" }}><div style={{ color:"#fbbf24",fontSize:13,fontWeight:600 }}>⚠️ {t.trigger_event}</div><div style={{ color:"#94a3b8",fontSize:12 }}>{t.trigger_action}</div></div>)}/>
             </div>}
@@ -529,7 +683,7 @@ export default function ValyzeExtractor() {
                     placeholder={"## WRONG VALUES\n1. \"field\": \"old\" → \"new\"\n\n## EMPTY FIELDS\n2. \"field\": \"\" → \"value\"\n\n## ADD NEW FIELDS\n3. Add after \"field\":\n   \"new_field\": \"value\""}
                     style={{ width:"100%",minHeight:240,background:"#020817",border:"1px solid #1e293b",borderRadius:8,color:"#e2e8f0",fontSize:12,padding:12,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box" }}/>
                 </div>
-                {patchStatus==="error"&&<div style={{ background:"#1a0a0a",border:"1px solid #7f1d1d",borderRadius:8,padding:12,marginBottom:12,color:"#fca5a5",fontSize:13 }}>��️ {patchError}</div>}
+                {patchStatus==="error"&&<div style={{ background:"#1a0a0a",border:"1px solid #7f1d1d",borderRadius:8,padding:12,marginBottom:12,color:"#fca5a5",fontSize:13 }}>⚠️ {patchError}</div>}
                 {patchStatus==="done"&&<div style={{ background:"#052e16",border:"1px solid #16a34a",borderRadius:8,padding:12,marginBottom:12,color:"#86efac",fontSize:13 }}>✓ JSON patched! Switched to Raw JSON tab — download to save.</div>}
                 {patchStatus==="loading"&&<div style={{ background:"#0f172a",border:"1px solid #1e293b",borderRadius:8,padding:10,marginBottom:12,color:"#94a3b8",fontSize:13,textAlign:"center" }}>⚙️ Applying patches with Haiku…</div>}
                 <button onClick={runPatch} disabled={!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"}
