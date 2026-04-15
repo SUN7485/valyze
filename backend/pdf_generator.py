@@ -452,17 +452,20 @@ class PDFGenerator:
             arrays = report_data.get("arrays", {}) or {}
 
         # -- field getter -------------------------------------------------
-        def gf(key: str, default="N/A"):
+        def gf(key: str, default="N/A", hide_empty=False):
+            """Get field value. If hide_empty=True, returns '' instead of default for empty values."""
             f = fields.get(key)
             if f is None:
-                return default
+                return "" if hide_empty else default
             if hasattr(f, "value"):
                 v = f.value
             elif isinstance(f, dict):
                 v = f.get("value")
             else:
                 v = f
-            return v if (v is not None and v != "") else default
+            if v is None or v == "":
+                return "" if hide_empty else default
+            return v
 
         # -- array getter -------------------------------------------------
         def ga(key: str):
@@ -677,22 +680,22 @@ class PDFGenerator:
             "main_facility_location": gf("main_facility_location"),
             "markets_count": gf("markets_count"),
             "markets_regions": gf("markets_regions"),
-            "main_suppliers": gf("main_suppliers"),
-            "key_customers": gf("key_customers"),
+            "main_suppliers": gf("main_suppliers", "N/A", True),
+            "key_customers": gf("key_customers", "N/A", True),
             "supplier_payment_terms": gf("supplier_payment_terms"),
             "customer_payment_terms": gf("customer_payment_terms"),
             # FIX: supply chain % fields
             "local_purchasing_pct": self._pct_display(gf("local_purchasing_pct")),
-            "local_purchasing_detail": gf("local_purchasing_detail"),
+            "local_purchasing_detail": gf("local_purchasing_detail", "N/A", True),
             "import_purchasing_pct": self._pct_display(gf("import_purchasing_pct")),
-            "import_countries": gf("import_countries"),
-            "import_items": gf("import_items"),
+            "import_countries": gf("import_countries", "N/A", True),
+            "import_items": gf("import_items", "N/A", True),
             "supplier_payment_method": gf("supplier_payment_method"),
             "local_sales_pct": self._pct_display(gf("local_sales_pct")),
-            "local_sales_detail": gf("local_sales_detail"),
+            "local_sales_detail": gf("local_sales_detail", "N/A", True),
             "export_sales_pct": self._pct_display(gf("export_sales_pct")),
-            "export_countries": gf("export_countries"),
-            "export_items": gf("export_items"),
+            "export_countries": gf("export_countries", "N/A", True),
+            "export_items": gf("export_items", "N/A", True),
             "customer_payment_method": gf("customer_payment_method"),
             # -- AUTO-SHOW FLAGS --------------------------------------------
             "show_operations": has_ops,
@@ -700,18 +703,18 @@ class PDFGenerator:
             "show_supply_chain_sales": has_sales,
             "show_registration_licenses": show_registration,
             # Add the new fields too
-            "premises_type": gf("premises_type"),
-            "premises_size": gf("premises_size"),
-            "premises_owned_rental": gf("premises_owned_rental"),
-            "vehicles": gf("vehicles"),
-            "equipment": gf("equipment"),
-            "brands": gf("brands"),
-            "suppliers_number": gf("suppliers_number"),
-            "clients_number": gf("clients_number"),
-            "industrial_license_number": gf("industrial_license_number"),
-            "import_license_number": gf("import_license_number"),
-            "export_license_number": gf("export_license_number"),
-            "lei_number": gf("lei_number"),
+            "premises_type": gf("premises_type", "N/A", True),
+            "premises_size": gf("premises_size", "N/A", True),
+            "premises_owned_rental": gf("premises_owned_rental", "N/A", True),
+            "vehicles": gf("vehicles", "N/A", True),
+            "equipment": gf("equipment", "N/A", True),
+            "brands": gf("brands", "N/A", True),
+            "suppliers_number": gf("suppliers_number", "N/A", True),
+            "clients_number": gf("clients_number", "N/A", True),
+            "industrial_license_number": gf("industrial_license_number", "N/A", True),
+            "import_license_number": gf("import_license_number", "N/A", True),
+            "export_license_number": gf("export_license_number", "N/A", True),
+            "lei_number": gf("lei_number", "N/A", True),
             # -- BANKING --------------------------------------------------
             "primary_bank": gf("primary_bank"),
             "total_banks": gf("total_banks"),

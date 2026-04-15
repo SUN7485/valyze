@@ -1,32 +1,20 @@
 {
   "worktrees": {
-    "wt-1775943856570-1": {
-      "branch": "dolomite-van",
-      "path": "d:\\valyez final\\.kilo\\worktrees\\dolomite-van",
+    "wt-1776290598784-3": {
+      "branch": "relic-griffin",
+      "path": "d:\\valyez final\\.kilo\\worktrees\\relic-griffin",
       "parentBranch": "main",
-      "createdAt": "2026-04-11T21:44:16.570Z",
-      "remote": "origin"
-    },
-    "wt-1775943858069-2": {
-      "branch": "tungsten-antler",
-      "path": "d:\\valyez final\\.kilo\\worktrees\\tungsten-antler",
-      "parentBranch": "main",
-      "createdAt": "2026-04-11T21:44:18.069Z",
+      "createdAt": "2026-04-15T22:03:18.784Z",
       "remote": "origin"
     }
   },
   "sessions": {
-    "ses_2817f4d3effeJ8kMflJvGvnyT8": {
-      "worktreeId": "wt-1775943856570-1",
-      "createdAt": "2026-04-11T21:44:16.836Z"
-    },
-    "ses_2817f478dffefce6iXWsrzz6aH": {
-      "worktreeId": "wt-1775943858069-2",
-      "createdAt": "2026-04-11T21:44:18.292Z"
+    "ses_26cd46f49ffeSJhLuQolFPQL0s": {
+      "worktreeId": "wt-1776290598784-3",
+      "createdAt": "2026-04-15T22:03:19.075Z"
     }
   },
   "worktreeOrder": [
-    "wt-1775943856570-1",
-    "wt-1775943858069-2"
+    "wt-1776290598784-3"
   ]
 }
