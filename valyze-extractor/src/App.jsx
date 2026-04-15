@@ -1,7 +1,23 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as mammoth from "mammoth";
 
-// ── Load PDF.js for text-layer extraction ────────────────────────────────────
+const COLORS = {
+  background: "#0f172a",
+  surface: "#1e293b",
+  surfaceHover: "#334155",
+  text: "#f1f5f9",
+  textSecondary: "#94a3b8",
+  textMuted: "#64748b",
+  border: "#1e293b",
+  borderSoft: "#0f172a",
+  primary: "#f59e0b",
+  cta: "#8b5cf6",
+  info: "#3b82f6",
+  success: "#22c55e",
+  warning: "#f59e0b",
+  danger: "#ef4444",
+};
+
 const loadPdfJs = () => new Promise((resolve, reject) => {
   if (window.pdfjsLib) { resolve(window.pdfjsLib); return; }
   const s = document.createElement("script");
@@ -15,7 +31,6 @@ const loadPdfJs = () => new Promise((resolve, reject) => {
   document.head.appendChild(s);
 });
 
-// PDF extraction based on mode: smart (text+vision), text-only, or vision-only
 const extractPdf = async (file, mode) => {
   const pdfjs = await loadPdfJs();
   const ab = await file.arrayBuffer();
@@ -33,7 +48,6 @@ const extractPdf = async (file, mode) => {
     const pageText = tc.items.map(i => i.str).join(" ").trim();
 
     if (mode === "vision" || (mode === "smart" && pageText.length <= 30)) {
-      // Render as image
       imagePages++;
       const viewport = page.getViewport({ scale: 1.5 });
       const canvas = document.createElement("canvas");
@@ -43,7 +57,6 @@ const extractPdf = async (file, mode) => {
       const b64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
       blocks.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } });
     } else {
-      // Text mode or smart with text
       textPages++;
       blocks.push({ type: "text", text: `[Page ${p}]\n${pageText}` });
     }
@@ -52,7 +65,6 @@ const extractPdf = async (file, mode) => {
   return { blocks, textPages, imagePages };
 };
 
-// ── System Prompt ─────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are a senior credit intelligence analyst for the Valyze Credit Intelligence Platform.
 
 CORE SYSTEM RULES:
@@ -229,26 +241,13 @@ export default function ValyzeExtractor() {
   const [copied, setCopied]             = useState(false);
   const [navigating, setNavigating]     = useState(false);
   const [useWebSearch, setUseWebSearch] = useState(false);
-  const [extractMode, setExtractMode] = useState("smart"); // "smart" | "text" | "vision"
+  const [extractMode, setExtractMode] = useState("smart");
   const [patchJSON, setPatchJSON]       = useState("");
   const [patchInstructions, setPatchInstructions] = useState("");
   const [patchStatus, setPatchStatus]   = useState("idle");
   const [patchError, setPatchError]     = useState("");
   const [apiKey, setApiKey]             = useState(() => localStorage.getItem("valyze_api_key") || "");
   const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem("valyze_api_key"));
-  const [darkMode, setDarkMode]         = useState(() => {
-    const saved = localStorage.getItem("valyze_extractor_darkMode");
-    if (saved !== null) return saved === "true";
-    return true;
-  });
-
-  useEffect(() => {
-    if (darkMode) document.documentElement.classList.add("dark");
-    else document.documentElement.classList.remove("dark");
-    localStorage.setItem("valyze_extractor_darkMode", darkMode.toString());
-  }, [darkMode]);
-
-  const toggleDarkMode = () => setDarkMode(prev => !prev);
 
   useEffect(() => { if (apiKey) localStorage.setItem("valyze_api_key", apiKey); }, [apiKey]);
 
@@ -427,7 +426,6 @@ export default function ValyzeExtractor() {
     } catch (e) { setPatchError(e.message); setPatchStatus("error"); }
   };
 
-  // ── Render helpers ────────────────────────────────────────────────────────
   const d  = result || {};
   const cf = d.financial_data || {};
   const fmtTime = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
@@ -436,92 +434,88 @@ export default function ValyzeExtractor() {
     const c = { Low:"#22c55e",Medium:"#f59e0b",High:"#ef4444",Critical:"#7c3aed",green:"#22c55e",yellow:"#f59e0b",red:"#ef4444" };
     const bg = color || c[v] || "#6b7280";
     return v ? <span style={{ background:bg,color:"#fff",borderRadius:6,padding:"2px 10px",fontSize:12,fontWeight:700 }}>{v}</span>
-              : <span style={{ color:"var(--color-text-muted)" }}>—</span>;
+              : <span style={{ color:COLORS.textMuted }}>—</span>;
   };
   const Bar = ({ label, val, color, invert }) => {
     const w = Math.max(0, Math.min(100, invert ? 100-(+val||0) : (+val||0)));
     const defaultBg = w>70?"#22c55e":w>40?"#f59e0b":"#ef4444";
     const bg = color || defaultBg;
-    return <div style={{ marginBottom:10 }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3 }}><span style={{ color:"var(--color-text-secondary)" }}>{label}</span><span style={{ color:"var(--color-text)",fontWeight:600 }}>{val??"—"}</span></div><div style={{ background:"var(--color-border-soft)",borderRadius:4,height:6 }}><div style={{ width:`${w}%`,background:bg,height:6,borderRadius:4,transition:"width 0.8s" }}/></div></div>;
+    return <div style={{ marginBottom:10 }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3 }}><span style={{ color:COLORS.textSecondary }}>{label}</span><span style={{ color:COLORS.text,fontWeight:600 }}>{val??"—"}</span></div><div style={{ background:COLORS.borderSoft,borderRadius:4,height:6 }}><div style={{ width:`${w}%`,background:bg,height:6,borderRadius:4,transition:"width 0.8s" }}/></div></div>;
   };
   const Sec = ({ title, ch }) => (
-    <div style={{ background:"var(--color-surface)",border:"1px solid var(--color-border-soft)",borderRadius:10,padding:18,marginBottom:14 }}>
-      <div style={{ color:"var(--color-text-muted)",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:12 }}>{title}</div>
+    <div style={{ background:COLORS.surface,border:"1px solid "+COLORS.borderSoft,borderRadius:10,padding:18,marginBottom:14 }}>
+      <div style={{ color:COLORS.textMuted,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:12 }}>{title}</div>
       {ch}
     </div>
   );
   const F = ({ l, v }) => (
-    <div style={{ display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid var(--color-border-soft)",fontSize:13 }}>
-      <span style={{ color:"var(--color-text-muted)",flexShrink:0,marginRight:8 }}>{l}</span>
-      <span style={{ color:"var(--color-text)",fontWeight:500,maxWidth:"62%",textAlign:"right" }}>{v??"—"}</span>
+    <div style={{ display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid "+COLORS.borderSoft,fontSize:13 }}>
+      <span style={{ color:COLORS.textMuted,flexShrink:0,marginRight:8 }}>{l}</span>
+      <span style={{ color:COLORS.text,fontWeight:500,maxWidth:"62%",textAlign:"right" }}>{v??"—"}</span>
     </div>
   );
-  const THead = ({ cols }) => <thead><tr>{cols.map(h=><th key={h} style={{ background:"linear-gradient(135deg,rgba(59,130,246,0.1),rgba(6,182,212,0.1))",color:"var(--color-info)",padding:"6px 8px",textAlign:"left",fontSize:12,fontWeight:700,borderBottom:"2px solid var(--color-border)" }}>{h}</th>)}</tr></thead>;
-  const TRow  = ({ row }) => <tr>{row.map((c,i)=><td key={i} style={{ padding:"5px 8px",borderBottom:"1px solid var(--color-border-soft)",fontSize:12,color:i===0?"var(--color-text-secondary)":"var(--color-text)" }}>{c||"—"}</td>)}</tr>;
+  const THead = ({ cols }) => <thead><tr>{cols.map(h=><th key={h} style={{ background:"linear-gradient(135deg,rgba(59,130,246,0.1),rgba(6,182,212,0.1))",color:COLORS.info,padding:"6px 8px",textAlign:"left",fontSize:12,fontWeight:700,borderBottom:"2px solid "+COLORS.border }}>{h}</th>)}</tr></thead>;
+  const TRow  = ({ row }) => <tr>{row.map((c,i)=><td key={i} style={{ padding:"5px 8px",borderBottom:"1px solid "+COLORS.borderSoft,fontSize:12,color:i===0?COLORS.textSecondary:COLORS.text }}>{c||"—"}</td>)}</tr>;
   const Table = ({ cols, rows }) => <table style={{ width:"100%",borderCollapse:"collapse" }}><THead cols={cols}/><tbody>{rows.map((r,i)=><TRow key={i} row={r}/>)}</tbody></table>;
 
   const TABS = ["summary","operations","financials","ratios","risk","legal","news","recommendation","json","patch"];
 
   return (
-    <div style={{ background:"var(--color-background)",minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:"var(--color-text)" }}>
+    <div style={{ background:COLORS.background,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:COLORS.text }}>
 
-      {/* Header */}
       <div style={{ 
-        borderBottom:"1px solid var(--color-border-soft)",padding:"14px 20px",display:"flex",alignItems:"center",gap:12,
-        background:"rgba(15,23,42,0.95)",
-        backdropFilter:"blur(12px)"
+        borderBottom:"1px solid "+COLORS.borderSoft,padding:"14px 20px",display:"flex",alignItems:"center",gap:12,
+        background:COLORS.background,
       }}>
         <div style={{ background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15 }}>⚡</div>
         <div style={{ flex:1 }}>
-          <div style={{ fontWeight:700,fontSize:14,color:"var(--color-text)" }}>Valyze Credit Intelligence v5</div>
-          <div style={{ color:"var(--color-text-muted)",fontSize:11 }}>Smart PDF Extraction · Hybrid OCR · Claude Sonnet 4</div>
+          <div style={{ fontWeight:700,fontSize:14,color:COLORS.text }}>Valyze Credit Intelligence v5</div>
+          <div style={{ color:COLORS.textMuted,fontSize:11 }}>Smart PDF Extraction · Hybrid OCR · Claude Sonnet 4</div>
         </div>
         <button 
-          onClick={toggleDarkMode} 
           style={{
-            background:"var(--color-surface)",
-            border:"1px solid var(--color-border-soft)",
+            background:COLORS.surface,
+            border:"1px solid "+COLORS.borderSoft,
             borderRadius:8,
             width:36,height:36,
             display:"flex",alignItems:"center",justifyContent:"center",
             cursor:"pointer",
-            color:"var(--color-text-secondary)",
+            color:COLORS.textSecondary,
             fontSize:16,
             transition:"all 0.2s"
           }}
         >
-          {darkMode?"☀️":"🌙"}
+          ☀️
         </button>
         {!showKeyInput && !status.includes("loading") && !status.includes("done") && (
-          <button onClick={()=>setShowKeyInput(true)} style={{ background:"var(--color-surface)",border:"1px solid var(--color-border)",borderRadius:6,padding:"5px 10px",color:"var(--color-text-secondary)",fontSize:11,cursor:"pointer" }}>
+          <button onClick={()=>setShowKeyInput(true)} style={{ background:COLORS.surface,border:"1px solid "+COLORS.border,borderRadius:6,padding:"5px 10px",color:COLORS.textSecondary,fontSize:11,cursor:"pointer" }}>
             🔑 Change Key
           </button>
         )}
       </div>
 
-      {/* API Key Input */}
       {(showKeyInput || !apiKey) && status !== "loading" && status !== "done" && (
-        <div style={{ background:"linear-gradient(135deg,var(--color-surface),var(--color-background))",borderBottom:"1px solid var(--color-border)",padding:"16px 20px" }}>
+        <div style={{ background:`linear-gradient(135deg,${COLORS.surface},${COLORS.background})`,borderBottom:"1px solid "+COLORS.border,padding:"16px 20px" }}>
           <div style={{ display:"flex",gap:10,alignItems:"center",flexWrap:"wrap" }}>
             <div style={{ flex:1,minWidth:200 }}>
-              <div style={{ color:"var(--color-text-secondary)",fontSize:12,marginBottom:6,fontWeight:600 }}>🔐 Anthropic API Key</div>
+              <div style={{ color:COLORS.textSecondary,fontSize:12,marginBottom:6,fontWeight:600 }}>🔐 Anthropic API Key</div>
               <input 
                 type="password" 
                 value={apiKey} 
                 onChange={e=>setApiKey(e.target.value)} 
                 placeholder="sk-ant-api03-..."
-                style={{ width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid var(--color-border)",background:"var(--color-background)",color:"var(--color-text)",fontSize:13,fontFamily:"monospace",boxSizing:"border-box" }}
+                style={{ width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid "+COLORS.border,background:COLORS.background,color:COLORS.text,fontSize:13,fontFamily:"monospace",boxSizing:"border-box" }}
               />
             </div>
             <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
               <button 
                 onClick={()=>{if(apiKey.startsWith("sk-ant-")){localStorage.setItem("valyze_api_key",apiKey);setShowKeyInput(false)}}} 
                 disabled={!apiKey.startsWith("sk-ant-")}
-                style={{ padding:"10px 20px",borderRadius:8,border:"none",background:apiKey.startsWith("sk-ant-")?"linear-gradient(135deg,#22c55e,#16a34a)":"var(--color-surface)",color:apiKey.startsWith("sk-ant-")?"#fff":"var(--color-text-muted)",fontWeight:700,fontSize:13,cursor:apiKey.startsWith("sk-ant-")?"pointer":"default" }}
+                style={{ padding:"10px 20px",borderRadius:8,border:"none",background:apiKey.startsWith("sk-ant-")?"linear-gradient(135deg,#22c55e,#16a34a)":COLORS.surface,color:apiKey.startsWith("sk-ant-")?"#fff":COLORS.textMuted,fontWeight:700,fontSize:13,cursor:apiKey.startsWith("sk-ant-")?"pointer":"default" }}
               >
                 ✓ Save Key
               </button>
-              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style={{ color:"var(--color-text-muted)",fontSize:11,textAlign:"center" }}>Get API Key →</a>
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style={{ color:COLORS.textMuted,fontSize:11,textAlign:"center" }}>Get API Key →</a>
             </div>
           </div>
         </div>
@@ -529,88 +523,81 @@ export default function ValyzeExtractor() {
 
       <div style={{ maxWidth:960,margin:"0 auto",padding:"20px 16px" }}>
 
-        {/* Upload zone */}
         {status !== "done" && <>
           <div onDragOver={e=>e.preventDefault()} onDrop={onDrop} onClick={()=>fileRef.current.click()}
-            style={{ border:"2px dashed var(--color-border-strong)",borderRadius:12,padding:"36px 24px",textAlign:"center",cursor:"pointer",background:"var(--color-surface)",marginBottom:12 }}>
+            style={{ border:"2px dashed "+COLORS.border,borderRadius:12,padding:"36px 24px",textAlign:"center",cursor:"pointer",background:COLORS.surface,marginBottom:12 }}>
             <input ref={fileRef} type="file" multiple accept={ACCEPT} style={{ display:"none" }} onChange={e=>addFiles(e.target.files)}/>
             <div style={{ fontSize:32,marginBottom:8 }}>📂</div>
-            <div style={{ fontWeight:600,marginBottom:4,color:"var(--color-text)" }}>Drop company documents here</div>
-            <div style={{ color:"var(--color-text-secondary)",fontSize:13 }}>PDF · Word · Images · Excel · CSV · TXT — up to 5 files</div>
-            <div style={{ color:"var(--color-text-muted)",fontSize:12,marginTop:6 }}>Text pages → text · Scanned pages → vision</div>
+            <div style={{ fontWeight:600,marginBottom:4,color:COLORS.text }}>Drop company documents here</div>
+            <div style={{ color:COLORS.textSecondary,fontSize:13 }}>PDF · Word · Images · Excel · CSV · TXT — up to 5 files</div>
+            <div style={{ color:COLORS.textMuted,fontSize:12,marginTop:6 }}>Text pages → text · Scanned pages → vision</div>
           </div>
           {files.map((f,i)=>(
-            <div key={i} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--color-surface)",border:"1px solid var(--color-border-soft)",borderRadius:8,padding:"9px 14px",marginBottom:6 }}>
-              <span style={{ fontSize:13,color:"var(--color-text-secondary)" }}>{fIcon(f)} {f.name} <span style={{ color:"var(--color-text-muted)" }}>({(f.size/1024).toFixed(0)} KB)</span></span>
-              <button onClick={()=>setFiles(p=>p.filter((_,j)=>j!==i))} style={{ background:"none",border:"none",color:"var(--color-danger)",cursor:"pointer",fontSize:16 }}>✕</button>
+            <div key={i} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",background:COLORS.surface,border:"1px solid "+COLORS.borderSoft,borderRadius:8,padding:"9px 14px",marginBottom:6 }}>
+              <span style={{ fontSize:13,color:COLORS.textSecondary }}>{fIcon(f)} {f.name} <span style={{ color:COLORS.textMuted }}>({(f.size/1024).toFixed(0)} KB)</span></span>
+              <button onClick={()=>setFiles(p=>p.filter((_,j)=>j!==i))} style={{ background:"none",border:"none",color:COLORS.danger,cursor:"pointer",fontSize:16 }}>✕</button>
             </div>
           ))}
         </>}
 
-        {/* Loading */}
         {status === "loading" && (
-          <div style={{ background:"var(--color-surface)",border:"1px solid var(--color-border-soft)",borderRadius:12,padding:28,textAlign:"center",marginBottom:16 }}>
+          <div style={{ background:COLORS.surface,border:"1px solid "+COLORS.borderSoft,borderRadius:12,padding:28,textAlign:"center",marginBottom:16 }}>
             <div style={{ fontSize:28,marginBottom:6 }}>⚙️</div>
-            <div style={{ color:"var(--color-primary)",fontSize:26,fontWeight:800,marginBottom:6,fontFamily:"monospace" }}>{fmtTime(elapsed)}</div>
-            <div style={{ color:"var(--color-text-secondary)",fontSize:13,marginBottom:16,minHeight:20 }}>{logMsg}</div>
+            <div style={{ color:COLORS.primary,fontSize:26,fontWeight:800,marginBottom:6,fontFamily:"monospace" }}>{fmtTime(elapsed)}</div>
+            <div style={{ color:COLORS.textSecondary,fontSize:13,marginBottom:16,minHeight:20 }}>{logMsg}</div>
             <div style={{ display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap",marginBottom:16 }}>
               {STAGES.map((s,i)=>(
-                <div key={i} style={{ padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:600,background:i<=stage?"linear-gradient(135deg,#3b82f6,#8b5cf6)":"var(--color-surface)",color:i<=stage?"#fff":"var(--color-text-muted)",transition:"all 0.4s" }}>
+                <div key={i} style={{ padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:600,background:i<=stage?"linear-gradient(135deg,#3b82f6,#8b5cf6)":COLORS.surface,color:i<=stage?"#fff":COLORS.textMuted,transition:"all 0.4s" }}>
                   {i<stage?"✓":i===stage?"◐":"○"} {s}
                 </div>
               ))}
             </div>
-            <button onClick={cancel} style={{ padding:"7px 20px",borderRadius:8,border:"1px solid var(--color-danger)",background:"rgba(239,68,68,0.1)",color:"var(--color-danger)",cursor:"pointer",fontSize:13,fontWeight:600 }}>✕ Cancel</button>
+            <button onClick={cancel} style={{ padding:"7px 20px",borderRadius:8,border:"1px solid "+COLORS.danger,background:"rgba(239,68,68,0.1)",color:COLORS.danger,cursor:"pointer",fontSize:13,fontWeight:600 }}>✕ Cancel</button>
           </div>
         )}
 
-        {/* Error */}
         {status === "error" && (
-          <div style={{ background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:14,marginBottom:16,color:"var(--color-danger)",fontSize:13,whiteSpace:"pre-line" }}>⚠️ {error}</div>
+          <div style={{ background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:14,marginBottom:16,color:COLORS.danger,fontSize:13,whiteSpace:"pre-line" }}>⚠️ {error}</div>
         )}
 
-        {/* Extract button + web search toggle */}
         {status !== "done" && <>
           <button onClick={extract} disabled={!files.length||status==="loading"}
-            style={{ width:"100%",padding:13,borderRadius:10,border:"none",background:!files.length||status==="loading"?"var(--color-surface)":"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:!files.length||status==="loading"?"var(--color-text-muted)":"#fff",fontWeight:700,fontSize:15,cursor:!files.length||status==="loading"?"default":"pointer",marginBottom:10 }}>
+            style={{ width:"100%",padding:13,borderRadius:10,border:"none",background:!files.length||status==="loading"?COLORS.surface:"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:!files.length||status==="loading"?COLORS.textMuted:"#fff",fontWeight:700,fontSize:15,cursor:!files.length||status==="loading"?"default":"pointer",marginBottom:10 }}>
             {status==="loading"?"Extracting...":"⚡ Run Credit Intelligence Extraction"}
           </button>
           <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:10 }}>
-            <div onClick={()=>setUseWebSearch(v=>!v)} style={{ width:36,height:20,borderRadius:10,background:useWebSearch?"var(--color-primary)":"var(--color-surface)",position:"relative",cursor:"pointer",flexShrink:0,transition:"background 0.2s",border:"1px solid var(--color-border-soft)" }}>
+            <div onClick={()=>setUseWebSearch(v=>!v)} style={{ width:36,height:20,borderRadius:10,background:useWebSearch?COLORS.primary:COLORS.surface,position:"relative",cursor:"pointer",flexShrink:0,transition:"background 0.2s",border:"1px solid "+COLORS.borderSoft }}>
               <div style={{ position:"absolute",top:3,left:useWebSearch?18:3,width:14,height:14,borderRadius:"50%",background:"#fff",transition:"left 0.2s" }}/>
             </div>
-            <span style={{ fontSize:13,color:"var(--color-text-secondary)",cursor:"pointer",userSelect:"none" }} onClick={()=>setUseWebSearch(v=>!v)}>
-              🔍 Web search {useWebSearch?<span style={{ color:"var(--color-warning)" }}>ON</span>:<span style={{ color:"var(--color-success)" }}>OFF</span>}
+            <span style={{ fontSize:13,color:COLORS.textSecondary,cursor:"pointer",userSelect:"none" }} onClick={()=>setUseWebSearch(v=>!v)}>
+              🔍 Web search {useWebSearch?<span style={{ color:COLORS.warning }}>ON</span>:<span style={{ color:COLORS.success }}>OFF</span>}
             </span>
           </div>
           <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginTop:8,fontSize:12 }}>
-            <span style={{ color:"var(--color-text-muted)" }}>OCR:</span>
+            <span style={{ color:COLORS.textMuted }}>OCR:</span>
             {["text","smart","vision"].map(m=>(
-              <button key={m} onClick={()=>setExtractMode(m)} style={{ padding:"3px 8px",borderRadius:4,border:"none",background:extractMode===m?"var(--color-primary)":"var(--color-surface)",color:extractMode===m?"#fff":"var(--color-text-secondary)",cursor:"pointer",textTransform:"capitalize",fontSize:11 }}>
+              <button key={m} onClick={()=>setExtractMode(m)} style={{ padding:"3px 8px",borderRadius:4,border:"none",background:extractMode===m?COLORS.primary:COLORS.surface,color:extractMode===m?"#fff":COLORS.textSecondary,cursor:"pointer",textTransform:"capitalize",fontSize:11 }}>
                 {m}
               </button>
             ))}
-            <span style={{ color:"var(--color-text-muted)",fontSize:10 }}>{extractMode==="text"?"(cheap)":extractMode==="vision"?"(max data)":"(balanced)"}</span>
+            <span style={{ color:COLORS.textMuted,fontSize:10 }}>{extractMode==="text"?"(cheap)":extractMode==="vision"?"(max data)":"(balanced)"}</span>
           </div>
         </>}
 
-        {/* Results */}
         {status === "done" && result && (
           <div>
-            {/* Tab bar */}
-            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:12,padding:4,background:"var(--color-surface)",borderRadius:12,border:"1px solid var(--color-border-soft)" }}>
+            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:12,padding:4,background:COLORS.surface,borderRadius:12,border:"1px solid "+COLORS.borderSoft }}>
               {TABS.map(t=>(
-                <button key={t} onClick={()=>setTab(t)} style={{ padding:"5px 11px",borderRadius:8,border:"none",background:tab===t?"var(--color-primary)":"transparent",color:tab===t?"#fff":"var(--color-text-secondary)",fontWeight:600,fontSize:12,cursor:"pointer",textTransform:"capitalize" }}>
+                <button key={t} onClick={()=>setTab(t)} style={{ padding:"5px 11px",borderRadius:8,border:"none",background:tab===t?COLORS.primary:"transparent",color:tab===t?"#fff":COLORS.textSecondary,fontWeight:600,fontSize:12,cursor:"pointer",textTransform:"capitalize" }}>
                   {t==="json"?"Raw JSON":t==="patch"?"🔧 Patch":t}
                 </button>
               ))}
             </div>
 
-            {/* Action buttons */}
             <div style={{ display:"flex",gap:8,marginBottom:16,flexWrap:"wrap" }}>
-              <button onClick={copyJSON} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid var(--color-border)",background:"var(--color-surface)",color:"var(--color-text-secondary)",cursor:"pointer",fontSize:13 }}>{copied?"✓ Copied":"Copy JSON"}</button>
-              <button onClick={downloadJSON} style={{ padding:"7px 12px",borderRadius:8,border:"none",background:"var(--color-success)",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13 }}>⬇ Download JSON</button>
-              <button onClick={()=>{setStatus("idle");setFiles([]);setResult(null);setLogMsg("");}} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid var(--color-border)",background:"var(--color-surface)",color:"var(--color-text-secondary)",cursor:"pointer",fontSize:13 }}>New Report</button>
+              <button onClick={copyJSON} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid "+COLORS.border,background:COLORS.surface,color:COLORS.textSecondary,cursor:"pointer",fontSize:13 }}>{copied?"✓ Copied":"Copy JSON"}</button>
+              <button onClick={downloadJSON} style={{ padding:"7px 12px",borderRadius:8,border:"none",background:COLORS.success,color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13 }}>⬇ Download JSON</button>
+              <button onClick={()=>{setStatus("idle");setFiles([]);setResult(null);setLogMsg("");}} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid "+COLORS.border,background:COLORS.surface,color:COLORS.textSecondary,cursor:"pointer",fontSize:13 }}>New Report</button>
               <button 
                 onClick={() => {
                   if (result) {
@@ -638,18 +625,16 @@ export default function ValyzeExtractor() {
               </button>
             </div>
 
-            {/* SUMMARY */}
             {tab==="summary"&&<div>
               <Sec title="Company Identity" ch={<><F l="Legal Name" v={d.legal_name}/><F l="Trade Names" v={d.trade_names}/><F l="CR / Reg No." v={d.cr_number}/><F l="Unified No." v={d.unified_number}/><F l="Country / City" v={`${d.country||"—"} / ${d.city||"—"}`}/><F l="Industry" v={d.industry}/><F l="Type / Status" v={`${d.company_type||"—"} / ${d.company_status||"—"}`}/><F l="Incorporated" v={d.incorporation_date}/><F l="Capital" v={d.capital}/><F l="Employees" v={d.employee_count}/><F l="Website" v={d.website}/><F l="Email" v={d.email}/><F l="Phone" v={d.phone}/></>}/>
-              <Sec title="Executive Summary" ch={<><div style={{ color:"var(--color-text-secondary)",fontSize:13,lineHeight:1.7,marginBottom:10 }}>{d.executive_summary_text||"—"}</div><div style={{ color:"var(--color-text-muted)",fontSize:12,fontStyle:"italic",lineHeight:1.6 }}>{d.company_history_text}</div></>}/>
+              <Sec title="Executive Summary" ch={<><div style={{ color:COLORS.textSecondary,fontSize:13,lineHeight:1.7,marginBottom:10 }}>{d.executive_summary_text||"—"}</div><div style={{ color:COLORS.textMuted,fontSize:12,fontStyle:"italic",lineHeight:1.6 }}>{d.company_history_text}</div></>}/>
               <Sec title="Key Ratios" ch={<><F l="Current Ratio" v={d.exec_current_ratio}/><F l="Equity Ratio" v={d.exec_equity_ratio}/><F l="EBIT Margin" v={d.exec_ebit_margin}/><F l="Debt/Equity" v={d.exec_debt_equity}/><F l="Net Margin" v={d.exec_profitability}/></>}/>
               <Sec title="Ownership" ch={<><F l="UBO" v={d.ultimate_beneficial_owner}/><F l="Parent" v={d.parent_company}/><F l="Subsidiaries" v={d.subsidiaries}/>{(d.shareholders||[]).map((s,i)=><F key={i} l={`Shareholder ${i+1}`} v={`${s.name} · ${s.percentage}% · ${s.nationality}`}/>)}</>}/>
-              <Sec title="Management" ch={(d.management_team||[]).map((m,i)=><div key={i} style={{ borderBottom:"1px solid var(--color-border-soft)",padding:"8px 0" }}><div style={{ color:"var(--color-info)",fontWeight:600,fontSize:13 }}>{m.name} <span style={{ color:"var(--color-text-muted)" }}>· {m.title}</span></div><div style={{ color:"var(--color-text-secondary)",fontSize:12,marginTop:3 }}>{m.bio}</div></div>)}/>
+              <Sec title="Management" ch={(d.management_team||[]).map((m,i)=><div key={i} style={{ borderBottom:"1px solid "+COLORS.borderSoft,padding:"8px 0" }}><div style={{ color:COLORS.info,fontWeight:600,fontSize:13 }}>{m.name} <span style={{ color:COLORS.textMuted }}>· {m.title}</span></div><div style={{ color:COLORS.textSecondary,fontSize:12,marginTop:3 }}>{m.bio}</div></div>)}/>
             </div>}
 
-            {/* OPERATIONS */}
             {tab==="operations"&&<div>
-              <Sec title="Activities" ch={<div style={{ color:"var(--color-text-secondary)",fontSize:13,lineHeight:1.7 }}>{d.registration_activities_description||d.activities_full_description||"—"}</div>}/>
+              <Sec title="Activities" ch={<div style={{ color:COLORS.textSecondary,fontSize:13,lineHeight:1.7 }}>{d.registration_activities_description||d.activities_full_description||"—"}</div>}/>
               <Sec title="Classification" ch={<><F l="NACE" v={`${d.nace_codes||"—"} — ${d.nace_description||""}`}/><F l="HS Codes" v={`${d.hs_codes||"—"} — ${d.hs_description||""}`}/><F l="SIC" v={d.sic_codes}/></>}/>
               <Sec title="Operations" ch={<><F l="Employees" v={`${d.employee_count||"—"} · ${d.employee_location||""}`}/><F l="Facilities" v={`${d.facilities_count||"—"} · ${d.main_facility_location||""}`}/><F l="Markets" v={`${d.markets_count||"—"} · ${d.markets_regions||""}`}/></>}/>
               <Sec title="Supply Chain — Purchasing" ch={<><F l="Main Suppliers" v={d.main_suppliers}/><F l="Local Sourcing" v={`${d.local_purchasing_pct||0}% — ${d.local_purchasing_detail||""}`}/><F l="Imports" v={`${d.import_purchasing_pct||0}% from ${d.import_countries||"—"}`}/><F l="Items" v={d.import_items}/><F l="Payment" v={`${d.supplier_payment_method||"—"} · ${d.supplier_payment_terms||""}`}/></>}/>
@@ -657,7 +642,6 @@ export default function ValyzeExtractor() {
               <Sec title="Banking" ch={<><F l="Primary Bank" v={d.primary_bank}/><F l="Total Partners" v={d.total_banks}/><F l="Group Treasury" v={d.group_treasury_support}/>{(d.banking_relationships||[]).map((b,i)=><F key={i} l={b.bank_name||`Bank ${i+1}`} v={`${b.facility_type} · ${b.facility_usage}`}/>)}</>}/>
             </div>}
 
-            {/* FINANCIALS */}
             {tab==="financials"&&<div>
               <Sec title="Statement Info" ch={<><F l="Currency" v={d.fin_currency}/><F l="Scale" v={d.fin_unit_scale}/><F l="Type" v={d.fin_statement_type}/><F l="Period End" v={d.fin_period_end}/></>}/>
               <Sec title="Income Statement" ch={<Table cols={["Item",d.year_3||"Y-2",d.year_2||"Y-1",d.year_1||"Latest","Trend"]} rows={[["Revenue",d.revenue_3,d.revenue_2,d.revenue_1,d.revenue_trend],["COGS",d.cogs_3,d.cogs_2,d.cogs_1,d.cogs_trend],["Gross Profit",d.gross_profit_3,d.gross_profit_2,d.gross_profit_1,d.gross_profit_trend],["OPEX",d.opex_3,d.opex_2,d.opex_1,d.opex_trend],["EBITDA",d.ebitda_3,d.ebitda_2,d.ebitda_1,d.ebitda_trend],["Net Income",d.net_income_3,d.net_income_2,d.net_income_1,d.net_income_trend]]}/>}/>
@@ -665,62 +649,55 @@ export default function ValyzeExtractor() {
               <Sec title="Cash Flow" ch={<Table cols={["Item",d.year_3||"Y-2",d.year_2||"Y-1",d.year_1||"Latest","Trend"]} rows={[["Operating",cf.year_3?.cfo||"—",cf.year_2?.cfo||"—",cf.year_1?.cfo||"—",d.cash_flow_operating_trend||"—"],["Investing",cf.year_3?.cfi||"—",cf.year_2?.cfi||"—",cf.year_1?.cfi||"—",d.cash_flow_investing_trend||"—"],["Financing",cf.year_3?.cff||"—",cf.year_2?.cff||"—",cf.year_1?.cff||"—",d.cash_flow_financing_trend||"—"],["Cash at End",cf.year_3?.cash_end||"—",cf.year_2?.cash_end||"—",cf.year_1?.cash_end||"—",d.cash_flow_end_trend||"—"]]}/>}/>
             </div>}
 
-            {/* RATIOS */}
             {tab==="ratios"&&<div>
               {[["Liquidity",[["Current Ratio",d.current_ratio,d.current_ratio_industry,d.current_ratio_label,d.current_ratio_interpretation],["Quick Ratio",d.quick_ratio,d.quick_ratio_industry,d.quick_ratio_label,d.quick_ratio_interpretation]]],["Profitability",[["Gross Margin",`${d.gross_margin||"—"}%`,`${d.gross_margin_industry||"—"}%`,d.gross_margin_label,d.gross_margin_interpretation],["EBITDA Margin",`${d.ebitda_margin||"—"}%`,`${d.ebitda_margin_industry||"—"}%`,d.ebitda_margin_label,d.ebitda_margin_interpretation],["EBIT Margin",`${d.ebit_margin||"—"}%`,`${d.ebit_margin_industry||"—"}%`,d.ebit_margin_label,d.ebit_margin_interpretation],["Net Margin",`${d.net_margin||"—"}%`,`${d.net_margin_industry||"—"}%`,d.net_margin_label,d.net_margin_interpretation]]],["Leverage",[["Debt/Equity",d.debt_equity,d.debt_equity_industry,d.debt_equity_label,d.debt_equity_interpretation],["Equity Ratio",`${d.equity_ratio||"—"}%`,`${d.equity_ratio_industry||"—"}%`,d.equity_ratio_label,d.equity_ratio_interpretation]]],["Efficiency",[["Asset Turnover",d.asset_turnover,d.asset_turnover_industry,d.asset_turnover_label,d.asset_turnover_interpretation],["DSO",`${d.dso||"—"}d`,`${d.dso_industry||"—"}d`,d.dso_label,d.dso_interpretation],["DPO",`${d.dpo||"—"}d`,`${d.dpo_industry||"—"}d`,d.dpo_label,d.dpo_interpretation]]]].map(([title,rows])=>(
-                <Sec key={title} title={`${title} Ratios`} ch={rows.map(([l,v,ind,lbl,interp])=><div key={l} style={{ borderBottom:"1px solid var(--color-border-soft)",padding:"8px 0" }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}><span style={{ color:"var(--color-text-muted)" }}>{l}</span><span style={{ color:"var(--color-text)",fontWeight:600 }}>{v??"—"}</span></div><div style={{ fontSize:12,color:"var(--color-text-secondary)",marginTop:2 }}>Industry avg: {ind??"—"} · {lbl??"—"}</div>{interp&&<div style={{ fontSize:11,color:"var(--color-text-muted)",marginTop:2 }}>{interp}</div>}</div>)}/>
+                <Sec key={title} title={`${title} Ratios`} ch={rows.map(([l,v,ind,lbl,interp])=><div key={l} style={{ borderBottom:"1px solid "+COLORS.borderSoft,padding:"8px 0" }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}><span style={{ color:COLORS.textMuted }}>{l}</span><span style={{ color:COLORS.text,fontWeight:600 }}>{v??"—"}</span></div><div style={{ fontSize:12,color:COLORS.textSecondary,marginTop:2 }}>Industry avg: {ind??"—"} · {lbl??"—"}</div>{interp&&<div style={{ fontSize:11,color:COLORS.textMuted,marginTop:2 }}>{interp}</div>}</div>)}/>
               ))}
             </div>}
 
-            {/* RISK */}
             {tab==="risk"&&<div>
-              <Sec title="Credit Rating" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:28,fontWeight:800 }}>{d.credit_rating||"—"}</div><div style={{ color:"var(--color-text-secondary)",fontSize:12 }}>Credit Rating</div></div><Badge v={d.risk_level} color={d.risk_color}/></div><Bar label="Health Score" val={d.health_score} color={d.viability_color}/><Bar label="Viability Score" val={d.viability_score} color={d.viability_color}/><Bar label="Payment Score" val={d.payment_score} color={d.payment_color}/><Bar label="Delinquency Risk" val={d.delinquency_score} color={d.delinquency_color} invert/><Bar label="Failure Risk" val={d.failure_score} color={d.failure_color} invert/><F l="PAYDEX" v={d.paydex_score}/><F l="Company Size" v={d.company_size}/><F l="Annual Revenue" v={d.annual_revenue}/></>}/>
+              <Sec title="Credit Rating" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:28,fontWeight:800 }}>{d.credit_rating||"—"}</div><div style={{ color:COLORS.textSecondary,fontSize:12 }}>Credit Rating</div></div><Badge v={d.risk_level} color={d.risk_color}/></div><Bar label="Health Score" val={d.health_score} color={d.viability_color}/><Bar label="Viability Score" val={d.viability_score} color={d.viability_color}/><Bar label="Payment Score" val={d.payment_score} color={d.payment_color}/><Bar label="Delinquency Risk" val={d.delinquency_score} color={d.delinquency_color} invert/><Bar label="Failure Risk" val={d.failure_score} color={d.failure_color} invert/><F l="PAYDEX" v={d.paydex_score}/><F l="Company Size" v={d.company_size}/><F l="Annual Revenue" v={d.annual_revenue}/></>}/>
               <Sec title="Payment Behavior" ch={<><F l="Avg Days Beyond Terms" v={d.avg_dbt!=null?`${d.avg_dbt} days`:null}/><F l="% On Time" v={d.pct_on_time!=null?`${d.pct_on_time}%`:null}/><F l="Prompt" v={d.prompt_pct!=null?`${d.prompt_pct}% · ${d.prompt_amount}`:null}/><F l="1–30 Days Slow" v={d.slow_30_pct!=null?`${d.slow_30_pct}% · ${d.slow_30_amount}`:null}/><F l="90+ Days Slow" v={d.slow_90plus_pct!=null?`${d.slow_90plus_pct}% · ${d.slow_90plus_amount}`:null}/></>}/>
               <Sec title="Alerts" ch={(d.alerts||[]).map((a,i)=><div key={i} style={{ background:a.alert_type==="danger"?"rgba(239,68,68,0.1)":a.alert_type==="warning"?"rgba(245,158,11,0.1)":a.alert_type==="success"?"rgba(16,185,129,0.1)":"rgba(59,130,246,0.1)",borderRadius:8,padding:"8px 12px",marginBottom:6,fontSize:13,border:"1px solid",borderColor:a.alert_type==="danger"?"rgba(239,68,68,0.2)":a.alert_type==="warning"?"rgba(245,158,11,0.2)":a.alert_type==="success"?"rgba(16,185,129,0.2)":"rgba(59,130,246,0.2)" }}>{a.alert_icon} {a.alert_message}</div>)}/>
             </div>}
 
-            {/* LEGAL */}
             {tab==="legal"&&<div>
-              <Sec title="Legal Summary" ch={[["Lawsuits",d.lawsuit_count,d.lawsuit_amount,d.lawsuit_status],["Liens",d.lien_count,d.lien_amount,d.lien_status],["Judgments",d.judgment_count,d.judgment_amount,d.judgment_status]].map(([t,c,a,s])=><div key={t} style={{ borderBottom:"1px solid var(--color-border-soft)",padding:"8px 0" }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}><span style={{ color:"var(--color-text-muted)" }}>{t}</span><span>Count: {c??"—"} · {a||"—"}</span></div><div style={{ fontSize:12,color:"var(--color-text-secondary)" }}>Status: {s||"—"}</div></div>)}/>
+              <Sec title="Legal Summary" ch={[["Lawsuits",d.lawsuit_count,d.lawsuit_amount,d.lawsuit_status],["Liens",d.lien_count,d.lien_amount,d.lien_status],["Judgments",d.judgment_count,d.judgment_amount,d.judgment_status]].map(([t,c,a,s])=><div key={t} style={{ borderBottom:"1px solid "+COLORS.borderSoft,padding:"8px 0" }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}><span style={{ color:COLORS.textMuted }}>{t}</span><span>Count: {c??"—"} · {a||"—"}</span></div><div style={{ fontSize:12,color:COLORS.textSecondary }}>Status: {s||"—"}</div></div>)}/>
               <Sec title="Compliance" ch={<><F l="License" v={`${d.license_status||"—"} (exp: ${d.license_expiry||"—"})`}/><F l="Tax Status" v={d.tax_status}/></>}/>
-              {(d.legal_details||[]).length>0&&<Sec title="Legal Details" ch={(d.legal_details).map((l,i)=><div key={i} style={{ background:"var(--color-surface)",borderRadius:8,padding:12,marginBottom:8,fontSize:13,border:"1px solid var(--color-border-soft)" }}><strong style={{ color:"var(--color-info)" }}>{l.event_type} · {l.event_date}</strong><div style={{ color:"var(--color-text-secondary)",marginTop:4 }}>{l.event_description}</div></div>)}/>}
+              {(d.legal_details||[]).length>0&&<Sec title="Legal Details" ch={(d.legal_details).map((l,i)=><div key={i} style={{ background:COLORS.surface,borderRadius:8,padding:12,marginBottom:8,fontSize:13,border:"1px solid "+COLORS.borderSoft }}><strong style={{ color:COLORS.info }}>{l.event_type} · {l.event_date}</strong><div style={{ color:COLORS.textSecondary,marginTop:4 }}>{l.event_description}</div></div>)}/>}
             </div>}
 
-            {/* NEWS */}
             {tab==="news"&&<div>
-              <Sec title="News & Events (2024+)" ch={!(d.news_events||[]).length?<div style={{ color:"var(--color-text-muted)",fontSize:13 }}>No 2024+ news found.</div>:(d.news_events).map((n,i)=><div key={i} style={{ background:"var(--color-surface)",borderRadius:8,padding:"10px 14px",marginBottom:8,fontSize:13,border:"1px solid var(--color-border-soft)" }}><div style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}><span style={{ color:"var(--color-text-muted)",fontSize:11 }}>{n.event_date}</span><span style={{ background:n.event_sentiment==="positive"?"rgba(16,185,129,0.1)":n.event_sentiment==="negative"?"rgba(239,68,68,0.1)":"rgba(59,130,246,0.1)",color:"var(--color-text)",borderRadius:4,padding:"1px 8px",fontSize:11 }}>{n.event_sentiment_label}</span></div><strong style={{ color:"var(--color-info)" }}>{n.event_title}</strong><div style={{ color:"var(--color-text-secondary)",marginTop:4 }}>{n.event_summary}</div></div>)}/>
+              <Sec title="News & Events (2024+)" ch={!(d.news_events||[]).length?<div style={{ color:COLORS.textMuted,fontSize:13 }}>No 2024+ news found.</div>:(d.news_events).map((n,i)=><div key={i} style={{ background:COLORS.surface,borderRadius:8,padding:"10px 14px",marginBottom:8,fontSize:13,border:"1px solid "+COLORS.borderSoft }}><div style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}><span style={{ color:COLORS.textMuted,fontSize:11 }}>{n.event_date}</span><span style={{ background:n.event_sentiment==="positive"?"rgba(16,185,129,0.1)":n.event_sentiment==="negative"?"rgba(239,68,68,0.1)":"rgba(59,130,246,0.1)",color:COLORS.text,borderRadius:4,padding:"1px 8px",fontSize:11 }}>{n.event_sentiment_label}</span></div><strong style={{ color:COLORS.info }}>{n.event_title}</strong><div style={{ color:COLORS.textSecondary,marginTop:4 }}>{n.event_summary}</div></div>)}/>
             </div>}
 
-            {/* RECOMMENDATION */}
             {tab==="recommendation"&&<div>
-              <Sec title="Credit Decision" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:26,fontWeight:800 }}>{d.final_credit_rating||"—"}</div><div style={{ color:"var(--color-text-secondary)",fontSize:12 }}>Final Rating</div></div><Badge v={d.final_risk_level} color={d.final_risk_color}/></div><F l="Credit Limit (USD)" v={d.recommended_credit_limit}/><F l="Max Exposure (USD)" v={d.maximum_exposure}/><F l="Payment Terms" v={d.recommended_payment_terms}/><F l="Review Frequency" v={d.review_frequency}/><F l="Collateral" v={d.collateral_requirements}/>{d.credit_opinion_text&&<div style={{ background:"var(--color-surface)",borderRadius:8,padding:14,marginTop:12,fontSize:13,color:"var(--color-text-secondary)",lineHeight:1.7,border:"1px solid var(--color-border-soft)" }}><strong style={{ color:"var(--color-info)",display:"block",marginBottom:6 }}>📋 Credit Opinion</strong>{d.credit_opinion_text}</div>}</>}/>
-              {(d.risk_mitigations||[]).length>0&&<Sec title="Risk Mitigations" ch={(d.risk_mitigations).map((m,i)=><div key={i} style={{ borderBottom:"1px solid var(--color-border-soft)",padding:"8px 0" }}><div style={{ color:"var(--color-info)",fontSize:13,fontWeight:600 }}>{m.strategy}</div><div style={{ color:"var(--color-text-secondary)",fontSize:12 }}>{m.expected_outcome}</div></div>)}/>}
-              <Sec title="Monitoring Triggers" ch={(d.monitoring_triggers||[]).map((t,i)=><div key={i} style={{ borderBottom:"1px solid var(--color-border-soft)",padding:"8px 0" }}><div style={{ color:"var(--color-warning)",fontSize:13,fontWeight:600 }}>⚠️ {t.trigger_event}</div><div style={{ color:"var(--color-text-secondary)",fontSize:12 }}>{t.trigger_action}</div></div>)}/>
+              <Sec title="Credit Decision" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:26,fontWeight:800 }}>{d.final_credit_rating||"—"}</div><div style={{ color:COLORS.textSecondary,fontSize:12 }}>Final Rating</div></div><Badge v={d.final_risk_level} color={d.final_risk_color}/></div><F l="Credit Limit (USD)" v={d.recommended_credit_limit}/><F l="Max Exposure (USD)" v={d.maximum_exposure}/><F l="Payment Terms" v={d.recommended_payment_terms}/><F l="Review Frequency" v={d.review_frequency}/><F l="Collateral" v={d.collateral_requirements}/>{d.credit_opinion_text&&<div style={{ background:COLORS.surface,borderRadius:8,padding:14,marginTop:12,fontSize:13,color:COLORS.textSecondary,lineHeight:1.7,border:"1px solid "+COLORS.borderSoft }}><strong style={{ color:COLORS.info,display:"block",marginBottom:6 }}>📋 Credit Opinion</strong>{d.credit_opinion_text}</div>}</>}/>
+              {(d.risk_mitigations||[]).length>0&&<Sec title="Risk Mitigations" ch={(d.risk_mitigations).map((m,i)=><div key={i} style={{ borderBottom:"1px solid "+COLORS.borderSoft,padding:"8px 0" }}><div style={{ color:COLORS.info,fontSize:13,fontWeight:600 }}>{m.strategy}</div><div style={{ color:COLORS.textSecondary,fontSize:12 }}>{m.expected_outcome}</div></div>)}/>}
+              <Sec title="Monitoring Triggers" ch={(d.monitoring_triggers||[]).map((t,i)=><div key={i} style={{ borderBottom:"1px solid "+COLORS.borderSoft,padding:"8px 0" }}><div style={{ color:COLORS.warning,fontSize:13,fontWeight:600 }}>⚠️ {t.trigger_event}</div><div style={{ color:COLORS.textSecondary,fontSize:12 }}>{t.trigger_action}</div></div>)}/>
             </div>}
 
-            {/* JSON */}
-            {tab==="json"&&<div style={{ background:"var(--color-surface)",border:"1px solid var(--color-border-soft)",borderRadius:10,padding:18 }}><pre style={{ color:"var(--color-success)",fontSize:11,overflowX:"auto",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-word" }}>{JSON.stringify(result,null,2)}</pre></div>}
+            {tab==="json"&&<div style={{ background:COLORS.surface,border:"1px solid "+COLORS.borderSoft,borderRadius:10,padding:18 }}><pre style={{ color:COLORS.success,fontSize:11,overflowX:"auto",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-word" }}>{JSON.stringify(result,null,2)}</pre></div>}
 
-            {/* PATCH */}
             {tab==="patch"&&(
               <div>
-                <div style={{ background:"var(--color-surface)",border:"1px solid rgba(59,130,246,0.3)",borderRadius:10,padding:18,marginBottom:14 }}>
-                  <div style={{ color:"var(--color-info)",fontSize:12,fontWeight:700,marginBottom:10 }}>🔧 PASTE YOUR JSON</div>
+                <div style={{ background:COLORS.surface,border:"1px solid rgba(59,130,246,0.3)",borderRadius:10,padding:18,marginBottom:14 }}>
+                  <div style={{ color:COLORS.info,fontSize:12,fontWeight:700,marginBottom:10 }}>🔧 PASTE YOUR JSON</div>
                   <textarea value={patchJSON} onChange={e=>setPatchJSON(e.target.value)} placeholder="Paste your credit report JSON here..."
-                    style={{ width:"100%",minHeight:180,background:"var(--color-background)",border:"1px solid var(--color-border)",borderRadius:8,color:"var(--color-success)",fontSize:11,padding:12,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box" }}/>
-                  {result&&<button onClick={()=>setPatchJSON(JSON.stringify(result,null,2))} style={{ marginTop:8,padding:"5px 12px",borderRadius:6,border:"none",background:"rgba(59,130,246,0.2)",color:"var(--color-info)",cursor:"pointer",fontSize:12 }}>↑ Load current report JSON</button>}
+                    style={{ width:"100%",minHeight:180,background:COLORS.background,border:"1px solid "+COLORS.border,borderRadius:8,color:COLORS.success,fontSize:11,padding:12,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box" }}/>
+                  {result&&<button onClick={()=>setPatchJSON(JSON.stringify(result,null,2))} style={{ marginTop:8,padding:"5px 12px",borderRadius:6,border:"none",background:"rgba(59,130,246,0.2)",color:COLORS.info,cursor:"pointer",fontSize:12 }}>↑ Load current report JSON</button>}
                 </div>
-                <div style={{ background:"var(--color-surface)",border:"1px solid var(--color-border-soft)",borderRadius:10,padding:18,marginBottom:14 }}>
-                  <div style={{ color:"var(--color-warning)",fontSize:12,fontWeight:700,marginBottom:10 }}>📋 PATCH INSTRUCTIONS</div>
+                <div style={{ background:COLORS.surface,border:"1px solid "+COLORS.borderSoft,borderRadius:10,padding:18,marginBottom:14 }}>
+                  <div style={{ color:COLORS.warning,fontSize:12,fontWeight:700,marginBottom:10 }}>📋 PATCH INSTRUCTIONS</div>
                   <textarea value={patchInstructions} onChange={e=>setPatchInstructions(e.target.value)}
                     placeholder={"## WRONG VALUES\n1. \"field\": \"old\" → \"new\"\n\n## EMPTY FIELDS\n2. \"field\": \"\" → \"value\"\n\n## ADD NEW FIELDS\n3. Add after \"field\":\n   \"new_field\": \"value\""}
-                    style={{ width:"100%",minHeight:240,background:"var(--color-background)",border:"1px solid var(--color-border)",borderRadius:8,color:"var(--color-text)",fontSize:12,padding:12,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box" }}/>
+                    style={{ width:"100%",minHeight:240,background:COLORS.background,border:"1px solid "+COLORS.border,borderRadius:8,color:COLORS.text,fontSize:12,padding:12,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box" }}/>
                 </div>
-                {patchStatus==="error"&&<div style={{ background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:8,padding:12,marginBottom:12,color:"var(--color-danger)",fontSize:13 }}>⚠️ {patchError}</div>}
-                {patchStatus==="done"&&<div style={{ background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:8,padding:12,marginBottom:12,color:"var(--color-success)",fontSize:13 }}>✓ JSON patched! Switched to Raw JSON tab — download to save.</div>}
-                {patchStatus==="loading"&&<div style={{ background:"var(--color-surface)",border:"1px solid var(--color-border-soft)",borderRadius:8,padding:10,marginBottom:12,color:"var(--color-text-secondary)",fontSize:13,textAlign:"center" }}>⚙️ Applying patches with Haiku…</div>}
+                {patchStatus==="error"&&<div style={{ background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:8,padding:12,marginBottom:12,color:COLORS.danger,fontSize:13 }}>⚠️ {patchError}</div>}
+                {patchStatus==="done"&&<div style={{ background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:8,padding:12,marginBottom:12,color:COLORS.success,fontSize:13 }}>✓ JSON patched! Switched to Raw JSON tab — download to save.</div>}
+                {patchStatus==="loading"&&<div style={{ background:COLORS.surface,border:"1px solid "+COLORS.borderSoft,borderRadius:8,padding:10,marginBottom:12,color:COLORS.textSecondary,fontSize:13,textAlign:"center" }}>⚙️ Applying patches with Haiku…</div>}
                 <button onClick={runPatch} disabled={!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"}
-                  style={{ width:"100%",padding:13,borderRadius:10,border:"none",background:!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"?"var(--color-surface)":"linear-gradient(135deg,var(--color-warning),#d97706)",color:!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"?"var(--color-text-muted)":"#fff",fontWeight:700,fontSize:15,cursor:patchStatus==="loading"?"default":"pointer" }}>
+                  style={{ width:"100%",padding:13,borderRadius:10,border:"none",background:!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"?COLORS.surface:"linear-gradient(135deg,"+COLORS.warning+",#d97706)",color:!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"?COLORS.textMuted:"#fff",fontWeight:700,fontSize:15,cursor:patchStatus==="loading"?"default":"pointer" }}>
                   {patchStatus==="loading"?"Applying patches...":"🔧 Apply Patches"}
                 </button>
               </div>
