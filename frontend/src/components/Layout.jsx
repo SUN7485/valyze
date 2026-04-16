@@ -1,10 +1,11 @@
 import React from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useDarkMode } from '../hooks/useDarkMode'
-import { Sun, Moon, Info, Shield } from 'lucide-react'
+import { Sun, Moon, Info, Shield, FileText } from 'lucide-react'
 
 export default function Layout({ children }) {
     const { darkMode, toggleDarkMode } = useDarkMode()
+    const location = useLocation()
 
     return (
         <div className="min-h-screen bg-[var(--color-background)] dark:bg-dark-bg text-[var(--color-text)] transition-colors duration-300">
@@ -28,6 +29,18 @@ export default function Layout({ children }) {
                             <Info size={11} className="text-primary" />
                             System Active • v2.0
                         </div>
+
+                        <Link 
+                            to="/reports" 
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${
+                                location.pathname === '/reports' 
+                                    ? 'bg-primary text-white shadow-md shadow-primary/20' 
+                                    : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary'
+                            }`}
+                        >
+                            <FileText size={14} />
+                            Reports
+                        </Link>
 
                         {/* Theme Toggle */}
                         <button

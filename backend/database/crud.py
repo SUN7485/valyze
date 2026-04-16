@@ -22,6 +22,7 @@ from models.report_schema import FullReport, build_empty_report
 # Report CRUD
 # ---------------------------------------------------------------------------
 
+
 async def create_report(
     db: AsyncSession,
     report_id: str,
@@ -137,17 +138,31 @@ async def get_all_reports(db: AsyncSession) -> List[dict]:
             "id": row.id,
             "status": row.status,
             "created_at": row.created_at.isoformat() if row.created_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
-        # Try to pull company_name from JSON
+        # Extract all key fields from JSON
         if row.report_json:
             try:
                 data = json.loads(row.report_json)
-                company_field = data.get("fields", {}).get("company_name", {})
-                info["company_name"] = company_field.get("value")
+                fields = data.get("fields", {})
+                # Extract all important fields
+                field_keys = [
+                    "company_name",
+                    "legal_name",
+                    "cr_number",
+                    "client_reference",
+                    "country",
+                    "analyst",
+                ]
+                for key in field_keys:
+                    field_data = fields.get(key, {})
+                    info[key] = (
+                        field_data.get("value")
+                        if isinstance(field_data, dict)
+                        else None
+                    )
             except (json.JSONDecodeError, AttributeError):
-                info["company_name"] = None
-        else:
-            info["company_name"] = None
+                pass
         reports.append(info)
     return reports
 
@@ -157,9 +172,7 @@ async def delete_report(db: AsyncSession, report_id: str) -> bool:
     await db.execute(
         delete(UploadedFileRow).where(UploadedFileRow.report_id == report_id)
     )
-    result = await db.execute(
-        delete(ReportRow).where(ReportRow.id == report_id)
-    )
+    result = await db.execute(delete(ReportRow).where(ReportRow.id == report_id))
     await db.commit()
     return result.rowcount > 0
 
@@ -187,6 +200,7 @@ async def save_report_json(
     except Exception as e:
         print(f"[SAVE] ERROR in save_report_json: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -203,6 +217,7 @@ async def get_report_json(db: AsyncSession, report_id: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Uploaded files helpers
 # ---------------------------------------------------------------------------
+
 
 async def add_uploaded_file(
     db: AsyncSession,
@@ -226,9 +241,7 @@ async def add_uploaded_file(
     return row
 
 
-async def get_uploaded_files(
-    db: AsyncSession, report_id: str
-) -> List[UploadedFileRow]:
+async def get_uploaded_files(db: AsyncSession, report_id: str) -> List[UploadedFileRow]:
     """Return all uploaded file records for a report."""
     result = await db.execute(
         select(UploadedFileRow).where(UploadedFileRow.report_id == report_id)
@@ -236,9 +249,7 @@ async def get_uploaded_files(
     return list(result.scalars().all())
 
 
-async def delete_uploaded_file(
-    db: AsyncSession, report_id: str, filename: str
-) -> bool:
+async def delete_uploaded_file(db: AsyncSession, report_id: str, filename: str) -> bool:
     """Delete a single uploaded file record by report_id and filename."""
     result = await db.execute(
         delete(UploadedFileRow).where(
@@ -254,6 +265,7 @@ async def delete_uploaded_file(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 async def _save_report(db: AsyncSession, report_id: str, report: FullReport):
     """Persist the full report JSON back to the database."""
     await db.execute(
@@ -266,6 +278,21 @@ async def _save_report(db: AsyncSession, report_id: str, report: FullReport):
         )
     )
     await db.commit()
+
+
+async def save_report_json(db: AsyncSession, report_id: str, json_data: Any) -> bool:
+    """Save raw JSON data to report. Accepts FullReport object or dict."""
+    try:
+        if isinstance(json_data, dict):
+            report = FullReport.model_validate(json_data)
+        else:
+            report = FullReport.model_validate_json(json_data)
+
+        await _save_report(db, report_id, report)
+        return True
+    except Exception as e:
+        print(f"[CRUD] Error saving report JSON: {e}")
+        return False
 
 
 def _calc_stats(report: FullReport):

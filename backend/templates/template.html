@@ -1483,16 +1483,20 @@
           <th style="width:30%;">Codes</th>
           <th>Description</th>
         </tr>
+        {{#nace_codes}}
         <tr>
           <td><strong>NACE Codes</strong></td>
           <td>{{nace_codes}}</td>
           <td>{{nace_description}}</td>
         </tr>
+        {{/nace_codes}}
+        {{#hs_codes}}
         <tr>
           <td><strong>HS Codes (6-digit)</strong></td>
           <td>{{hs_codes}}</td>
           <td>{{hs_description}}</td>
         </tr>
+        {{/hs_codes}}
       </table>
     </div>
 
@@ -1500,47 +1504,63 @@
     <div class="subsection" style="page-break-before:avoid;">
       <div class="subsection-title">Operational Details</div>
       <div class="metrics-row">
+        {{#employee_count}}
         <div class="metric-box">
           <div class="metric-label">Employees</div>
           <div class="metric-value">{{employee_count}}</div>
           <div class="metric-subtext">{{employee_location}}</div>
         </div>
+        {{/employee_count}}
+        {{#facilities_count}}
         <div class="metric-box">
           <div class="metric-label">Facilities</div>
           <div class="metric-value">{{facilities_count}}</div>
           <div class="metric-subtext">{{main_facility_location}}</div>
         </div>
+        {{/facilities_count}}
+        {{#markets_count}}
         <div class="metric-box">
           <div class="metric-label">Markets Served</div>
           <div class="metric-value">{{markets_count}}</div>
           <div class="metric-subtext">{{markets_regions}}</div>
         </div>
+        {{/markets_count}}
       </div>
     </div>
 
+    {{#show_physical_assets}}
     <!-- Physical Assets -->
     <div class="subsection">
       <div class="subsection-title">Physical Assets</div>
       <div class="metrics-row">
+        {{#premises_type}}
         <div class="metric-box">
           <div class="metric-label">Premises</div>
           <div class="metric-value">{{premises_type}}</div>
           <div class="metric-subtext">{{premises_size}} • {{premises_owned_rental}}</div>
         </div>
+        {{/premises_type}}
+        {{#vehicles}}
         <div class="metric-box">
           <div class="metric-label">Vehicles</div>
           <div class="metric-value">{{vehicles}}</div>
         </div>
+        {{/vehicles}}
+        {{#equipment}}
         <div class="metric-box">
           <div class="metric-label">Equipment</div>
           <div class="metric-value">{{equipment}}</div>
         </div>
+        {{/equipment}}
+        {{#brands}}
         <div class="metric-box">
           <div class="metric-label">Brands</div>
           <div class="metric-value">{{brands}}</div>
         </div>
+        {{/brands}}
       </div>
     </div>
+    {{/show_physical_assets}}
 
     <!-- ── SUPPLY CHAIN: Purchasing vs Sales ── -->
     <div class="subsection" style="margin-bottom:10px;page-break-before:avoid;">
@@ -1554,11 +1574,14 @@
           <div class="sc-panel-header purchasing">📥 Purchasing (Inbound)</div>
           <div class="sc-panel-body">
 
+            {{#main_suppliers}}
             <div class="sc-row">
               <div class="sc-row-label">Main Suppliers:</div>
               <div class="sc-row-value">{{main_suppliers}}</div>
             </div>
+            {{/main_suppliers}}
 
+            {{#local_purchasing_pct}}
             <div class="sc-row">
               <div class="sc-row-label">Local Sourcing:</div>
               <div class="sc-row-value">
@@ -1566,7 +1589,9 @@
                 {{local_purchasing_detail}}
               </div>
             </div>
+            {{/local_purchasing_pct}}
 
+            {{#import_purchasing_pct}}
             <div class="sc-row">
               <div class="sc-row-label">Importing:</div>
               <div class="sc-row-value">
@@ -1574,28 +1599,37 @@
                 {{import_countries}}
               </div>
             </div>
+            {{/import_purchasing_pct}}
 
+            {{#import_items}}
             <div class="sc-row">
               <div class="sc-row-label">Imported Items:</div>
               <div class="sc-row-value">{{import_items}}</div>
             </div>
+            {{/import_items}}
 
+            {{#supplier_payment_method}}
             <div class="sc-row">
               <div class="sc-row-label">Payment Method:</div>
               <div class="sc-row-value">
                 <span class="sc-badge payment">{{supplier_payment_method}}</span>
               </div>
             </div>
+            {{/supplier_payment_method}}
 
+            {{#supplier_payment_terms}}
             <div class="sc-row">
               <div class="sc-row-label">Payment Terms:</div>
               <div class="sc-row-value">{{supplier_payment_terms}}</div>
             </div>
+            {{/supplier_payment_terms}}
 
+            {{#suppliers_number}}
             <div class="sc-row">
               <div class="sc-row-label">Suppliers:</div>
               <div class="sc-row-value">{{suppliers_number}}</div>
             </div>
+            {{/suppliers_number}}
 
           </div>
         </div>
@@ -1607,11 +1641,14 @@
           <div class="sc-panel-header sales">📤 Sales (Outbound)</div>
           <div class="sc-panel-body">
 
+            {{#key_customers}}
             <div class="sc-row">
               <div class="sc-row-label">Key Customers:</div>
               <div class="sc-row-value">{{key_customers}}</div>
             </div>
+            {{/key_customers}}
 
+            {{#local_sales_pct}}
             <div class="sc-row">
               <div class="sc-row-label">Local Sales:</div>
               <div class="sc-row-value">
@@ -1619,7 +1656,9 @@
                 {{local_sales_detail}}
               </div>
             </div>
+            {{/local_sales_pct}}
 
+            {{#export_sales_pct}}
             <div class="sc-row">
               <div class="sc-row-label">Export:</div>
               <div class="sc-row-value">
@@ -1627,28 +1666,37 @@
                 {{export_countries}}
               </div>
             </div>
+            {{/export_sales_pct}}
 
+            {{#export_items}}
             <div class="sc-row">
               <div class="sc-row-label">Exported Items:</div>
               <div class="sc-row-value">{{export_items}}</div>
             </div>
+            {{/export_items}}
 
+            {{#customer_payment_method}}
             <div class="sc-row">
               <div class="sc-row-label">Payment Method:</div>
               <div class="sc-row-value">
                 <span class="sc-badge payment">{{customer_payment_method}}</span>
               </div>
             </div>
+            {{/customer_payment_method}}
 
+            {{#customer_payment_terms}}
             <div class="sc-row">
               <div class="sc-row-label">Payment Terms:</div>
               <div class="sc-row-value">{{customer_payment_terms}}</div>
             </div>
+            {{/customer_payment_terms}}
 
+            {{#clients_number}}
             <div class="sc-row">
               <div class="sc-row-label">Clients:</div>
               <div class="sc-row-value">{{clients_number}}</div>
             </div>
+            {{/clients_number}}
 
           </div>
         </div>

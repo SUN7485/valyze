@@ -126,7 +126,7 @@ class PDFGenerator:
                 val = val.value
             elif isinstance(val, dict):
                 val = val.get("value")
-            if val and str(val).strip() and str(val).strip() not in ("N/A", ""):
+            if val and str(val).strip() and str(val).strip().upper() not in ("N/A", ""):
                 return True
         return False
 
@@ -463,7 +463,11 @@ class PDFGenerator:
                 v = f.get("value")
             else:
                 v = f
-            if v is None or v == "":
+
+            is_empty = (
+                v is None or str(v).strip() == "" or str(v).strip().upper() == "N/A"
+            )
+            if is_empty:
                 return "" if hide_empty else default
             return v
 
@@ -610,7 +614,7 @@ class PDFGenerator:
             "auditor_name": gf("auditor_name"),
             "sic_codes": gf("sic_codes"),
             "industry": gf("industry"),
-            "employee_count": gf("employee_count"),
+            "employee_count": gf("employee_count", "N/A", True),
             # -- CURRENCY (FIXED) -----------------------------------------
             "currency": fin_currency,
             "fin_currency": fin_currency,
@@ -671,14 +675,14 @@ class PDFGenerator:
                 "registration_activities_description", gf("core_activities_description")
             ),
             "activities_full_description": gf("activities_full_description"),
-            "nace_codes": gf("nace_codes"),
+            "nace_codes": gf("nace_codes", "N/A", True),
             "nace_description": gf("nace_description"),
-            "hs_codes": gf("hs_codes"),
+            "hs_codes": gf("hs_codes", "N/A", True),
             "hs_description": gf("hs_description"),
             "employee_location": gf("employee_location"),
-            "facilities_count": gf("facilities_count"),
+            "facilities_count": gf("facilities_count", "N/A", True),
             "main_facility_location": gf("main_facility_location"),
-            "markets_count": gf("markets_count"),
+            "markets_count": gf("markets_count", "N/A", True),
             "markets_regions": gf("markets_regions"),
             "main_suppliers": gf("main_suppliers", "N/A", True),
             "key_customers": gf("key_customers", "N/A", True),
@@ -702,7 +706,17 @@ class PDFGenerator:
             "show_supply_chain_purchasing": has_purchasing,
             "show_supply_chain_sales": has_sales,
             "show_registration_licenses": show_registration,
-            # Add the new fields too
+            "show_physical_assets": self._has_field_data(
+                fields,
+                [
+                    "premises_type",
+                    "premises_size",
+                    "premises_owned_rental",
+                    "vehicles",
+                    "equipment",
+                    "brands",
+                ],
+            ),
             "premises_type": gf("premises_type", "N/A", True),
             "premises_size": gf("premises_size", "N/A", True),
             "premises_owned_rental": gf("premises_owned_rental", "N/A", True),
@@ -1119,8 +1133,73 @@ class PDFGenerator:
         return result
 
     # -----------------------------------------------------------------
+    # -----------------------------------------------------------------
     # RENDER HTML
     # -----------------------------------------------------------------
+
+    def _prune_empty_html_nodes(self, html_content: str) -> str:
+        """Surgically strip elements evaluating to N/A using lxml."""
+        try:
+            import lxml.html
+
+            tree = lxml.html.fromstring(html_content)
+
+            # Find all nodes containing exactly "N/A"
+            for node in tree.xpath(
+                "//*[normalize-space(text())='N/A' or normalize-space(text())='n/a']"
+            ):
+                classes = set(node.attrib.get("class", "").split())
+
+                # Check if it's a value container
+                if node.tag == "td" or any(
+                    c in classes
+                    for c in [
+                        "info-value",
+                        "metric-value",
+                        "reg-value",
+                        "sc-value",
+                        "value",
+                    ]
+                ):
+                    # Traverse upwards to find the row wrapper
+                    container = node.getparent()
+                    valid_container = False
+                    while container is not None and container.tag != "body":
+                        c_classes = set(container.attrib.get("class", "").split())
+                        if container.tag == "tr" or any(
+                            c in c_classes
+                            for c in [
+                                "info-row",
+                                "metric-box",
+                                "reg-row",
+                                "sc-row",
+                                "summary-item",
+                            ]
+                        ):
+                            valid_container = True
+                            break
+                        container = container.getparent()
+
+                    if (
+                        container is not None
+                        and valid_container
+                        and container.getparent() is not None
+                    ):
+                        container.getparent().remove(container)
+
+            # Structural deletion passes (wrapper and subsection deletion) have been reverted
+            # to guarantee that valid text-only sections (like the Alerts or Disclaimers) are not deleted.
+
+            return lxml.html.tostring(tree, encoding="unicode", method="html")
+        except ImportError:
+            print("[PDF] lxml not installed, skipping server-side pruning")
+            return html_content
+        except Exception as e:
+            print(f"[PDF] LXML Pruning Error: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return html_content
 
     def _render_html(self, report_data: Dict[str, Any]) -> str:
         ctx = self._build_context(report_data)
@@ -1131,6 +1210,8 @@ class PDFGenerator:
                 template_str = self.template_path.read_text(encoding="utf-8")
                 result = chevron.render(template_str, dict(ctx))
                 print("[PDF] Rendered via chevron OK")
+                # Temporarily disabled - causing issues
+                # return self._prune_empty_html_nodes(result)
                 return result
         except ImportError:
             pass
@@ -1142,6 +1223,8 @@ class PDFGenerator:
                 template_str = self.template_path.read_text(encoding="utf-8")
                 result = self._render_mustache(template_str, ctx)
                 print("[PDF] Rendered via custom Mustache OK")
+                # Temporarily disabled - causing issues
+                # return self._prune_empty_html_nodes(result)
                 return result
         except Exception as e:
             print(f"[PDF] Render error: {e}")

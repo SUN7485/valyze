@@ -149,6 +149,59 @@ export const reportAPI = {
 
     getExportDownloadURL: (reportId, format) =>
         `${API_BASE}/export/download/${reportId}/${format}`,
+
+    // -- Cloud / Supabase --------------------------------
+
+    saveToCloud: (reportId) =>
+        api.post(`/cloud/save/${reportId}`),
+
+    getCloudStatus: (reportId) =>
+        api.get(`/cloud/status/${reportId}`),
+
+    getReports: () =>
+        api.get('/search/reports'),
+
+    deleteCloudReport: (reportId) =>
+        api.delete(`/cloud/${reportId}`),
+
+    loadFromCloud: (reportId) =>
+        api.post(`/search/load/${reportId}`),
+
+    // -- Local Reports
+    getLocalReports: (skip = 0, limit = 50, status = null, search = null) => {
+        const params = new URLSearchParams()
+        params.append('skip', skip)
+        params.append('limit', limit)
+        if (status) params.append('status', status)
+        if (search) params.append('search', search)
+        return api.get(`/search/local?${params}`)
+    },
+
+    getLocalReportsCount: () =>
+        api.get('/search/local/count'),
+
+    deleteLocalReport: (reportId) =>
+        api.delete(`/search/local/${reportId}`),
+
+    // -- Combined Reports (Cloud + Local)
+    getAllReportsCombined: (skip = 0, limit = 100, search = null, country = null) => {
+        const params = new URLSearchParams()
+        params.append('skip', skip)
+        params.append('limit', limit)
+        if (search) params.append('search', search)
+        if (country) params.append('country', country)
+        return api.get(`/search/all?${params}`)
+    },
+
+    // -- Output Files
+    getOutputReports: (search = null) => {
+        const params = new URLSearchParams()
+        if (search) params.append('search', search)
+        return api.get(`/search/output?${params}`)
+    },
+
+    deleteOutputReport: (reportId) =>
+        api.delete(`/search/output/${reportId}`),
 }
 
 export default api

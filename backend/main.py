@@ -122,12 +122,14 @@ from api.report import router as report_router
 from api.pdf import router as pdf_router
 from api.export import router as export_router
 from api.search import router as search_router
+from api.cloud import router as cloud_router
 
 app.include_router(upload_router)
 app.include_router(report_router)
 app.include_router(pdf_router)
 app.include_router(export_router)
 app.include_router(search_router)
+app.include_router(cloud_router)
 
 
 # ---------------------------------------------------------------------------

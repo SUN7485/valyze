@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useReport } from '../context/ReportContext'
-import { FileText, Eye, Wand2, ChevronLeft, ChevronRight, Info } from 'lucide-react'
+import { FileText, Eye, Wand2, ChevronLeft, ChevronRight, Info, Cloud, HardDrive, Loader2, ChevronDown } from 'lucide-react'
 import SideNav from '../components/SideNav'
 import EasyWayImport from '../components/EasyWayImport'
 import {
@@ -64,6 +64,9 @@ export default function EditorPage() {
     const [exportingFormat, setExportingFormat] = useState('')
     const [exportSuccess, setExportSuccess] = useState({})
     const [exportError, setExportError]   = useState({})
+    const [showExportMenu, setShowExportMenu] = useState(false)
+    const [savingToCloud, setSavingToCloud] = useState(false)
+    const [cloudSaved, setCloudSaved] = useState(false)
 
     useEffect(() => {
         if (reportId) {
@@ -233,6 +236,28 @@ export default function EditorPage() {
         }
     }
 
+    const handleSaveToCloud = async () => {
+        if (!hasData) {
+            setExportError(prev => ({ ...prev, cloud: 'No company data found.' }))
+            return
+        }
+        setExportError(prev => ({ ...prev, cloud: '' }))
+        setSavingToCloud(true)
+        setShowExportMenu(false)
+        try {
+            const res = await reportAPI.saveToCloud(reportId)
+            if (res.data?.success) {
+                setCloudSaved(true)
+                setTimeout(() => setCloudSaved(false), 3000)
+            }
+        } catch (err) {
+            const msg = err.message || 'Failed to save to cloud'
+            setExportError(prev => ({ ...prev, cloud: msg }))
+        } finally {
+            setSavingToCloud(false)
+        }
+    }
+
     return (
         <div className="flex min-h-[calc(100vh-65px)]">
 
@@ -293,6 +318,41 @@ export default function EditorPage() {
                     {/* Right: Action Buttons */}
                     <div className="flex items-center gap-3">
 
+                        {/* Save to Cloud */}
+                        <button
+                            onClick={handleSaveToCloud}
+                            disabled={!hasData || savingToCloud || cloudSaved}
+                            className="flex items-center gap-2 px-4 py-2 text-[9px] font-semibold uppercase tracking-wider rounded-lg border border-purple-200 dark:border-purple-500/30 bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Save to Supabase Cloud"
+                        >
+                            {savingToCloud ? <Loader2 size={14} className="animate-spin" /> : <Cloud size={14} />}
+                            {savingToCloud ? 'Saving...' : cloudSaved ? 'Saved!' : 'Save to Cloud'}
+                        </button>
+
+                        {/* Save Locally */}
+                        <button
+                            onClick={async () => {
+                                if (!hasData) return
+                                try {
+                                    setSavingToCloud(true)
+                                    await reportAPI.saveToCloud(reportId)
+                                    await reportAPI.loadFromCloud(reportId)
+                                    setCloudSaved(true)
+                                    setTimeout(() => setCloudSaved(false), 3000)
+                                } catch (e) {
+                                    setExportError(prev => ({ ...prev, cloud: e.message }))
+                                } finally {
+                                    setSavingToCloud(false)
+                                }
+                            }}
+                            disabled={!hasData || savingToCloud}
+                            className="flex items-center gap-2 px-4 py-2 text-[9px] font-semibold uppercase tracking-wider rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Save to Local Database"
+                        >
+                            <HardDrive size={14} />
+                            Save Locally
+                        </button>
+
                         {/* Page Inclusion Toggle */}
                         <label className="flex items-center gap-2.5 px-3 py-2 bg-slate-100 dark:bg-white/5 rounded-lg border border-slate-200 dark:border-white/5 cursor-pointer hover:bg-slate-200 dark:hover:bg-white/10 transition-all duration-200" title="Exclude this entire page from the final PDF">
                             <span className="text-[9px] font-semibold text-slate-500 dark:text-slate-500 uppercase tracking-wider">
@@ -321,9 +381,10 @@ export default function EditorPage() {
                             <Eye size={14} className="text-primary group-hover:scale-110 transition-transform" /> Quick View
                         </button>
 
-                        {/* Export Dropdown */}
-                        <div className="relative group">
+                        {/* Export Dropdown - Clickable instead of hover */}
+                        <div className="relative">
                             <button
+                                onClick={() => setShowExportMenu(!showExportMenu)}
                                 className={`flex items-center gap-2
                                             px-5 py-2 text-[9px] font-semibold uppercase tracking-wider rounded-lg
                                             transition-all duration-200 shadow-md cursor-pointer
@@ -333,22 +394,26 @@ export default function EditorPage() {
                                 title={!hasData ? 'Import data first using Easy Way Import' : 'Export in various formats'}
                             >
                                 Export
+                                <ChevronDown size={14} className={`transition-transform ${showExportMenu ? 'rotate-180' : ''}`} />
                             </button>
                             
-                            {/* Export Options Dropdown */}
-                            <div className="absolute right-0 top-full mt-2 w-48
-                                            bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-white/10
-                                            shadow-xl overflow-hidden hidden group-hover:block z-50">
-                                <div className="py-2">
-                                    {/* PDF */}
-                                    <button
-                                        onClick={handleGeneratePDF}
-                                        disabled={!hasData || generatingPDF}
-                                        className="w-full px-4 py-2.5 text-left text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3"
-                                    >
-                                        <span className="w-8 text-red-500 text-xs">PDF</span>
-                                        {generatingPDF ? 'Generating...' : 'PDF Document'}
-                                    </button>
+                            {/* Export Options Dropdown - click to show */}
+                            {showExportMenu && (
+                                <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
+                                    <div className="absolute right-0 top-full mt-2 w-52
+                                                    bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-white/10
+                                                    shadow-xl overflow-hidden z-50">
+                                        <div className="py-2">
+                                            {/* PDF */}
+                                            <button
+                                                onClick={() => { setShowExportMenu(false); handleGeneratePDF() }}
+                                                disabled={!hasData || generatingPDF}
+                                                className="w-full px-4 py-2.5 text-left text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3"
+                                            >
+                                                <span className="w-8 text-red-500 text-xs">PDF</span>
+                                                {generatingPDF ? 'Generating...' : 'PDF Document'}
+                                            </button>
 
                                     {/* JSON */}
                                     <button
@@ -401,23 +466,18 @@ export default function EditorPage() {
                                     </button>
                                 </div>
                             </div>
-                        </div>
+                            </>
+)}
 
                         {/* Error display */}
                         {(pdfError || Object.keys(exportError).some(k => exportError[k])) && (
-                            <div className="absolute right-0 top-full
-                                            mt-3 w-72 bg-rose-600
-                                            text-white text-[9px] uppercase tracking-wider font-semibold
-                                            rounded-xl p-4 z-50
-                                            shadow-xl animate-in slide-in-from-top-2 duration-300">
+                            <div className="absolute right-0 top-full mt-3 w-72 bg-rose-600 text-white text-[9px] uppercase tracking-wider font-semibold rounded-xl p-4 z-50 shadow-xl animate-in slide-in-from-top-2 duration-300">
                                 <div className="flex items-start gap-2.5">
                                     <div className="w-5 h-5 bg-white/20 rounded-md flex items-center justify-center shrink-0">
                                         <Info size={12} />
                                     </div>
                                     <div>
-                                        <div className="mb-1 font-bold">
-                                            Export Error
-                                        </div>
+                                        <div className="mb-1 font-bold">Export Error</div>
                                         <div className="opacity-80 normal-case font-medium">
                                             {pdfError || Object.values(exportError).find(e => e)}
                                         </div>
@@ -431,6 +491,8 @@ export default function EditorPage() {
                                 </div>
                             </div>
                         )}
+
+                        </div>
                     </div>
                 </header>
 
