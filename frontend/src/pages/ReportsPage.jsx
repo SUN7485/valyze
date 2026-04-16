@@ -67,25 +67,27 @@ function ExportDropdown({ reportId, onExport, loading }) {
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 disabled={loading}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-50"
+                className="p-2 text-slate-500 dark:text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-50 flex items-center gap-0.5"
                 title="Export Options"
             >
-                {loading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-                <span>Export Options</span>
-                <ChevronDown size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                {loading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                <ChevronDown size={12} className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
             </button>
             {isOpen && (
                 <>
-                    <div className="fixed inset-0" onClick={() => setIsOpen(false)} />
-                    <div className="absolute right-0 mt-1 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl shadow-lg z-20 py-1 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="fixed inset-0 z-20" onClick={() => setIsOpen(false)} />
+                    <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl z-30 py-1.5 animate-in fade-in zoom-in-95 duration-200">
+                        <div className="px-3 py-1.5 mb-1 border-b border-slate-100 dark:border-white/5">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Export Formats</span>
+                        </div>
                         {EXPORT_FORMATS.map((format) => (
                             <button
                                 key={format.id}
                                 onClick={() => handleExport(format.id)}
-                                className="w-full px-4 py-2.5 text-left text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-primary/10 hover:text-primary flex items-center justify-between gap-2 transition-all"
+                                className="w-full px-4 py-2 text-left text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-primary/10 hover:text-primary flex items-center justify-between gap-2 transition-all"
                             >
                                 <span>{format.label}</span>
-                                <span className="text-[10px] text-slate-400 uppercase">{format.ext}</span>
+                                <span className="text-[9px] px-1.5 py-0.5 bg-slate-100 dark:bg-white/5 rounded text-slate-400 font-bold uppercase">{format.ext}</span>
                             </button>
                         ))}
                     </div>
@@ -592,92 +594,105 @@ export default function ReportsPage() {
                     style={{ maxHeight: 'calc(100vh - 380px)', overflowY: 'auto' }}
                 >
                     {showTab === 'db' ? (
-                    <table className="w-full">
-                        <thead className="sticky top-0 bg-white dark:bg-slate-900 z-10">
-                            <tr className="border-b border-slate-100 dark:border-white/5">
-                                {selectedReports.size > 0 && <th className="w-10 px-2"></th>}
-                                <th className="text-left px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">Location</th>
-                                <th className="text-left px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">ID</th>
-                                <th className="text-left px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">Company</th>
-                                <th className="text-left px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">CR Number</th>
-                                <th className="text-left px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">Client Ref</th>
-                                <th className="text-left px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">Country</th>
-                                <th className="text-left px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">Analyst</th>
-                                <th className="text-left px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">Updated</th>
-                                <th className="text-right px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
+                    <table className="w-full border-collapse">
+                        <thead className="sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm z-10">
+                            <tr className="border-b border-slate-200 dark:border-white/10">
+                                <th className="w-12 px-4 py-4">
+                                    <button
+                                        onClick={() => toggleSelectAll(filteredReports)}
+                                        className="text-slate-400 hover:text-primary transition-colors"
+                                        title="Select All"
+                                    >
+                                        {selectedReports.size === filteredReports.length && filteredReports.length > 0 ? <CheckSquare size={18} /> : <Square size={18} />}
+                                    </button>
+                                </th>
+                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Source</th>
+                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Company & ID</th>
+                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Reference</th>
+                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Country</th>
+                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Analyst</th>
+                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Updated</th>
+                                <th className="text-right px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                             {filteredReports.map((report) => (
                                 <tr 
                                     key={report.id} 
-                                    className="border-b border-slate-50 dark:border-white/5 hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors"
+                                    className="group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all duration-200"
                                 >
-                                    <td className="px-2">
+                                    <td className="px-4 py-4">
                                         <button
                                             onClick={() => toggleSelect(report.id)}
-                                            className="text-slate-400 hover:text-primary"
+                                            className="text-slate-300 group-hover:text-slate-400 hover:text-primary transition-colors"
                                         >
-                                            {selectedReports.has(report.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                                            {selectedReports.has(report.id) ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} />}
                                         </button>
                                     </td>
-                                    <td className="px-3 py-3">
+                                    <td className="px-4 py-4">
                                         <LocationBadge location={report.location} />
                                     </td>
-                                    <td className="px-3 py-3">
-                                        <span className="font-mono text-[10px] text-slate-400">{report.id?.slice(0, 8)}...</span>
+                                    <td className="px-4 py-4 min-w-[200px]">
+                                        <div className="flex flex-col gap-0.5">
+                                            <button 
+                                                onClick={() => handleOpenReport(report)}
+                                                disabled={loadingReportId === report.id}
+                                                className="font-bold text-slate-700 dark:text-slate-200 hover:text-primary transition-colors text-left disabled:opacity-50 text-sm leading-tight group-hover:translate-x-0.5 transition-transform"
+                                            >
+                                                {loadingReportId === report.id ? (
+                                                    <span className="flex items-center gap-2">
+                                                        <Loader2 size={14} className="animate-spin" /> Loading...
+                                                    </span>
+                                                ) : (
+                                                    report.company_name || 'Untitled Report'
+                                                )}
+                                            </button>
+                                            <span className="font-mono text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-tighter">
+                                                {report.id}
+                                            </span>
+                                        </div>
                                     </td>
-                                    <td className="px-3 py-3">
-                                        <button 
-                                            onClick={() => handleOpenReport(report)}
-                                            disabled={loadingReportId === report.id}
-                                            className="font-semibold text-slate-700 dark:text-slate-200 hover:text-primary transition-colors text-left disabled:opacity-50 text-sm"
-                                        >
-                                            {loadingReportId === report.id ? (
-                                                <span className="flex items-center gap-2">
-                                                    <Loader2 size={14} className="animate-spin" /> Loading...
-                                                </span>
-                                            ) : (
-                                                report.company_name || 'Untitled'
-                                            )}
-                                        </button>
+                                    <td className="px-4 py-4">
+                                        <div className="flex flex-col items-start gap-1">
+                                            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                                                {report.cr_number || '-'}
+                                            </span>
+                                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                                                {report.client_reference || 'REF -'}
+                                            </span>
+                                        </div>
                                     </td>
-                                    <td className="px-3 py-3">
-                                        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
-                                            {report.cr_number || '-'}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                        <span className="text-xs text-slate-500 dark:text-slate-400">
-                                            {report.client_reference || '-'}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300">
+                                    <td className="px-4 py-4">
+                                        <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10">
                                             {report.country || '-'}
                                         </span>
                                     </td>
-                                    <td className="px-4 py-3">
-                                        <span className="text-xs text-slate-500 dark:text-slate-400">
-                                            {report.analyst || '-'}
+                                    <td className="px-4 py-4">
+                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
+                                            {report.analyst_name || report.analyst || '-'}
                                         </span>
                                     </td>
-                                    <td className="px-4 py-3">
-                                        <span className="text-xs text-slate-500 dark:text-slate-400">
-                                            {formatDate(report.updated_at)}
-                                        </span>
+                                    <td className="px-4 py-4">
+                                        <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                                            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                                {formatDate(report.updated_at).split(',')[0]}
+                                            </span>
+                                            <span className="text-[9px] text-slate-400 dark:text-slate-500">
+                                                {formatDate(report.updated_at).split(',')[1]}
+                                            </span>
+                                        </div>
                                     </td>
-                                    <td className="px-4 py-3">
-                                        <div className="flex items-center justify-end gap-1">
+                                    <td className="px-4 py-4">
+                                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                             {saveMessage[report.id] ? (
-                                                <span className="text-xs text-emerald-500 font-medium px-2">{saveMessage[report.id]}</span>
+                                                <span className="text-[10px] text-emerald-500 font-black uppercase tracking-widest px-2 animate-in slide-in-from-right-2">{saveMessage[report.id]}</span>
                                             ) : (
                                                 <>
                                                     {report.location !== 'cloud' && (
                                                         <button
                                                             onClick={() => handleSaveToCloud(report.id)}
                                                             disabled={savingToCloud[report.id]}
-                                                            className="p-2 text-slate-500 hover:text-purple-500 hover:bg-purple-500/10 rounded-lg transition-all disabled:opacity-50"
+                                                            className="p-2 text-slate-400 hover:text-purple-500 hover:bg-purple-500/10 rounded-lg transition-all disabled:opacity-50"
                                                             title="Save to Cloud"
                                                         >
                                                             {savingToCloud[report.id] ? <Loader2 size={18} className="animate-spin" /> : <Cloud size={18} />}
@@ -687,7 +702,7 @@ export default function ReportsPage() {
                                                         <button
                                                             onClick={() => handleSaveLocally(report.id)}
                                                             disabled={savingLocally[report.id]}
-                                                            className="p-2 text-slate-500 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg transition-all disabled:opacity-50"
+                                                            className="p-2 text-slate-400 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg transition-all disabled:opacity-50"
                                                             title="Save Locally"
                                                         >
                                                             {savingLocally[report.id] ? <Loader2 size={18} className="animate-spin" /> : <HardDrive size={18} />}
@@ -698,7 +713,7 @@ export default function ReportsPage() {
                                             <button
                                                 onClick={() => handleOpenReport(report)}
                                                 disabled={loadingReportId === report.id}
-                                                className="p-2 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-50"
+                                                className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-50"
                                                 title="Edit"
                                             >
                                                 {loadingReportId === report.id ? <Loader2 size={18} className="animate-spin" /> : <Edit3 size={18} />}
@@ -715,7 +730,7 @@ export default function ReportsPage() {
                                                     reportName: report.company_name || report.id,
                                                     location: report.location
                                                 })}
-                                                className="p-2 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"
+                                                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"
                                                 title="Delete"
                                             >
                                                 <Trash2 size={18} />
@@ -727,51 +742,72 @@ export default function ReportsPage() {
                         </tbody>
                     </table>
                     ) : (
-                    // Output tab table
-                    <table className="w-full">
-                        <thead className="sticky top-0 bg-white dark:bg-slate-900 z-10">
-                            <tr className="border-b border-slate-100 dark:border-white/5">
-                                <th className="w-10 px-2"></th>
-                                <th className="text-left px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">ID</th>
-                                <th className="text-left px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">Files</th>
-                                <th className="text-left px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">Created</th>
-                                <th className="text-right px-3 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
+                    <table className="w-full border-collapse">
+                        <thead className="sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm z-10">
+                            <tr className="border-b border-slate-200 dark:border-white/10">
+                                <th className="w-12 px-4 py-4">
+                                    <button
+                                        onClick={() => toggleSelectAll(outputReports)}
+                                        className="text-slate-400 hover:text-primary transition-colors"
+                                        title="Select All"
+                                    >
+                                        {selectedReports.size === outputReports.length && outputReports.length > 0 ? <CheckSquare size={18} /> : <Square size={18} />}
+                                    </button>
+                                </th>
+                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">ID & Info</th>
+                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Available Formats</th>
+                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Generated On</th>
+                                <th className="text-right px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                             {outputReports.map((report) => (
                                 <tr 
                                     key={report.id} 
-                                    className="border-b border-slate-50 dark:border-white/5 hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors"
+                                    className="group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all duration-200"
                                 >
-                                    <td className="px-2">
+                                    <td className="px-4 py-4">
                                         <button
                                             onClick={() => toggleSelect(report.id)}
-                                            className="text-slate-400 hover:text-primary"
+                                            className="text-slate-300 group-hover:text-slate-400 hover:text-primary transition-colors"
                                         >
-                                            {selectedReports.has(report.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                                            {selectedReports.has(report.id) ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} />}
                                         </button>
                                     </td>
-                                    <td className="px-3 py-3">
-                                        <span className="font-mono text-[10px] text-slate-400">{report.id?.slice(0, 12)}...</span>
+                                    <td className="px-4 py-4">
+                                        <div className="flex flex-col gap-0.5">
+                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-200 group-hover:translate-x-0.5 transition-transform">
+                                                {report.filename?.replace(/_/g, ' ').slice(0, 40) || 'Exported File'}
+                                            </span>
+                                            <span className="font-mono text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-tighter">
+                                                ID: {report.id}
+                                            </span>
+                                        </div>
                                     </td>
-                                    <td className="px-3 py-3">
-                                        <div className="flex flex-wrap gap-1">
+                                    <td className="px-4 py-4">
+                                        <div className="flex flex-wrap gap-1.5">
                                             {report.files?.map((f, i) => (
                                                 <FormatBadge key={i} format={f.format} />
                                             ))}
-                                            {report.files?.length > 1 && (
-                                                <span className="text-[10px] text-slate-400">+{report.files.length - 1} more</span>
+                                            {report.files?.length > 3 && (
+                                                <span className="text-[10px] font-bold text-slate-400 flex items-center px-1">
+                                                    +{report.files.length - 3}
+                                                </span>
                                             )}
                                         </div>
                                     </td>
-                                    <td className="px-3 py-3">
-                                        <span className="text-xs text-slate-500 dark:text-slate-400">
-                                            {formatDate(report.created_at)}
-                                        </span>
+                                    <td className="px-4 py-4">
+                                        <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                                            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                                {formatDate(report.created_at).split(',')[0]}
+                                            </span>
+                                            <span className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">
+                                                {formatDate(report.created_at).split(',')[1]}
+                                            </span>
+                                        </div>
                                     </td>
-                                    <td className="px-3 py-3">
-                                        <div className="flex items-center justify-end gap-1">
+                                    <td className="px-4 py-4">
+                                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                             <button
                                                 onClick={() => setDeleteModal({ 
                                                     open: true, 
@@ -779,7 +815,7 @@ export default function ReportsPage() {
                                                     reportName: report.filename || report.id,
                                                     location: 'output'
                                                 })}
-                                                className="p-2 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"
+                                                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"
                                                 title="Delete"
                                             >
                                                 <Trash2 size={18} />

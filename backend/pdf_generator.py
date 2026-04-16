@@ -551,8 +551,27 @@ class PDFGenerator:
         has_sales = self._has_field_data(fields, SUPPLY_CHAIN_SALES_FIELDS)
         has_licenses = self._has_field_data(fields, REGISTRATION_LICENSE_FIELDS)
 
-        # Show registration if any license fields exist
-        show_registration = show_egypt and has_licenses
+        # Show registration section when Egypt is selected (even if no license numbers yet)
+        show_registration = show_egypt
+
+        # Show physical assets if there's any operations data (including the new asset fields)
+        show_physical_assets = has_ops or self._has_field_data(
+            fields,
+            [
+                "premises_type",
+                "premises_size",
+                "premises_owned_rental",
+                "vehicles",
+                "equipment",
+                "brands",
+            ],
+        )
+
+        # Show supply chain sections if there's any purchasing/sales data OR the new number fields
+        has_purchasing_data = has_purchasing or self._has_field_data(
+            fields, ["suppliers_number"]
+        )
+        has_sales_data = has_sales or self._has_field_data(fields, ["clients_number"])
 
         # -- management team (flat field OR arrays) -----------------------
         mgmt = ga("management_team")
@@ -703,8 +722,8 @@ class PDFGenerator:
             "customer_payment_method": gf("customer_payment_method"),
             # -- AUTO-SHOW FLAGS --------------------------------------------
             "show_operations": has_ops,
-            "show_supply_chain_purchasing": has_purchasing,
-            "show_supply_chain_sales": has_sales,
+            "show_supply_chain_purchasing": has_purchasing_data,
+            "show_supply_chain_sales": has_sales_data,
             "show_registration_licenses": show_registration,
             "show_physical_assets": self._has_field_data(
                 fields,

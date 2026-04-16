@@ -1,0 +1,45 @@
+- generic [ref=e3]:
+  - navigation [ref=e4]:
+    - generic [ref=e5]:
+      - link "Valyze Credit Intelligence" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - img [ref=e7]
+        - generic [ref=e9]:
+          - generic [ref=e10]: Valyze
+          - generic [ref=e11]: Credit Intelligence
+      - generic [ref=e12]:
+        - generic [ref=e13]:
+          - img [ref=e14]
+          - text: System Active • v2.0
+        - link "Reports" [ref=e16] [cursor=pointer]:
+          - /url: /reports
+          - img [ref=e17]
+          - text: Reports
+        - button "Switch to Dark Mode" [ref=e20] [cursor=pointer]:
+          - img [ref=e21]
+  - main [ref=e23]:
+    - generic [ref=e24]:
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - heading "Saved Reports" [level=1] [ref=e27]
+          - paragraph [ref=e28]: 0 total • 0 cloud • 0 local • 0 synced
+        - button "Refresh" [ref=e30] [cursor=pointer]:
+          - img [ref=e31]
+      - generic [ref=e36]:
+        - button "Database (0)" [ref=e37] [cursor=pointer]:
+          - img [ref=e38]
+          - text: Database (0)
+        - button "Generated Files (0)" [ref=e42] [cursor=pointer]:
+          - img [ref=e43]
+          - text: Generated Files (0)
+      - generic [ref=e46]:
+        - button "All (0)" [ref=e47] [cursor=pointer]
+        - button "Cloud (0)" [ref=e48] [cursor=pointer]:
+          - img [ref=e49]
+          - text: Cloud (0)
+      - generic [ref=e52] [cursor=pointer]:
+        - img [ref=e53]
+        - textbox "Search by company, CR number, client reference, analyst or country..." [ref=e56]
+      - generic [ref=e57] [cursor=pointer]:
+        - img [ref=e58]
+        - generic [ref=e60]: Loading reports...

@@ -288,9 +288,21 @@ async def get_all_reports_combined(
         for report in cloud_reports:
             report_id = report.get("id")
             if report_id in combined:
-                # Report exists in both - mark as both
+                # Report exists in both - merge fields, prefer cloud if different
                 combined[report_id]["location"] = "both"
                 combined[report_id]["cloud_updated_at"] = report.get("updated_at")
+                # Merge key fields - cloud takes priority for these core fields
+                for field in [
+                    "company_name",
+                    "cr_number",
+                    "client_reference",
+                    "country",
+                    "analyst_name",
+                ]:
+                    if report.get(field) and report.get(field) != combined[
+                        report_id
+                    ].get(field):
+                        combined[report_id][field] = report[field]
             else:
                 combined[report_id] = {
                     **report,

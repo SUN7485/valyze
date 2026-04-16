@@ -152,17 +152,19 @@ async def get_all_reports(db: AsyncSession) -> List[dict]:
                     "cr_number",
                     "client_reference",
                     "country",
-                    "analyst",
+                    "analyst_name",
                 ]
                 for key in field_keys:
                     field_data = fields.get(key, {})
-                    info[key] = (
-                        field_data.get("value")
-                        if isinstance(field_data, dict)
-                        else None
-                    )
-            except (json.JSONDecodeError, AttributeError):
-                pass
+                    if isinstance(field_data, dict):
+                        info[key] = field_data.get("value")
+                    elif field_data is not None:
+                        # Fallback: maybe it's a direct value
+                        info[key] = field_data
+                    else:
+                        info[key] = None
+            except (json.JSONDecodeError, AttributeError) as e:
+                print(f"[get_all_reports] Failed to parse JSON for {row.id}: {e}")
         reports.append(info)
     return reports
 

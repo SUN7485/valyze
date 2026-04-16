@@ -8,6 +8,7 @@ export default function FieldInput({
     options = [], placeholder = '',
     required = false, helpText = '',
     onAfterChange = null,
+    onChange = null,
     canDelete = false,
     compact = false,
     fallbackFields = []
@@ -173,7 +174,10 @@ export default function FieldInput({
                 ) : type === 'select' ? (
                     <select
                         value={localValue}
-                        onChange={e => handleChange(e.target.value)}
+                        onChange={e => {
+                            handleChange(e.target.value)
+                            if (onChange) onChange(e)
+                        }}
                         className={inputClasses}
                     >
                         <option value="">Select data point...</option>

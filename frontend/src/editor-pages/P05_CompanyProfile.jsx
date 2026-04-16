@@ -13,20 +13,40 @@ const COUNTRY_OPTIONS = [
 ]
 
 export default function P05_CompanyProfile() {
-  const { getFieldValue, updateField, updateArray, getArray, report } = useReport()
-  const [selectedCountry, setSelectedCountry] = useState('')
+  const { getFieldValue, updateField, report, getArray } = useReport()
+  const [initialized, setInitialized] = useState(false)
 
   useEffect(() => {
+    if (!report || initialized) return
+    
     const country = getFieldValue('country') || ''
-    setSelectedCountry(country)
-  }, [report?.fields?.country])
+    
+    // Auto-detect country flags when loading existing data
+    const shouldShowEgypt = country === 'Egypt'
+    const shouldShowSaudi = country === 'Saudi Arabia'
+    const shouldShowUae = country === 'UAE' || country === 'United Arab Emirates'
+    
+    if (shouldShowEgypt && !getFieldValue('show_egypt_fields')) {
+      updateField('show_egypt_fields', true)
+    }
+    if (shouldShowSaudi && !getFieldValue('show_saudi_fields')) {
+      updateField('show_saudi_fields', true)
+    }
+    if (shouldShowUae && !getFieldValue('show_uae_fields')) {
+      updateField('show_uae_fields', true)
+    }
+    if (shouldShowSaudi && !getFieldValue('show_zakat')) {
+      updateField('show_zakat', true)
+    }
+    
+    setInitialized(true)
+  }, [report, initialized])
 
   const handleCountryChange = (val) => {
-    setSelectedCountry(val)
     updateField('country', val)
     updateField('show_egypt_fields',  val === 'Egypt')
     updateField('show_saudi_fields',  val === 'Saudi Arabia')
-    updateField('show_uae_fields',    val === 'UAE')
+    updateField('show_uae_fields',    val === 'UAE' || val === 'United Arab Emirates')
     updateField('show_zakat',         val === 'Saudi Arabia')
   }
 
