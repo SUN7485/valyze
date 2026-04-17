@@ -32,26 +32,40 @@ const getCurrencyFromCountry = (country) => {
 }
 
 const PAGE_FIELDS = {
-    1: ['company_name', 'report_date', 'credit_rating', 'client_name'],
-    2: ['client_name', 'client_reference', 'analyst_name', 'company_name'],
-    3: ['executive_summary_text', 'credit_opinion_text', 'company_history_text'], // Dashboard/Exec combined
-    4: ['executive_summary_text', 'credit_opinion_text', 'company_history_text', 'employee_count', 'employee_location', 'capital', 'annual_turnover'], 
-    5: ['company_name', 'cr_number', 'unified_number', 'company_type', 'company_status', 'phone', 'email', 'country', 'phone_numbers'],
-    6: ['capital', 'incorporation_date', 'registration_number'],
-    7: ['parent_company', 'subsidiaries', 'affiliates'],
-    8: ['industry', 'employee_count', 'employee_location', 'facilities_count', 'main_facility_location', 'markets_count', 'markets_regions', 'main_suppliers', 'key_customers'],
-    9: ['primary_bank', 'total_banks', 'banking_notes'],
-    10: ['revenue_1', 'cogs_1', 'total_assets_1', 'equity_1'],
-    11: ['current_ratio', 'quick_ratio', 'debt_equity', 'gross_margin'],
-    12: ['viability_meaning', 'delinquency_meaning', 'risk_level'],
-    13: ['license_status', 'tax_status', 'lawsuit_count', 'judgment_count'],
-    14: ['news_events'],
-    15: ['industry', 'industry_name', 'market_size', 'industry_growth_rate'],
-    16: ['credit_opinion_text', 'recommended_payment_terms', 'recommended_limit'],
-    17: ['review_frequency', 'next_review_date', 'assigned_analyst'],
-    18: ['data_quality_rating', 'data_limitations', 'data_source_analyst_comment'],
-    19: ['analyst_name', 'analyst_email', 'analyst_phone'],
-    20: ['company_name']
+     1: ['company_name', 'report_date', 'credit_rating', 'client_name'],
+     2: ['client_name', 'client_reference', 'analyst_name', 'company_name'],
+     3: ['executive_summary_text', 'credit_opinion_text', 'company_history_text'], // Dashboard/Exec combined
+     4: ['executive_summary_text', 'credit_opinion_text', 'company_history_text', 'employee_count', 'employee_location', 'capital', 'annual_turnover'],
+     5: [
+         'company_name', 'cr_number', 'unified_number', 'company_type',
+         'company_status', 'phone', 'email', 'country', 'phone_numbers',
+         // Country-specific fields
+         'show_egypt_fields', 'show_saudi_fields', 'show_uae_fields', 'show_zakat',
+         'tax_registration_number', 'trade_license_number', 'tax_card_number',
+         'social_insurance_number', 'gafi_registration', 'industrial_license_number',
+         'import_license_number', 'export_license_number', 'lei_number',
+         'trn_vat', 'ded_number', 'freezone_license',
+         'gosi_registration', 'nitaqat_band', 'municipality_license',
+         'zakat_certificate', 'zakat_number', 'zakat_status', 'zakat_alert',
+         // Other registration fields
+         'license_type', 'investment_license_no', 'issue_date', 'expiry_date',
+         'auditor_name', 'license_alert', 'license_icon', 'tax_alert', 'tax_icon'
+     ],
+     6: ['capital', 'incorporation_date', 'registration_number'],
+     7: ['parent_company', 'subsidiaries', 'affiliates'],
+     8: ['industry', 'employee_count', 'employee_location', 'facilities_count', 'main_facility_location', 'markets_count', 'markets_regions', 'main_suppliers', 'key_customers'],
+     9: ['primary_bank', 'total_banks', 'banking_notes'],
+     10: ['revenue_1', 'cogs_1', 'total_assets_1', 'equity_1'],
+     11: ['current_ratio', 'quick_ratio', 'debt_equity', 'gross_margin'],
+     12: ['viability_meaning', 'delinquency_meaning', 'risk_level'],
+     13: ['license_status', 'tax_status', 'lawsuit_count', 'judgment_count'],
+     14: ['news_events'],
+     15: ['industry', 'industry_name', 'market_size', 'industry_growth_rate'],
+     16: ['credit_opinion_text', 'recommended_payment_terms', 'recommended_limit'],
+     17: ['review_frequency', 'next_review_date', 'assigned_analyst'],
+     18: ['data_quality_rating', 'data_limitations', 'data_source_analyst_comment'],
+     19: ['analyst_name', 'analyst_email', 'analyst_phone'],
+     20: ['company_name']
 }
 
 export function ReportProvider({ children }) {

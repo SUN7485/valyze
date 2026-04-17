@@ -216,7 +216,7 @@ export default function ReportsPage() {
 
     const filteredReports = useMemo(() => {
         let result = reports.filter(report => {
-            if (showSourceFilter === 'cloud' && report.location !== 'cloud') return false
+            if (showSourceFilter === 'cloud' && report.location !== 'cloud' && report.location !== 'both') return false
             if (search) {
                 const s = search.toLowerCase()
                 const matchCompany = report.company_name && report.company_name.toLowerCase().includes(s)

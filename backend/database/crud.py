@@ -15,7 +15,8 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.db import ReportRow, UploadedFileRow
-from models.report_schema import FullReport, build_empty_report
+from models.report_schema import FullReport, build_empty_report, FieldData
+from models.field_meta import FIELD_REGISTRY
 
 
 # ---------------------------------------------------------------------------
@@ -66,10 +67,23 @@ async def update_report_field(
     if report is None:
         return None
 
+    # Allow updating existing fields or adding new registered fields
     if field_name in report.fields:
         report.fields[field_name].value = value
         report.fields[field_name].confidence = confidence
         report.fields[field_name].source = source
+    elif field_name in FIELD_REGISTRY:
+        # Add new field (for backwards compatibility with schema changes)
+        report.fields[field_name] = FieldData(
+            value=value,
+            confidence=confidence,
+            source=source,
+            locked=False,
+        )
+    else:
+        # Unknown field - log warning but don't fail
+        print(f"[WARN] Attempt to update unknown field '{field_name}' - skipping")
+        return report
 
     # Recalculate stats
     report.extraction_stats = _calc_stats(report)
@@ -94,6 +108,16 @@ async def update_report_fields_bulk(
             report.fields[field_name].value = value
             report.fields[field_name].confidence = "high"
             report.fields[field_name].source = "user"
+        elif field_name in FIELD_REGISTRY:
+            # Add new field (for backwards compatibility)
+            report.fields[field_name] = FieldData(
+                value=value,
+                confidence="high",
+                source="user",
+                locked=False,
+            )
+        else:
+            print(f"[WARN] Bulk update: unknown field '{field_name}' - skipping")
 
     report.extraction_stats = _calc_stats(report)
     report.updated_at = datetime.now(timezone.utc).isoformat()

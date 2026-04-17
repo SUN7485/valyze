@@ -726,6 +726,13 @@ async def easy_way_import(
         "trn_vat": "trn_vat",
         "ded_number": "ded_number",
         "freezone_license": "freezone_license",
+        # Egypt new registration fields
+        "industrial_license_number": "industrial_license_number",
+        "import_license_number": "import_license_number",
+        "export_license_number": "export_license_number",
+        "lei_number": "lei_number",
+        "zakat_number": "zakat_number",
+        "zakat_status": "zakat_status",
         # Industry analysis
         "industry_name": "industry_name",
         "market_size": "market_size",
