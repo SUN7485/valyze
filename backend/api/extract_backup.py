@@ -17,9 +17,11 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from services.auth import get_current_user
+
 from database.crud import (
     get_report,
-    get极uploaded_files,
+    get_uploaded_files,
     save_report_json,
     update_report_field,
     update_report_status,
@@ -39,7 +41,7 @@ from ai.lm_client import LMStudioClient
 
 load_dotenv()
 
-router = APIRouter(prefix="/api/extract", tags=["extract"])
+router = APIRouter(prefix="/api/extract", tags=["extract"], dependencies=[Depends(get_current_user)])
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 

@@ -1,28 +1,18 @@
 """
-Search API - Search and filter reports in Supabase, local DB, and output folder.
-
-Supports searching by:
-- Client Name
-- Report ID
-- Client Reference
-- Company Name
-- Country
-- Address
-- CR No.
-- Analyst
+Search API - Search and filter reports in Supabase.
+All endpoints require authentication.
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.db import get_db
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -131,27 +121,18 @@ async def get_all_reports(limit: int = 100, offset: int = 0):
 
 
 @router.post("/load/{report_id}")
-async def load_report_from_cloud(report_id: str, db: AsyncSession = Depends(get_db)):
-    """Load a report from Supabase cloud to local database."""
+async def load_report_from_cloud(report_id: str):
+    """Fetch a report from Supabase (primary source). Legacy endpoint."""
     try:
         from services.supabase_client import get_report as get_from_cloud
-        from database.crud import save_report_json
 
         cloud_report = get_from_cloud(report_id)
         if not cloud_report:
-            raise HTTPException(404, f"Report {report_id} not found in cloud")
-
-        report_json = cloud_report.get("report_json")
-        if not report_json:
-            raise HTTPException(500, f"Report {report_id} has no data in cloud")
-
-        success = await save_report_json(db, report_id, report_json)
-        if not success:
-            raise HTTPException(500, f"Failed to save report {report_id} to local DB")
+            raise HTTPException(404, f"Report {report_id} not found")
 
         return {
             "success": True,
-            "message": f"Report {report_id} loaded to local database",
+            "report": cloud_report,
             "report_id": report_id,
             "company_name": cloud_report.get("company_name"),
         }
@@ -184,31 +165,31 @@ async def get_local_reports(
     limit: int = 50,
     status: Optional[str] = None,
     search: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
 ):
-    """Get reports from local SQLite database."""
+    """Get reports from Supabase (local alias for compatibility)."""
     try:
-        from database.crud import get_all_reports as get_local_all
+        from services.supabase_client import get_all_reports as sb_get_all
 
-        local_reports = await get_local_all(db)
+        # Fetch all reports (Supabase returns already sorted by created_at desc)
+        all_reports = await asyncio.to_thread(sb_get_all, limit=1000)
 
         # Filter by status if provided
         if status:
-            local_reports = [r for r in local_reports if r.get("status") == status]
+            all_reports = [r for r in all_reports if r.get("status") == status]
 
         # Filter by search if provided
         if search:
             search_lower = search.lower()
-            local_reports = [
+            all_reports = [
                 r
-                for r in local_reports
+                for r in all_reports
                 if search_lower in (r.get("company_name") or "").lower()
                 or search_lower in (r.get("cr_number") or "").lower()
                 or search_lower in (r.get("client_reference") or "").lower()
             ]
 
-        total = len(local_reports)
-        reports = local_reports[skip : skip + limit]
+        total = len(all_reports)
+        reports = all_reports[skip : skip + limit]
 
         return {
             "total": total,
@@ -217,34 +198,34 @@ async def get_local_reports(
             "reports": reports,
         }
     except Exception as e:
-        raise HTTPException(500, f"Failed to get local reports: {str(e)}")
+        raise HTTPException(500, f"Failed to get reports: {str(e)}")
 
 
 @router.get("/local/count")
-async def get_local_reports_count(db: AsyncSession = Depends(get_db)):
-    """Get total count of local reports."""
+async def get_local_reports_count():
+    """Get total count of reports (Supabase)."""
     try:
-        from database.crud import get_all_reports as get_local_all
+        from services.supabase_client import get_reports_count as get_count
 
-        local_reports = await get_local_all(db)
-        return {"total": len(local_reports)}
+        count = get_count()
+        return {"total": count}
     except Exception as e:
         raise HTTPException(500, f"Failed to get count: {str(e)}")
 
 
 @router.delete("/local/{report_id}")
-async def delete_local_report(report_id: str, db: AsyncSession = Depends(get_db)):
-    """Delete a report from local database."""
+async def delete_local_report(report_id: str):
+    """Delete a report from Supabase."""
     try:
-        from database.crud import delete_report as delete_local
+        from services.supabase_client import delete_report as sb_delete
 
-        success = await delete_local(db, report_id)
+        success = sb_delete(report_id)
         if not success:
             raise HTTPException(404, f"Report {report_id} not found")
 
         return {
             "success": True,
-            "message": f"Report {report_id} deleted from local database",
+            "message": f"Report {report_id} deleted",
         }
     except HTTPException:
         raise
@@ -263,56 +244,18 @@ async def get_all_reports_combined(
     limit: int = 100,
     search: Optional[str] = None,
     country: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
 ):
-    """Get reports from both cloud and local databases."""
+    """Get all reports from Supabase with location 'cloud'."""
     try:
-        from services.supabase_client import get_all_reports as get_cloud_reports
-        from database.crud import get_all_reports as get_local_reports
+        from services.supabase_client import get_all_reports as sb_get_all
 
-        # Get both cloud and local reports
-        cloud_reports = get_cloud_reports(limit=500)
-        local_reports = await get_local_reports(db)
+        all_reports = await asyncio.to_thread(sb_get_all)
 
-        # Combine and deduplicate by ID
-        combined = {}
+        # Assign location = "cloud" for all (since all in Supabase)
+        for r in all_reports:
+            r["location"] = "cloud"
 
-        # Add local reports first (they have more detail)
-        for report in local_reports:
-            combined[report["id"]] = {
-                **report,
-                "location": "local",
-            }
-
-        # Add cloud reports (merge with local if exists)
-        for report in cloud_reports:
-            report_id = report.get("id")
-            if report_id in combined:
-                # Report exists in both - merge fields, prefer cloud if different
-                combined[report_id]["location"] = "both"
-                combined[report_id]["cloud_updated_at"] = report.get("updated_at")
-                # Merge key fields - cloud takes priority for these core fields
-                for field in [
-                    "company_name",
-                    "cr_number",
-                    "client_reference",
-                    "country",
-                    "analyst_name",
-                ]:
-                    if report.get(field) and report.get(field) != combined[
-                        report_id
-                    ].get(field):
-                        combined[report_id][field] = report[field]
-            else:
-                combined[report_id] = {
-                    **report,
-                    "location": "cloud",
-                }
-
-        # Convert to list
-        all_reports = list(combined.values())
-
-        # Apply filters
+        # Apply search filter
         if search:
             search_lower = search.lower()
             all_reports = [
@@ -322,6 +265,7 @@ async def get_all_reports_combined(
                 or search_lower in (r.get("cr_number") or "").lower()
             ]
 
+        # Apply country filter
         if country:
             all_reports = [r for r in all_reports if r.get("country") == country]
 

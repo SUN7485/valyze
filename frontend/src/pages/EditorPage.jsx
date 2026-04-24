@@ -96,11 +96,11 @@ export default function EditorPage() {
                     </p>
                     <p className="text-slate-600 dark:text-slate-400 text-sm mb-4">{error}</p>
                     <button
-                        onClick={() => navigate('/upload')}
+                        onClick={() => navigate('/')}
                         className="px-4 py-2 bg-primary text-white
                                    rounded-lg hover:brightness-110 font-semibold"
                     >
-                        Start New Report
+                        Back to Home Page
                     </button>
                 </div>
             </div>
@@ -113,11 +113,11 @@ export default function EditorPage() {
                 <div className="text-center">
                     <p className="text-[var(--color-text-secondary)]">No report data found</p>
                     <button
-                        onClick={() => navigate('/upload')}
+                        onClick={() => navigate('/')}
                         className="mt-4 px-4 py-2 bg-primary text-white
                                    rounded-lg hover:brightness-110 font-semibold"
                     >
-                        Start New Report
+                        Back to Home Page
                     </button>
                 </div>
             </div>

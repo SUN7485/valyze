@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
 import PhoneNumbersEditor from '../components/PhoneNumbersEditor'
+import { X } from 'lucide-react'
 
 const COUNTRY_OPTIONS = [
   { value: 'Egypt',        label: '🇪🇬 Egypt' },
@@ -233,7 +234,14 @@ export default function P05_CompanyProfile() {
         {/* Dynamic Country Specifics */}
         <div className="mt-8 space-y-6">
           {getFieldValue('show_uae_fields') && (
-            <div className="p-6 bg-blue-50/50 dark:bg-blue-500/10 rounded-2xl border border-blue-100 dark:border-blue-500/20 animate-in slide-in-from-top-2">
+            <div className="p-6 bg-blue-50/50 dark:bg-blue-500/10 rounded-2xl border border-blue-100 dark:border-blue-500/20 animate-in slide-in-from-top-2 relative">
+              <button
+                onClick={() => updateField('show_uae_fields', false)}
+                className="absolute right-2 top-2 p-1.5 rounded-lg text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors"
+                title="Hide UAE section"
+              >
+                <X size={16} />
+              </button>
               <h4 className="text-[10px] font-black text-blue-700 dark:text-blue-400 uppercase tracking-widest mb-4">UAE Specific Details</h4>
               <div className="grid grid-cols-2 gap-4">
                 <FieldInput label="Trade License No."   fieldName="trade_license_number" type="text" />
@@ -244,7 +252,14 @@ export default function P05_CompanyProfile() {
             </div>
           )}
           {getFieldValue('show_saudi_fields') && (
-            <div className="p-6 bg-green-50/50 dark:bg-emerald-500/10 rounded-2xl border border-green-100 dark:border-emerald-500/20 animate-in slide-in-from-top-2">
+            <div className="p-6 bg-green-50/50 dark:bg-emerald-500/10 rounded-2xl border border-green-100 dark:border-emerald-500/20 animate-in slide-in-from-top-2 relative">
+              <button
+                onClick={() => updateField('show_saudi_fields', false)}
+                className="absolute right-2 top-2 p-1.5 rounded-lg text-green-600 hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors"
+                title="Hide KSA section"
+              >
+                <X size={16} />
+              </button>
               <div className="flex items-center justify-between mb-4">
                 <h4 className="text-[10px] font-black text-green-700 dark:text-emerald-400 uppercase tracking-widest">KSA Specific Details</h4>
                 <button
@@ -280,7 +295,14 @@ export default function P05_CompanyProfile() {
           )}
 
           {getFieldValue('show_egypt_fields') && (
-            <div className="p-6 bg-red-50/50 dark:bg-rose-500/10 rounded-2xl border border-red-100 dark:border-rose-500/20 animate-in slide-in-from-top-2">
+            <div className="p-6 bg-red-50/50 dark:bg-rose-500/10 rounded-2xl border border-red-100 dark:border-rose-500/20 animate-in slide-in-from-top-2 relative">
+              <button
+                onClick={() => updateField('show_egypt_fields', false)}
+                className="absolute right-2 top-2 p-1.5 rounded-lg text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
+                title="Hide Egypt section"
+              >
+                <X size={16} />
+              </button>
               <h4 className="text-[10px] font-black text-red-700 dark:text-rose-400 uppercase tracking-widest mb-4">Egypt Specific Details</h4>
               <div className="grid grid-cols-2 gap-4">
                 <FieldInput label="Tax Registration No."  fieldName="tax_registration_number" type="text" />

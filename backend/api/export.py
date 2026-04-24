@@ -5,16 +5,16 @@ Supports: JSON, XML, Excel (XLSX), CSV, Word (DOCX)
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.crud import get_report
-from database.db import get_db
+
 from services import export_service
+from database.crud import get_report
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
@@ -25,20 +25,18 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 def _get_company_name_from_report(report) -> str:
     """Extract company name from report."""
     fields = report.fields if hasattr(report, "fields") else report.get("fields", {})
-
     if hasattr(fields, "get"):
         company_name = fields.get("company_name")
         if company_name and hasattr(company_name, "value"):
             return str(company_name.value) or "Report"
         if isinstance(company_name, dict):
             return str(company_name.get("value", "")) or "Report"
-
     return "Report"
 
 
-async def _get_report_or_404(report_id: str, db: AsyncSession):
+async def _get_report_or_404(report_id: str):
     """Get report or raise 404."""
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(404, f"Report {report_id} not found")
     return report
@@ -50,163 +48,133 @@ async def _get_report_or_404(report_id: str, db: AsyncSession):
 
 
 @router.post("/json/{report_id}")
-async def export_report_json(report_id: str, db: AsyncSession = Depends(get_db)):
+async def export_report_json(report_id: str):
     """Export report as JSON."""
-    report = await _get_report_or_404(report_id, db)
-
-    report_dict = report.model_dump() if hasattr(report, "model_dump") else dict(report)
-    result = export_service.export_json(report_dict, report_id)
-
-    if not result["success"]:
-        raise HTTPException(500, f"JSON export failed: {result.get('error')}")
-
-    return {
-        "success": True,
-        "report_id": report_id,
-        "format": "json",
-        "file_size_kb": result.get("file_size_kb", 0),
-        "download_url": f"/api/export/download/{report_id}/json",
-    }
+    report = await _get_report_or_404(report_id)
+    return {"report": report.model_dump()}
 
 
 @router.post("/xml/{report_id}")
-async def export_report_xml(report_id: str, db: AsyncSession = Depends(get_db)):
+async def export_report_xml(report_id: str):
     """Export report as XML."""
-    report = await _get_report_or_404(report_id, db)
-
-    report_dict = report.model_dump() if hasattr(report, "model_dump") else dict(report)
-    result = export_service.export_xml(report_dict, report_id)
-
-    if not result["success"]:
-        raise HTTPException(500, f"XML export failed: {result.get('error')}")
-
-    return {
-        "success": True,
-        "report_id": report_id,
-        "format": "xml",
-        "file_size_kb": result.get("file_size_kb", 0),
-        "download_url": f"/api/export/download/{report_id}/xml",
-    }
+    report = await _get_report_or_404(report_id)
+    xml_content = await export_service.generate_xml(report)
+    return {"xml": xml_content}
 
 
 @router.post("/excel/{report_id}")
-async def export_report_excel(report_id: str, db: AsyncSession = Depends(get_db)):
+async def export_report_excel(report_id: str):
     """Export report as Excel."""
-    report = await _get_report_or_404(report_id, db)
-
-    report_dict = report.model_dump() if hasattr(report, "model_dump") else dict(report)
-    result = export_service.export_excel(report_dict, report_id)
-
-    if not result["success"]:
-        raise HTTPException(500, f"Excel export failed: {result.get('error')}")
-
+    report = await _get_report_or_404(report_id)
+    filepath = await export_service.generate_excel(report, OUTPUT_DIR)
     return {
-        "success": True,
-        "report_id": report_id,
-        "format": "xlsx",
-        "file_size_kb": result.get("file_size_kb", 0),
-        "download_url": f"/api/export/download/{report_id}/xlsx",
+        "filepath": filepath,
+        "download_url": f"/api/export/download/{report_id}/excel",
     }
 
 
 @router.post("/csv/{report_id}")
-async def export_report_csv(report_id: str, db: AsyncSession = Depends(get_db)):
+async def export_report_csv(report_id: str):
     """Export report as CSV."""
-    report = await _get_report_or_404(report_id, db)
-
-    report_dict = report.model_dump() if hasattr(report, "model_dump") else dict(report)
-    result = export_service.export_csv(report_dict, report_id)
-
-    if not result["success"]:
-        raise HTTPException(500, f"CSV export failed: {result.get('error')}")
-
+    report = await _get_report_or_404(report_id)
+    filepath = await export_service.generate_csv(report, OUTPUT_DIR)
     return {
-        "success": True,
-        "report_id": report_id,
-        "format": "csv",
-        "file_size_kb": result.get("file_size_kb", 0),
+        "filepath": filepath,
         "download_url": f"/api/export/download/{report_id}/csv",
     }
 
 
 @router.post("/word/{report_id}")
-async def export_report_word(report_id: str, db: AsyncSession = Depends(get_db)):
+async def export_report_word(report_id: str):
     """Export report as Word."""
-    report = await _get_report_or_404(report_id, db)
-
-    report_dict = report.model_dump() if hasattr(report, "model_dump") else dict(report)
-    result = export_service.export_word(report_dict, report_id)
-
-    if not result["success"]:
-        raise HTTPException(500, f"Word export failed: {result.get('error')}")
-
+    report = await _get_report_or_404(report_id)
+    filepath = await export_service.generate_word(report, OUTPUT_DIR)
     return {
-        "success": True,
-        "report_id": report_id,
-        "format": "docx",
-        "file_size_kb": result.get("file_size_kb", 0),
-        "download_url": f"/api/export/download/{report_id}/docx",
+        "filepath": filepath,
+        "download_url": f"/api/export/download/{report_id}/word",
     }
-
-
-# ---------------------------------------------------------------------------
-# Download Endpoints
-# ---------------------------------------------------------------------------
 
 
 @router.get("/download/{report_id}/{format}")
-async def download_export(
-    report_id: str, format: str, db: AsyncSession = Depends(get_db)
-):
-    """Download exported file."""
-    await _get_report_or_404(report_id, db)
-
-    format_map = {
-        "json": "json",
-        "xml": "xml",
-        "xlsx": "xlsx",
-        "csv": "csv",
-        "docx": "docx",
-    }
-
-    ext = format_map.get(format, format)
-    if ext not in ["json", "xml", "xlsx", "csv", "docx"]:
-        raise HTTPException(400, f"Unsupported format: {format}")
-
-    # Get company name for filename
-    report = await get_report(db, report_id)
-    company_name = _get_company_name_from_report(report)
-    safe_name = company_name.replace(" ", "_")[:30]
-    filename = f"CreditReport_{safe_name}.{ext}"
-
-    file_path = OUTPUT_DIR / f"{report_id}.{ext}"
-
+async def download_export(report_id: str, format: str):
+    """Download generated export file."""
+    filename = f"{report_id}.{format}"
+    file_path = OUTPUT_DIR / filename
     if not file_path.exists():
-        raise HTTPException(404, f"File not found. Export {format} first.")
-
-    media_types = {
-        "json": "application/json",
-        "xml": "application/xml",
-        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "csv": "text/csv",
-        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    }
-
+        raise HTTPException(404, "Export file not found")
     return FileResponse(
         path=str(file_path),
-        media_type=media_types.get(ext, "application/octet-stream"),
         filename=filename,
+        media_type="application/octet-stream",
     )
 
 
 @router.get("/status/{report_id}")
-async def export_status(report_id: str, db: AsyncSession = Depends(get_db)):
-    """Check export file status."""
-    await _get_report_or_404(report_id, db)
-
-    files = export_service.check_export_files(report_id)
-
+async def export_status(report_id: str):
+    """Check export generation status."""
+    # Check if any export files exist
+    formats = ["json", "xml", "xlsx", "csv", "docx"]
+    available = []
+    for fmt in formats:
+        if (OUTPUT_DIR / f"{report_id}.{fmt}").exists():
+            available.append(fmt)
     return {
         "report_id": report_id,
-        "files": files,
+        "export_formats": available,
+        "total": len(available),
     }
+
+
+# ---------------------------------------------------------------------------
+# Backup Endpoints (Phase 6)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/backup/all")
+async def export_all_reports_backup():
+    """Export all reports as a single JSON backup file."""
+    from database.crud import get_all_reports
+
+    reports = await get_all_reports(None)
+    if not reports:
+        return {"message": "No reports to backup", "count": 0}
+
+    backup_data = {
+        "version": "1.0.0",
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "total_reports": len(reports),
+        "reports": [r.model_dump() if hasattr(r, "model_dump") else r for r in reports],
+    }
+
+    return backup_data
+
+
+@router.get("/backup/download/all")
+async def download_all_reports_backup():
+    """Download all reports as a downloadable JSON backup file."""
+    from database.crud import get_all_reports
+
+    reports = await get_all_reports(None)
+    if not reports:
+        raise HTTPException(404, "No reports to backup")
+
+    backup_data = {
+        "version": "1.0.0",
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "total_reports": len(reports),
+        "reports": [r.model_dump() if hasattr(r, "model_dump") else r for r in reports],
+    }
+
+    import json
+
+    filename = (
+        f"valyze_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
+    )
+    file_path = OUTPUT_DIR / filename
+    file_path.write_text(json.dumps(backup_data, indent=2, default=str))
+
+    return FileResponse(
+        path=str(file_path),
+        filename=filename,
+        media_type="application/json",
+    )

@@ -1,105 +1,89 @@
 """
-Database setup forValyze Credit report Backend.
+Database setup for Valyze Credit Report Backend.
 
-Provides async SQLAlchemy engine, session management,
-table definitions, and FastAPI dependency injection.
+PRODUCTION: Uses Supabase (PostgreSQL). Local SQLite is deprecated.
+This module provides a stub `get_db` dependency that returns None.
+All data operations go through Supabase via services.supabase_client.
 """
 
 import os
-from datetime import datetime, timezone
 from pathlib import Path
-
 from dotenv import load_dotenv
-from sqlalchemy import (
-    Boolean,
-    Column,
-    DateTime,
-    ForeignKey,
-    Integer,
-    String,
-    Text,
-)
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./antigravity.db")
-
-engine = create_async_engine(DATABASE_URL, echo=False)
-
-async_session = sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
-
 
 # ---------------------------------------------------------------------------
-# Base model
+# Stub Base for compatibility (retained for type checkers)
 # ---------------------------------------------------------------------------
 
-class Base(DeclarativeBase):
+
+class Base:
+    """Base class retained for import compatibility only — no ORM usage."""
+
     pass
 
 
 # ---------------------------------------------------------------------------
-# Table definitions
+# Stub ORM Models (for type hints/imports only)
 # ---------------------------------------------------------------------------
 
+
 class ReportRow(Base):
-    """Stores the full report state as JSON alongside status metadata."""
+    """Stub — not used. Kept to satisfy import statements."""
 
     __tablename__ = "reports"
-
-    id = Column(String, primary_key=True)
-    status = Column(String, nullable=False, default="uploading")
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
-                        onupdate=lambda: datetime.now(timezone.utc))
-    report_json = Column(Text, nullable=True)
-    extraction_stats_json = Column(Text, nullable=True)
+    id = None
+    status = None
+    report_json = None
+    extraction_stats_json = None
+    created_at = None
+    updated_at = None
 
 
 class UploadedFileRow(Base):
-    """Tracks individual uploaded files linked to a report."""
+    """Stub — not used. Kept to satisfy import statements."""
 
     __tablename__ = "uploaded_files"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    report_id = Column(String, ForeignKey("reports.id"), nullable=False)
-    filename = Column(String, nullable=False)
-    file_path = Column(String, nullable=False)
-    file_type = Column(String, nullable=False)
-    file_size = Column(Integer, nullable=False, default=0)
-    language = Column(String, nullable=True)
-    pages = Column(Integer, nullable=True)
-    processed = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    id = None
+    report_id = None
+    filename = None
+    file_path = None
+    file_type = None
+    file_size = None
+    language = None
+    pages = None
+    processed = None
+    created_at = None
 
 
 # ---------------------------------------------------------------------------
-# Dependency injection
+# Deprecated: SQLAlchemy engine & session removed
 # ---------------------------------------------------------------------------
+
+# DATABASE_URL removed — Supabase replaces SQLite
+
+
+# ---------------------------------------------------------------------------
+# Stub Dependency
+# ---------------------------------------------------------------------------
+
 
 async def get_db():
-    """FastAPI dependency that yields an async database session."""
-    async with async_session() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+    """FastAPI dependency stub — yields None.
+
+    The application no longer uses direct SQLite sessions.
+    All database operations are performed through Supabase.
+    This stub maintains signature compatibility during migration.
+    """
+    yield None
 
 
 # ---------------------------------------------------------------------------
-# Initialisation
+# Stub init_db
 # ---------------------------------------------------------------------------
+
 
 async def init_db():
-    """Create all tables if they don't already exist."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """No-op. Database schema is managed via Supabase migrations."""
+    pass

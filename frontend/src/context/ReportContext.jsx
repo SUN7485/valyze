@@ -301,6 +301,16 @@ export function ReportProvider({ children }) {
         return report?.arrays?.[arrayName] || []
     }, [report])
 
+    // Get hidden fields list (user-hidden via eye icon)
+    const getHiddenFields = useCallback(() => {
+        return getArray('hidden_fields') || []
+    }, [report])
+
+    // Check if a field is visible (not hidden)
+    const isFieldVisible = useCallback((fieldName) => {
+        return !getHiddenFields().includes(fieldName)
+    }, [report])
+
     // Count fields by confidence
     const getFieldCounts = useCallback(() => {
         if (!report?.fields) return {}

@@ -2,7 +2,7 @@ import React, { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 
-// Lazy load pages for better performance
+// Lazy load pages
 const HomePage = lazy(() => import('./pages/HomePage'))
 const UploadPage = lazy(() => import('./pages/UploadPage'))
 const ProcessingPage = lazy(() => import('./pages/ProcessingPage'))
@@ -11,7 +11,7 @@ const GeneratingPage = lazy(() => import('./pages/GeneratingPage'))
 const DonePage = lazy(() => import('./pages/DonePage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 
-// Loading fallback component
+// Loading fallback
 function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-[400px]">

@@ -198,17 +198,19 @@ class FullReport(BaseModel):
 
 
 class UpdateFieldRequest(BaseModel):
-    field_name: str
+    field_name: str = Field(
+        ..., min_length=1, max_length=100, pattern=r"^[a-z_][a-z0-9_]*$"
+    )
     value: Any
     source: str = "user"
 
 
 class UpdateFieldsBulkRequest(BaseModel):
-    fields: Dict[str, Any]
+    fields: Dict[str, Any] = Field(..., max_length=100)
 
 
 class UpdateArrayRequest(BaseModel):
-    array_name: str
+    array_name: str = Field(..., pattern=r"^[a-z_][a-z0-9_]*$")
     data: List[Any]
 
 

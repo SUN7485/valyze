@@ -192,7 +192,7 @@ export default function ReportsPage() {
             setCountries(uniqueCountries)
             setCrNumbers(uniqueCrNumbers)
             
-            const cloudCount = allReports.filter(r => r.location === 'cloud').length
+            const cloudCount = allReports.filter(r => r.location === 'cloud' || r.location === 'both').length
             const localCount = allReports.filter(r => r.location === 'local').length
             const syncedCount = allReports.filter(r => r.location === 'both').length
             setStats({ cloud: cloudCount, local: localCount, synced: syncedCount })
@@ -246,15 +246,7 @@ export default function ReportsPage() {
         try {
             setLoadingReportId(report.id)
             setError('')
-            
-            // If report is in local or synced, no need to load from cloud
-            if (report.location === 'local' || report.location === 'both') {
-                navigate(`/editor/${report.id}`)
-                return
-            }
-            
-            // If only in cloud, load it first then navigate
-            await reportAPI.loadFromCloud(report.id)
+            // Direct navigation — report data is fetched from Supabase in editor
             navigate(`/editor/${report.id}`)
         } catch (e) {
             setError(`Failed to load report: ${e.message}`)
@@ -268,16 +260,8 @@ export default function ReportsPage() {
         try {
             setDownloading(prev => ({ ...prev, [reportId]: true }))
             setError('')
-            
-            const report = reports.find(r => r.id === reportId)
-            
-            // If not cloud-only, no need to load from cloud
-            if (report && report.location !== 'cloud') {
-                // Already local, proceed with export
-            } else {
-                await reportAPI.loadFromCloud(reportId)
-            }
-            
+
+            // Export directly — data is in Supabase
             const exportAPI = {
                 pdf: reportAPI.generatePDF,
                 json: reportAPI.exportJSON,
@@ -286,9 +270,9 @@ export default function ReportsPage() {
                 csv: reportAPI.exportCSV,
                 docx: reportAPI.exportWord,
             }[format]
-            
+
             await exportAPI(reportId)
-            
+
             setTimeout(() => {
                 const downloadUrl = format === 'pdf' 
                     ? reportAPI.getDownloadURL(reportId)
@@ -347,14 +331,14 @@ export default function ReportsPage() {
         try {
             setSavingLocally(prev => ({ ...prev, [reportId]: true }))
             setError('')
-            // Save to cloud which will store in Supabase, then we can load from there
+            // In Supabase-only architecture, all changes are already persisted.
+            // This button now just refreshes the list.
             await reportAPI.saveToCloud(reportId)
-            await reportAPI.loadFromCloud(reportId)
-            setSaveMessage(prev => ({ ...prev, [reportId]: 'Saved locally!' }))
+            setSaveMessage(prev => ({ ...prev, [reportId]: 'Saved!' }))
             setTimeout(() => setSaveMessage(prev => ({ ...prev, [reportId]: '' })), 3000)
             fetchReports()
         } catch (e) {
-            setError(`Failed to save locally: ${e.message}`)
+            setError(`Failed to save: ${e.message}`)
         } finally {
             setSavingLocally(prev => ({ ...prev, [reportId]: false }))
         }
@@ -435,7 +419,7 @@ export default function ReportsPage() {
                     <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
                         {showTab === 'output' 
                             ? `${outputReports.length} generated files`
-                            : `${reports.length} total • ${stats.cloud} cloud • ${stats.local} local • ${stats.synced} synced`
+                            : `${reports.length} total • ${stats.cloud} cloud • ${stats.local} local`
                         }
                     </p>
                 </div>

@@ -13,8 +13,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, Path as PathParam
+from pydantic import BaseModel, Field
+import re
+
+
+# Note: db dependency retained for backward compatibility but not used
+# from database.db import get_db  # removed
 
 from database.crud import (
     delete_report as crud_delete_report,
@@ -25,7 +30,6 @@ from database.crud import (
     update_report_fields_bulk,
     update_report_status,
 )
-from database.db import get_db
 from models.field_meta import ARRAY_FIELDS
 from models.report_schema import (
     FieldData,
@@ -35,6 +39,7 @@ from models.report_schema import (
     UpdateFieldsBulkRequest,
 )
 
+# All endpoints require authentication
 router = APIRouter(prefix="/api/report", tags=["report"])
 
 
@@ -105,9 +110,9 @@ def pick(*args):
 
 
 @router.get("/", response_model=List[dict])
-async def list_reports(db: AsyncSession = Depends(get_db)):
+async def list_reports():
     try:
-        reports = await get_all_reports(db)
+        reports = await get_all_reports(None)
         return reports
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list reports: {e}")
@@ -118,14 +123,18 @@ async def list_reports(db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 
+REPORT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,100}$")
+
+
 @router.get("/{report_id}")
-async def get_report_detail(report_id: str, db: AsyncSession = Depends(get_db)):
-    print(f"[DEBUG] Get report detail for {report_id}")
-    report = await get_report(db, report_id)
+async def get_report_detail(
+    report_id: str = PathParam(..., description="Report unique identifier"),
+):
+    if not REPORT_ID_PATTERN.match(report_id):
+        raise HTTPException(status_code=400, detail="Invalid report_id format")
+    report = await get_report(None, report_id)
     if report is None:
-        print(f"[DEBUG] Report not found: {report_id}")
         raise HTTPException(status_code=404, detail="Report not found")
-    print(f"[DEBUG] Returning report: {report_id}, status: {report.status}")
     return report.model_dump()
 
 
@@ -138,9 +147,8 @@ async def get_report_detail(report_id: str, db: AsyncSession = Depends(get_db)):
 async def update_single_field(
     report_id: str,
     body: UpdateFieldRequest,
-    db: AsyncSession = Depends(get_db),
 ):
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
@@ -151,7 +159,7 @@ async def update_single_field(
         )
 
     updated = await update_report_field(
-        db,
+        None,
         report_id,
         body.field_name,
         body.value,
@@ -177,13 +185,12 @@ async def update_single_field(
 async def update_fields_bulk(
     report_id: str,
     body: UpdateFieldsBulkRequest,
-    db: AsyncSession = Depends(get_db),
 ):
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
-    updated = await update_report_fields_bulk(db, report_id, body.fields)
+    updated = await update_report_fields_bulk(None, report_id, body.fields)
     if updated is None:
         raise HTTPException(status_code=500, detail="Failed to update fields")
 
@@ -202,9 +209,8 @@ async def update_fields_bulk(
 async def update_array(
     report_id: str,
     body: UpdateArrayRequest,
-    db: AsyncSession = Depends(get_db),
 ):
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
@@ -219,7 +225,7 @@ async def update_array(
         arrays_dict = report.arrays.model_dump()
         arrays_dict[body.array_name] = body.data
         report.arrays = report.arrays.model_validate(arrays_dict)
-        await save_report_json(db, report_id, report.model_dump_json())
+        await save_report_json(None, report_id, report.model_dump_json())
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to update array: {e}")
 
@@ -237,14 +243,13 @@ async def update_array(
 @router.post("/{report_id}/recalculate")
 async def recalculate_report_financials(
     report_id: str,
-    db: AsyncSession = Depends(get_db),
 ):
     """
     RECALCULATION IS INTENTIONALLY DISABLED.
     The imported JSON is the SINGLE SOURCE OF TRUTH.
     This endpoint exists for API compatibility but does NOTHING.
     """
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
@@ -274,8 +279,8 @@ async def recalculate_report_financials(
 
 
 @router.get("/{report_id}/stats")
-async def get_stats(report_id: str, db: AsyncSession = Depends(get_db)):
-    report = await get_report(db, report_id)
+async def get_stats(report_id: str):
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
     return report.extraction_stats.model_dump()
@@ -290,7 +295,6 @@ async def get_stats(report_id: str, db: AsyncSession = Depends(get_db)):
 async def easy_way_import(
     report_id: str,
     data: dict,
-    db: AsyncSession = Depends(get_db),
 ):
     """
     Import complete JSON — JSON is the FINAL WORD.
@@ -299,7 +303,7 @@ async def easy_way_import(
     print(f"[DEBUG] Easy Way Import called for report_id: {report_id}")
     print(f"[DEBUG] Data keys: {list(data.keys()) if data else 'None'}")
 
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if not report:
         print(f"[DEBUG] Report not found: {report_id}")
         raise HTTPException(404, "Report not found")
@@ -1103,11 +1107,29 @@ async def easy_way_import(
         f"[EASY WAY] forced={forced_count} fields={fields_updated} arrays={arrays_updated}"
     )
 
+    # -- Recalculate extraction stats ---------------------------------------
+    total = len(report.fields)
+    high = sum(1 for f in report.fields.values() if f.confidence == "high")
+    medium = sum(1 for f in report.fields.values() if f.confidence == "medium")
+    calc = sum(1 for f in report.fields.values() if f.confidence == "calculated")
+    missing = total - high - medium - calc
+
+    report.extraction_stats.total_fields = total
+    report.extraction_stats.high_confidence = high
+    report.extraction_stats.medium_confidence = medium
+    report.extraction_stats.calculated = calc
+    report.extraction_stats.missing = missing
+
+    print(
+        f"[EASY WAY] Stats: total={total} high={high} medium={medium} "
+        f"calc={calc} missing={missing}"
+    )
+
     # -- Save --------------------------------------------------------------
     print(f"[DEBUG] Saving report for {report_id}")
     report.updated_at = now_ts
-    await save_report_json(db, report_id, report.model_dump_json())
-    await update_report_status(db, report_id, "ready")
+    await save_report_json(None, report_id, report)
+    await update_report_status(None, report_id, "ready")
     print(f"[DEBUG] Report saved successfully")
 
     return {
@@ -1140,12 +1162,11 @@ async def easy_way_import(
 async def update_status(
     report_id: str,
     body: dict,
-    db: AsyncSession = Depends(get_db),
 ):
     new_status = body.get("status")
     if not new_status:
         raise HTTPException(status_code=400, detail="Status is required")
-    await update_report_status(db, report_id, new_status)
+    await update_report_status(None, report_id, new_status)
     return {"success": True, "status": new_status}
 
 
@@ -1155,8 +1176,12 @@ async def update_status(
 
 
 @router.delete("/{report_id}")
-async def delete_report(report_id: str, db: AsyncSession = Depends(get_db)):
-    report = await get_report(db, report_id)
+async def delete_report(
+    report_id: str = PathParam(..., description="Report unique identifier"),
+):
+    if not REPORT_ID_PATTERN.match(report_id):
+        raise HTTPException(status_code=400, detail="Invalid report_id format")
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
@@ -1164,7 +1189,7 @@ async def delete_report(report_id: str, db: AsyncSession = Depends(get_db)):
     if upload_dir.exists():
         shutil.rmtree(upload_dir, ignore_errors=True)
 
-    deleted = await crud_delete_report(db, report_id)
+    deleted = await crud_delete_report(None, report_id)
     if not deleted:
         raise HTTPException(status_code=500, detail="Failed to delete report")
 

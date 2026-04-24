@@ -3,6 +3,7 @@ Supabase client service for Valyze Credit Reports.
 Uses direct HTTP calls to avoid complex dependency issues.
 """
 
+import json
 import os
 import logging
 import requests
@@ -11,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,9 @@ def _handle_response(response: requests.Response) -> List[Dict[str, Any]]:
 
 def create_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]:
     """Create a new report in Supabase."""
+    print(f"[SUPABASE] create_report called: {report_id}")
     url = f"{get_base_url()}/reports"
+    print(f"[SUPABASE] URL: {url}")
 
     # Extract fields - handle different formats
     fields = report_data.get("fields", {})
@@ -87,18 +90,33 @@ def create_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]
         "address": get_field_value("address"),
         "analyst": get_field_value("analyst"),
     }
+    print(f"[SUPABASE] Data to send: {json.dumps(data, default=str)[:200]}...")
+    print(f"[SUPABASE] Headers: {get_headers()}")
 
     try:
+        print("[SUPABASE] Making POST request...")
         response = requests.post(url, json=data, headers=get_headers(), timeout=30)
+        print(f"[SUPABASE] Response status: {response.status_code}")
+        print(f"[SUPABASE] Response text: {response.text[:500]}")
+
         if response.status_code in [200, 201]:
-            return response.json() if response.text else {}
+            result = response.json() if response.text else {}
+            print(f"[SUPABASE] Success: {result}")
+            return result
         logger.error(
             f"[Supabase] Create failed: {response.status_code} - {response.text[:200]}"
         )
-        return {}
+        print(
+            f"[Supabase] Create report error: {response.status_code} - {response.text[:500]}"
+        )
+        raise Exception(f"Supabase Error {response.status_code}: {response.text}")
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Create request failed: {e}")
-        return {}
+        print(f"[Supabase] Create request exception: {e}")
+        import traceback
+
+        traceback.print_exc()
+        raise Exception(f"Request failed: {e}")
 
 
 def get_report(report_id: str) -> Optional[Dict[str, Any]]:
@@ -114,24 +132,54 @@ def get_report(report_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def get_all_reports() -> List[Dict[str, Any]]:
+    """Get all reports."""
+    url = f"{get_base_url()}/reports"
+
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        return _handle_response(response)
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get all reports failed: {e}")
+        return []
+
+
+def get_reports_count() -> int:
+    """Get the count of reports."""
+    url = f"{get_base_url()}/reports?select=id"
+
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        results = _handle_response(response)
+        return len(results)
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get reports count failed: {e}")
+        return 0
+
+
 def update_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]:
     """Update an existing report."""
     url = f"{get_base_url()}/reports?id=eq.{report_id}"
 
+    # Extract fields for the columns that exist in the reports table
+    fields = report_data.get("fields", {})
+
+    def get_field_value(field_name):
+        f = fields.get(field_name, {})
+        if isinstance(f, dict):
+            return f.get("value")
+        return None
+
     data = {
         "status": report_data.get("status"),
         "report_json": report_data,
-        "company_name": report_data.get("fields", {})
-        .get("company_name", {})
-        .get("value"),
-        "legal_name": report_data.get("fields", {}).get("legal_name", {}).get("value"),
-        "cr_number": report_data.get("fields", {}).get("cr_number", {}).get("value"),
-        "client_reference": report_data.get("fields", {})
-        .get("client_reference", {})
-        .get("value"),
-        "country": report_data.get("fields", {}).get("country", {}).get("value"),
-        "address": report_data.get("fields", {}).get("address", {}).get("value"),
-        "analyst": report_data.get("fields", {}).get("analyst", {}).get("value"),
+        "company_name": get_field_value("company_name"),
+        "legal_name": get_field_value("legal_name"),
+        "cr_number": get_field_value("cr_number"),
+        "client_reference": get_field_value("client_reference"),
+        "country": get_field_value("country"),
+        "address": get_field_value("address"),
+        "analyst": get_field_value("analyst"),
     }
 
     try:
@@ -159,85 +207,81 @@ def delete_report(report_id: str) -> bool:
         return False
 
 
-def search_reports(
-    query: str = "",
-    company_name: Optional[str] = None,
-    cr_number: Optional[str] = None,
-    country: Optional[str] = None,
-    client_reference: Optional[str] = None,
-    analyst: Optional[str] = None,
-    limit: int = 50,
-) -> List[Dict[str, Any]]:
-    """Search reports by various fields."""
-    filters = []
+# ---------------------------------------------------------------------------
+# Uploaded File Operations
+# ---------------------------------------------------------------------------
 
-    if query:
-        or_filters = [
-            f"id.ilike.**{query}**",
-            f"company_name.ilike.**{query}**",
-            f"legal_name.ilike.**{query}**",
-            f"client_reference.ilike.**{query}**",
-            f"cr_number.ilike.**{query}**",
-            f"country.ilike.**{query}**",
-            f"address.ilike.**{query}**",
-            f"analyst.ilike.**{query}**",
-        ]
-        url = f"{get_base_url()}/reports?or=({','.join(or_filters)})&limit={limit}"
-    else:
-        url = f"{get_base_url()}/reports"
-        if company_name:
-            filters.append(f"company_name.ilike.**{company_name}**")
-        if cr_number:
-            filters.append(f"cr_number.ilike.**{cr_number}**")
-        if country:
-            filters.append(f"country.ilike.**{country}**")
-        if client_reference:
-            filters.append(f"client_reference.ilike.**{client_reference}**")
-        if analyst:
-            filters.append(f"analyst.ilike.**{analyst}**")
 
-        if filters:
-            url += f"?{'&'.join(filters)}&"
-        else:
-            url += "?"
-        url += f"limit={limit}"
+def add_uploaded_file(
+    report_id: str,
+    filename: str,
+    file_path: str,
+    file_type: str,
+    file_size: int,
+    language: Optional[str] = None,
+    pages: Optional[int] = None,
+    processed: bool = False,
+) -> Dict[str, Any]:
+    """Record an uploaded file linked to a report."""
+    url = get_base_url() + "/uploaded_files"
+    data = {
+        "report_id": report_id,
+        "filename": filename,
+        "file_path": file_path,
+        "file_type": file_type,
+        "file_size": file_size,
+        "language": language,
+        "pages": pages,
+        "processed": processed,
+    }
+    try:
+        response = requests.post(url, json=data, headers=get_headers(), timeout=30)
+        if response.status_code in [200, 201]:
+            return response.json() if response.text else {}
+        logger.error(
+            f"[Supabase] Add uploaded file failed: {response.status_code} - {response.text[:200]}"
+        )
+        return {}
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Add uploaded file request failed: {e}")
+        return {}
 
+
+def get_uploaded_files(report_id: str) -> List[Dict[str, Any]]:
+    """Get all uploaded files for a report."""
+    url = f"{get_base_url()}/uploaded_files?report_id=eq.{report_id}"
     try:
         response = requests.get(url, headers=get_headers(), timeout=30)
         return _handle_response(response)
     except requests.exceptions.RequestException as e:
-        logger.error(f"[Supabase] Search failed: {e}")
+        logger.error(f"[Supabase] Get uploaded files failed: {e}")
         return []
 
 
-def get_all_reports(limit: int = 500, offset: int = 0) -> List[Dict[str, Any]]:
-    """Get all reports with pagination support."""
-    url = (
-        f"{get_base_url()}/reports?order=created_at.desc&limit={limit}&offset={offset}"
-    )
-
+def delete_uploaded_file_by_report_and_filename(report_id: str, filename: str) -> bool:
+    """Delete uploaded file(s) matching report_id and filename."""
+    url = f"{get_base_url()}/uploaded_files?report_id=eq.{report_id}&filename=eq.{filename}"
     try:
-        response = requests.get(url, headers=get_headers(), timeout=30)
-        return _handle_response(response)
+        response = requests.delete(url, headers=get_headers(), timeout=30)
+        return response.status_code in [200, 204]
     except requests.exceptions.RequestException as e:
-        logger.error(f"[Supabase] Get all reports failed: {e}")
-        return []
+        logger.error(f"[Supabase] Delete uploaded file failed: {e}")
+        return False
 
 
-def get_reports_count() -> int:
-    """Get total reports count."""
-    url = f"{get_base_url()}/reports?select=id&count=exact"
-
+def delete_uploaded_file_by_id(file_id: int) -> bool:
+    """Delete uploaded file by its PK id."""
+    url = f"{get_base_url()}/uploaded_files?id=eq.{file_id}"
     try:
-        response = requests.get(url, headers=get_headers(), timeout=30)
-        if response.headers.get("Content-Range"):
-            return int(response.headers.get("Content-Range", "0").split("/")[-1])
-        return 0
+        response = requests.delete(url, headers=get_headers(), timeout=30)
+        return response.status_code in [200, 204]
     except requests.exceptions.RequestException as e:
-        logger.error(f"[Supabase] Get count failed: {e}")
-        return 0
+        logger.error(f"[Supabase] Delete uploaded file failed: {e}")
+        return False
 
 
+# ---------------------------------------------------------------------------
+# Search & Count
 # ---------------------------------------------------------------------------
 # Client wrapper for compatibility
 # ---------------------------------------------------------------------------

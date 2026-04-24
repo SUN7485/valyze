@@ -17,7 +17,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from services.auth import get_current_user
 
 from database.crud import (
     get_report,
@@ -25,7 +26,6 @@ from database.crud import (
     save_report_json,
     update_report_status,
 )
-from database.db import get_db
 from engines.chunker import TextChunker
 from engines.defaults_engine import DefaultsEngine
 from engines.file_handler import FileHandler
@@ -47,7 +47,9 @@ from ai.narratives import NarrativeGenerator
 
 load_dotenv()
 
-router = APIRouter(prefix="/api/extract", tags=["extract"])
+router = APIRouter(
+    prefix="/api/extract", tags=["extract"], dependencies=[Depends(get_current_user)]
+)
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 
@@ -65,6 +67,7 @@ _ai_extractor = AIFieldExtractor(_lm_client)
 # ==========================================================================
 # Helper utilities
 # ==========================================================================
+
 
 def _safe_float(value) -> float | None:
     """Convert a field value to float, return None on failure."""
@@ -152,6 +155,7 @@ def _count_fields(report) -> dict:
     )
     return counts
 
+
 def _map_ai_field_to_report(ai_key: str) -> str:
     """Map AI-extracted field names to report field names."""
     field_map = {
@@ -186,10 +190,10 @@ def _map_ai_field_to_report(ai_key: str) -> str:
 # POST /api/extract/start/{report_id}
 # ==========================================================================
 
+
 @router.post("/start/{report_id}")
 async def start_extraction(
     report_id: str,
-    db: AsyncSession = Depends(get_db),
 ):
     """
     Run the full extraction pipeline for a report.
@@ -207,17 +211,18 @@ async def start_extraction(
     """
 
     # -- Step 1: Validate -------------------------------------------------
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
     if report.status == "extracting":
         # Check if extraction started recently (within last 5 seconds) to prevent rapid duplicate calls
-        if hasattr(report, 'updated_at') and report.updated_at:
+        if hasattr(report, "updated_at") and report.updated_at:
             import time
+
             last_update = report.updated_at
             if isinstance(last_update, str):
-                last_update = datetime.fromisoformat(last_update.replace('Z', '+00:00'))
+                last_update = datetime.fromisoformat(last_update.replace("Z", "+00:00"))
             if (datetime.now(timezone.utc) - last_update).total_seconds() < 5:
                 return {
                     "status": "already_extracting",
@@ -230,7 +235,7 @@ async def start_extraction(
             "message": "Extraction is already in progress",
         }
 
-    file_rows = await get_uploaded_files(db, report_id)
+    file_rows = await get_uploaded_files(None, report_id)
     if not file_rows:
         raise HTTPException(
             status_code=400,
@@ -238,11 +243,11 @@ async def start_extraction(
         )
 
     # -- Step 2: Set status -----------------------------------------------
-    await update_report_status(db, report_id, "extracting")
-    print(f"\n{'='*60}")
+    await update_report_status(None, report_id, "extracting")
+    print(f"\n{'=' * 60}")
     print(f"  EXTRACTION STARTED — Report {report_id}")
     print(f"  Files: {len(file_rows)}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # -- Step 3: Process each file ----------------------------------------
     all_pattern_results: dict = {}
@@ -261,7 +266,7 @@ async def start_extraction(
     for i, file_row in enumerate(file_rows):
         file_path = Path(file_row.file_path)
         fname = file_row.filename
-        print(f"\n[EXTRACT] Processing file {i+1}/{len(file_rows)}: {fname}")
+        print(f"\n[EXTRACT] Processing file {i + 1}/{len(file_rows)}: {fname}")
 
         if not file_path.exists():
             msg = f"File not found on disk: {file_path}"
@@ -276,8 +281,10 @@ async def start_extraction(
             tables = extraction.get("tables", [])
             success = extraction.get("success", False)
 
-            print(f"[EXTRACT] Text: {len(text)} chars | "
-                  f"Tables: {len(tables)} | Success: {success}")
+            print(
+                f"[EXTRACT] Text: {len(text)} chars | "
+                f"Tables: {len(tables)} | Success: {success}"
+            )
 
             if not success:
                 error_msg = extraction.get("error", "Unknown extraction error")
@@ -297,29 +304,37 @@ async def start_extraction(
                 print("[AI EXTRACT] Starting AI field extraction...")
                 # Extract just the text content from chunks for the optimized extractor
                 chunk_texts = [chunk["text"] for chunk in all_chunks]
-                ai_fields = await _ai_extractor.extract_all_fields_optimized(text, chunk_texts)
-                
+                ai_fields = await _ai_extractor.extract_all_fields_optimized(
+                    text, chunk_texts
+                )
+
                 # Save AI-extracted fields to report
                 if ai_fields:
-                    print(f"[AI EXTRACT] {len([k for k,v in ai_fields.items() if v])} non-null fields extracted")
+                    print(
+                        f"[AI EXTRACT] {len([k for k, v in ai_fields.items() if v])} non-null fields extracted"
+                    )
                     # Apply AI fields to pattern results
                     for ai_key, ai_value in ai_fields.items():
                         if ai_value is not None and ai_value != [] and ai_value != {}:
                             # Map AI financial data to table data
                             if ai_key == "_financial" and isinstance(ai_value, dict):
-                                print(f"[AI FINANCIAL] Processing financial data from AI")
+                                print(
+                                    f"[AI FINANCIAL] Processing financial data from AI"
+                                )
                                 _merge_ai_financial_data(all_table_data, ai_value)
                                 continue
-                            
+
                             # Map regular AI fields to report field names
                             field_name = _map_ai_field_to_report(ai_key)
                             if field_name and field_name not in all_pattern_results:
                                 all_pattern_results[field_name] = {
                                     "value": ai_value,
                                     "confidence": "high",
-                                    "source": "ai"
+                                    "source": "ai",
                                 }
-                                print(f"[AI MAP] {ai_key} → {field_name}: {str(ai_value)[:50]}")
+                                print(
+                                    f"[AI MAP] {ai_key} → {field_name}: {str(ai_value)[:50]}"
+                                )
             except Exception as e:
                 print(f"[AI EXTRACT] Failed: {e}, continuing without AI extraction")
                 ai_fields = {}
@@ -330,11 +345,15 @@ async def start_extraction(
                 for field_name, field_data in pattern_results.items():
                     if field_data.get("value") is not None:
                         # Keep first found value (higher confidence)
-                        if field_name not in all_pattern_results or \
-                           all_pattern_results[field_name].get("value") is None:
+                        if (
+                            field_name not in all_pattern_results
+                            or all_pattern_results[field_name].get("value") is None
+                        ):
                             all_pattern_results[field_name] = field_data
-                            print(f"[PATTERN] {field_name} = "
-                                  f"{str(field_data.get('value', ''))[:50]}")
+                            print(
+                                f"[PATTERN] {field_name} = "
+                                f"{str(field_data.get('value', ''))[:50]}"
+                            )
 
             # -- 3c. Table extraction -------------------------------------
             if tables:
@@ -363,13 +382,18 @@ async def start_extraction(
                     if arr_items:
                         all_array_data[arr_key] = arr_items
                         print(f"[TABLE] {arr_key}: {len(arr_items)} items")
-                
+
                 # Apply questionnaire fields if detected
                 if "_questionnaire" in table_data:
                     from backend.engines.table_engine import apply_questionnaire_fields
+
                     questionnaire_data = table_data["_questionnaire"]
-                    print(f"[TABLE] Applying {len(questionnaire_data)} questionnaire fields")
-                    all_array_data = apply_questionnaire_fields(all_array_data, questionnaire_data)
+                    print(
+                        f"[TABLE] Applying {len(questionnaire_data)} questionnaire fields"
+                    )
+                    all_array_data = apply_questionnaire_fields(
+                        all_array_data, questionnaire_data
+                    )
 
             # -- 3d. Create text chunks -----------------------------------
             doc_chunks = _chunker.chunk_document(extraction, report_id)
@@ -377,20 +401,18 @@ async def start_extraction(
             print(f"[CHUNKS] {len(doc_chunks)} chunks from this file")
 
             # -- 3e. Save progress after each file -----------------------
-            await _save_partial_progress(
-                db, report_id, all_pattern_results, all_table_data
-            )
-            print(f"[EXTRACT] File {i+1} done — progress saved")
+            await _save_partial_progress(report_id, all_pattern_results, all_table_data)
+            print(f"[EXTRACT] File {i + 1} done — progress saved")
 
         except Exception as exc:
             msg = f"{fname}: {exc}"
-            print(f"[EXTRACT] ERROR on file {i+1}: {exc}")
+            print(f"[EXTRACT] ERROR on file {i + 1}: {exc}")
             traceback.print_exc()
             errors.append(msg)
 
     # -- Step 4: Final merge of all fields + arrays -----------------------
     print(f"\n[EXTRACT] Merging all extracted data...")
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(
             status_code=500,
@@ -443,7 +465,7 @@ async def start_extraction(
 
     # Save checkpoint before AI step
     report.updated_at = datetime.now(timezone.utc).isoformat()
-    await save_report_json(db, report_id, report.model_dump_json())
+    await save_report_json(None, report_id, report.model_dump_json())
 
     # -- Step 6: RAG / AI fill empty fields -------------------------------
     print(f"[RAG] Checking LM Studio connection...")
@@ -481,7 +503,9 @@ async def start_extraction(
                             # Check if field came from Easy Way Import - don't overwrite
                             existing = report.fields.get(field_name)
                             if existing and existing.source == "easy_way_import":
-                                print(f"[AI FILL] Skipping {field_name} - from Easy Way Import")
+                                print(
+                                    f"[AI FILL] Skipping {field_name} - from Easy Way Import"
+                                )
                             else:
                                 report.fields[field_name].value = val
                                 report.fields[field_name].confidence = "medium"
@@ -506,13 +530,9 @@ async def start_extraction(
     else:
         print("[RAG] LM Studio NOT available — skipping AI filling")
 
-    ai_fields_missing = sum(
-        1 for f in report.fields.values() if f.confidence == "missing"
-    )
-
     # Save checkpoint after AI step
     report.updated_at = datetime.now(timezone.utc).isoformat()
-    await save_report_json(db, report_id, report.model_dump_json())
+    await save_report_json(None, report_id, report.model_dump_json())
 
     # -- Step 7: Calculation Engine (Bypassed) ----------------------------
     print(f"[CALC] Calculation engine bypassed (JSON-Only Architecture active)")
@@ -529,8 +549,8 @@ async def start_extraction(
 
     report.status = "ready"
     report.updated_at = datetime.now(timezone.utc).isoformat()
-    await save_report_json(db, report_id, report.model_dump_json())
-    await update_report_status(db, report_id, "ready")
+    await save_report_json(None, report_id, report.model_dump_json())
+    await update_report_status(None, report_id, "ready")
 
     # -- Step 9: Build response summary -----------------------------------
     summary = {
@@ -560,11 +580,13 @@ async def start_extraction(
         },
     }
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  EXTRACTION COMPLETE — Report {report_id}")
     print(f"  Files: {files_processed}/{len(file_rows)}")
-    print(f"  High: {counts['high']}  Medium: {counts['medium']}  "
-          f"Calc: {counts['calculated']}  Missing: {counts['missing']}")
+    print(
+        f"  High: {counts['high']}  Medium: {counts['medium']}  "
+        f"Calc: {counts['calculated']}  Missing: {counts['missing']}"
+    )
     print(f"  System: {counts['system']}  User: {counts['user']}")
     print(f"  AI Filled: {ai_fields_filled}  LM Studio: {is_lm_available}")
     print(f"  Tables: {tables_found}  Chunks: {len(all_chunks)}")
@@ -572,7 +594,7 @@ async def start_extraction(
         print(f"  Errors: {len(errors)}")
         for err in errors:
             print(f"    - {err[:80]}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     return summary
 
@@ -581,13 +603,13 @@ async def start_extraction(
 # GET /api/extract/progress/{report_id}
 # ==========================================================================
 
+
 @router.get("/progress/{report_id}")
 async def get_extraction_progress(
     report_id: str,
-    db: AsyncSession = Depends(get_db),
 ):
     """Return extraction progress for polling by the frontend."""
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
@@ -656,17 +678,17 @@ async def get_extraction_progress(
 # GET /api/extract/fields/{report_id}
 # ==========================================================================
 
+
 @router.get("/fields/{report_id}")
 async def get_extracted_fields(
     report_id: str,
-    db: AsyncSession = Depends(get_db),
 ):
     """
     Return all extracted fields grouped by confidence level.
 
     Useful for the frontend to show field breakdown before editing.
     """
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
@@ -714,6 +736,7 @@ async def get_extracted_fields(
 # Internal helpers
 # ==========================================================================
 
+
 def _merge_ai_financial_data(all_table_data: dict, ai_financial: dict) -> None:
     """
     Merge AI-extracted financial data into table data structure.
@@ -721,23 +744,26 @@ def _merge_ai_financial_data(all_table_data: dict, ai_financial: dict) -> None:
     """
     try:
         # Income statement
-        if "income_statement" in ai_financial and not all_table_data.get("income_statement"):
+        if "income_statement" in ai_financial and not all_table_data.get(
+            "income_statement"
+        ):
             all_table_data["income_statement"] = ai_financial["income_statement"]
             print(f"[AI FINANCIAL] Added income statement data")
-        
+
         # Balance sheet
         if "balance_sheet" in ai_financial and not all_table_data.get("balance_sheet"):
             all_table_data["balance_sheet"] = ai_financial["balance_sheet"]
             print(f"[AI FINANCIAL] Added balance sheet data")
-        
+
         # Individual financial fields
         for key in ["revenue", "net_profit", "total_assets", "equity"]:
             if key in ai_financial and not all_table_data.get(key):
                 all_table_data[key] = ai_financial[key]
                 print(f"[AI FINANCIAL] Added {key}: {ai_financial[key]}")
-                
+
     except Exception as exc:
         print(f"[AI FINANCIAL] Merge error: {exc}")
+
 
 def _merge_ai_arrays(report, updated_arrays: dict) -> None:
     """
@@ -750,8 +776,7 @@ def _merge_ai_arrays(report, updated_arrays: dict) -> None:
             items = updated_arrays["shareholders"]
             if isinstance(items, list) and len(items) > 0:
                 report.arrays.shareholders = [
-                    Shareholder(**s) if isinstance(s, dict) else s
-                    for s in items
+                    Shareholder(**s) if isinstance(s, dict) else s for s in items
                 ]
                 print(f"[RAG] Filled shareholders: {len(items)} items")
 
@@ -760,14 +785,15 @@ def _merge_ai_arrays(report, updated_arrays: dict) -> None:
             items = updated_arrays["branches"]
             if isinstance(items, list) and len(items) > 0:
                 report.arrays.branches = [
-                    Branch(**b) if isinstance(b, dict) else b
-                    for b in items
+                    Branch(**b) if isinstance(b, dict) else b for b in items
                 ]
                 print(f"[RAG] Filled branches: {len(items)} items")
 
         # Banking relationships
-        if updated_arrays.get("banking_relationships") and \
-           not report.arrays.banking_relationships:
+        if (
+            updated_arrays.get("banking_relationships")
+            and not report.arrays.banking_relationships
+        ):
             items = updated_arrays["banking_relationships"]
             if isinstance(items, list) and len(items) > 0:
                 report.arrays.banking_relationships = [
@@ -777,8 +803,10 @@ def _merge_ai_arrays(report, updated_arrays: dict) -> None:
                 print(f"[RAG] Filled banking: {len(items)} items")
 
         # Regional affiliates (simple list)
-        if updated_arrays.get("regional_affiliates") and \
-           not report.arrays.regional_affiliates:
+        if (
+            updated_arrays.get("regional_affiliates")
+            and not report.arrays.regional_affiliates
+        ):
             items = updated_arrays["regional_affiliates"]
             if isinstance(items, list):
                 report.arrays.regional_affiliates = items
@@ -789,7 +817,6 @@ def _merge_ai_arrays(report, updated_arrays: dict) -> None:
 
 
 async def _save_partial_progress(
-    db: AsyncSession,
     report_id: str,
     pattern_results: dict,
     table_data: dict,
@@ -799,7 +826,7 @@ async def _save_partial_progress(
     This ensures no work is lost if a later file crashes.
     """
     try:
-        report = await get_report(db, report_id)
+        report = await get_report(None, report_id)
         if report is None:
             return
 
@@ -819,7 +846,7 @@ async def _save_partial_progress(
 
         # Update timestamp and save
         report.updated_at = datetime.now(timezone.utc).isoformat()
-        await save_report_json(db, report_id, report.model_dump_json())
+        await save_report_json(None, report_id, report.model_dump_json())
 
     except Exception as exc:
         print(f"[EXTRACT] Partial save failed for {report_id}: {exc}")

@@ -41,7 +41,7 @@ GOTENBERG_URL = os.getenv("GOTENBERG_URL", "http://localhost:3000")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # -- Startup ----------------------------------------------------------------
+    # -- Startup --------------------------------------------------------------
     await init_db()
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     Path("outputs").mkdir(exist_ok=True)
@@ -72,7 +72,7 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
     print()
     yield
-    # -- Shutdown ---------------------------------------------------------------
+    # -- Shutdown ------------------------------------------------------------- 
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +100,8 @@ app.add_middleware(
         "http://localhost:5177",
         "http://localhost:5178",
         "http://localhost:5179",
+        "http://localhost:3000",
+        "http://localhost:3001",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -147,6 +149,26 @@ async def health_check():
     }
 
 
+@app.get("/ready")
+async def readiness_check():
+    """Readiness probe - checks Supabase connectivity."""
+    try:
+        from services.supabase_client import get_reports_count
+
+        count = get_reports_count()
+        return {
+            "status": "ok",
+            "supabase": "connected",
+            "db_status": f"connected ({count} reports)",
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "supabase": "unavailable",
+            "error": str(e),
+        }, 503
+
+
 @app.get("/api/pdf/service-status")
 async def pdf_service_status():
     """Check Gotenberg PDF service status."""
@@ -173,3 +195,5 @@ async def pdf_service_status():
         "url": GOTENBERG_URL,
         "fix": "Run: docker compose up -d gotenberg",
     }
+
+

@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import List, Optional
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
+
 
 from database.crud import (
     add_uploaded_file,
@@ -27,7 +27,6 @@ from database.crud import (
     update_report_field,
     update_report_status,
 )
-from database.db import get_db
 
 load_dotenv()
 
@@ -38,34 +37,35 @@ router = APIRouter(prefix="/api/upload", tags=["upload"])
 # Security utilities
 # ---------------------------------------------------------------------------
 
+
 def _sanitize_filename(filename: str) -> str:
     """
     Sanitize a filename to prevent path traversal attacks.
-    
+
     Removes path components, replaces unsafe characters, and ensures
     the filename is safe to use for file storage.
     """
     if not filename:
         return "unnamed_file"
-    
+
     # Remove path components (anything before last / or \
     filename = Path(filename).name
-    
+
     # Replace unsafe characters
-    filename = re.sub(r'[^\w\-\.\s]', '_', filename)
-    
+    filename = re.sub(r"[^\w\-\.\s]", "_", filename)
+
     # Remove leading/trailing dots and spaces
-    filename = filename.strip('. ')
-    
+    filename = filename.strip(". ")
+
     # Ensure we have a valid filename
     if not filename:
         return "unnamed_file"
-    
+
     # Limit length
     if len(filename) > 255:
         name, ext = Path(filename).stem, Path(filename).suffix
-        filename = name[:255 - len(ext)] + ext
-    
+        filename = name[: 255 - len(ext)] + ext
+
     return filename
 
 
@@ -83,6 +83,7 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg", ".tiff"}
 # ---------------------------------------------------------------------------
 # Request / response models
 # ---------------------------------------------------------------------------
+
 
 class StartUploadRequest(BaseModel):
     client_name: Optional[str] = None
@@ -113,38 +114,55 @@ class UploadStatusResponse(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.post("/start", response_model=StartUploadResponse)
-async def start_upload(body: StartUploadRequest, db: AsyncSession = Depends(get_db)):
-    """Create a new report and return its ID."""
-    report_id = str(uuid.uuid4())
 
+@router.post("/start", response_model=StartUploadResponse)
+async def start_upload(body: StartUploadRequest):
+    """Create a new report and return its ID."""
+    print("[UPLOAD] start_upload called")
+    report_id = str(uuid.uuid4())
+    print(f"[UPLOAD] Creating report: {report_id}")
     try:
-        report = await create_report(db, report_id)
+        report = await create_report(None, report_id)
+        print(f"[UPLOAD] Report created: {report_id}")
     except Exception as e:
+        print(f"[UPLOAD] Error creating report: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create report: {e}")
 
-    # Set system fields
     now = datetime.now(timezone.utc)
-    await update_report_field(db, report_id, "report_id", report_id, "high", "system")
-    await update_report_field(db, report_id, "report_date", now.strftime("%Y-%m-%d"), "high", "system")
-    await update_report_field(db, report_id, "current_year", str(now.year), "high", "system")
+    await update_report_field(None, report_id, "report_id", report_id, "high", "system")
+    await update_report_field(
+        None, report_id, "report_date", now.strftime("%Y-%m-%d"), "high", "system"
+    )
+    await update_report_field(
+        None, report_id, "current_year", str(now.year), "high", "system"
+    )
 
-    # Set user fields
     if body.client_name:
-        await update_report_field(db, report_id, "client_name", body.client_name, "high", "user")
+        await update_report_field(
+            None, report_id, "client_name", body.client_name, "high", "user"
+        )
     if body.client_reference:
-        await update_report_field(db, report_id, "client_reference", body.client_reference, "high", "user")
+        await update_report_field(
+            None, report_id, "client_reference", body.client_reference, "high", "user"
+        )
     if body.analyst_name:
-        await update_report_field(db, report_id, "analyst_name", body.analyst_name, "high", "user")
+        await update_report_field(
+            None, report_id, "analyst_name", body.analyst_name, "high", "user"
+        )
     if body.analyst_id:
-        await update_report_field(db, report_id, "analyst_id", body.analyst_id, "high", "user")
+        await update_report_field(
+            None, report_id, "analyst_id", body.analyst_id, "high", "user"
+        )
     if body.order_comment:
-        await update_report_field(db, report_id, "order_comment", body.order_comment, "high", "user")
+        await update_report_field(
+            None, report_id, "order_comment", body.order_comment, "high", "user"
+        )
     if body.company_name_hint:
-        await update_report_field(db, report_id, "company_name", body.company_name_hint, "medium", "user")
+        await update_report_field(
+            None, report_id, "company_name", body.company_name_hint, "medium", "user"
+        )
 
-    await update_report_status(db, report_id, "uploading")
-
+    await update_report_status(None, report_id, "uploading")
     return StartUploadResponse(report_id=report_id, status="uploading")
 
 
@@ -152,11 +170,9 @@ async def start_upload(body: StartUploadRequest, db: AsyncSession = Depends(get_
 async def upload_files(
     report_id: str,
     files: List[UploadFile] = File(...),
-    db: AsyncSession = Depends(get_db),
 ):
     """Upload one or more files for a report."""
-    # Verify report exists
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
@@ -166,7 +182,6 @@ async def upload_files(
     file_list: List[dict] = []
 
     for f in files:
-        # Validate extension
         ext = Path(f.filename or "").suffix.lower()
         if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(
@@ -174,20 +189,17 @@ async def upload_files(
                 detail=f"File type '{ext}' not allowed. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
             )
 
-        # Read content and validate size
-        content = await f.read()
+        content = f.file.read()
         if len(content) > MAX_FILE_SIZE_BYTES:
             raise HTTPException(
                 status_code=400,
                 detail=f"File '{f.filename}' exceeds maximum size of {MAX_FILE_SIZE_MB}MB",
             )
 
-        # Sanitize filename to prevent path traversal
         safe_name = _sanitize_filename(f.filename or f"file{ext}")
         file_path = report_dir / safe_name
         file_path.write_bytes(content)
 
-        # Map extension to type
         file_type_map = {
             ".pdf": "pdf",
             ".docx": "word",
@@ -199,9 +211,8 @@ async def upload_files(
         }
         file_type = file_type_map.get(ext, "unknown")
 
-        # Record in database
         await add_uploaded_file(
-            db,
+            None,
             report_id=report_id,
             filename=safe_name,
             file_path=str(file_path),
@@ -209,23 +220,25 @@ async def upload_files(
             file_size=len(content),
         )
 
-        file_list.append({
-            "filename": safe_name,
-            "file_type": file_type,
-            "file_size": len(content),
-        })
+        file_list.append(
+            {
+                "filename": safe_name,
+                "file_type": file_type,
+                "file_size": len(content),
+            }
+        )
 
     return FileListResponse(files_received=len(file_list), file_list=file_list)
 
 
 @router.get("/status/{report_id}", response_model=UploadStatusResponse)
-async def upload_status(report_id: str, db: AsyncSession = Depends(get_db)):
+async def upload_status(report_id: str):
     """Return the current report status and uploaded file list."""
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
-    file_rows = await get_uploaded_files(db, report_id)
+    file_rows = await get_uploaded_files(None, report_id)
     files = [
         {
             "filename": fr.filename,
@@ -247,31 +260,25 @@ async def upload_status(report_id: str, db: AsyncSession = Depends(get_db)):
 async def remove_file(
     report_id: str,
     filename: str,
-    db: AsyncSession = Depends(get_db),
 ):
     """Remove a specific uploaded file from disk and database."""
-    report = await get_report(db, report_id)
+    report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
-    # Validate filename against database records to prevent path traversal
-    file_rows = await get_uploaded_files(db, report_id)
+    file_rows = await get_uploaded_files(None, report_id)
     valid_names = {fr.filename for fr in file_rows}
-    
-    # Also sanitize the input filename
-    sanitized_filename = _sanitize_filename(filename)
-    
-    if sanitized_filename not in valid_names:
-        raise HTTPException(status_code=400, detail="Invalid filename")
 
-    # Delete from disk using validated filename
+    sanitized_filename = _sanitize_filename(filename)
+    if sanitized_filename not in valid_names:
+        raise HTTPException(status_code=404, detail="File not found for this report")
+
     file_path = UPLOAD_DIR / report_id / sanitized_filename
     if file_path.exists():
         file_path.unlink()
 
-    # Delete from database
-    deleted = await delete_uploaded_file(db, report_id, sanitized_filename)
+    deleted = await delete_uploaded_file(None, report_id, sanitized_filename)
     if not deleted:
-        raise HTTPException(status_code=404, detail="File not found in database")
+        raise HTTPException(status_code=500, detail="Failed to delete file record")
 
-    return {"message": f"File '{sanitized_filename}' deleted", "report_id": report_id}
+    return {"success": True, "message": f"File '{sanitized_filename}' deleted"}

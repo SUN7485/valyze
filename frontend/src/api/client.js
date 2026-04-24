@@ -1,7 +1,9 @@
 import axios from 'axios'
 
-const API_BASE = 'http://localhost:8000/api'
+// Determine API base URL - use environment variable or default
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api'
 
+// Create axios instance with proper configuration
 const api = axios.create({
     baseURL: API_BASE,
     timeout: 1200000,  // 20 minutes for AI operations
@@ -23,7 +25,7 @@ api.interceptors.response.use(
         const msg = error.response?.data?.detail
             || error.message
             || 'Unknown error'
-        console.error('[API Error]', msg)
+        console.error('[API Error]', msg, error.response?.status)
         return Promise.reject(new Error(msg))
     }
 )
@@ -127,7 +129,7 @@ export const reportAPI = {
     getDownloadURL: (reportId) =>
         `${API_BASE}/pdf/download/${reportId}`,
 
-    // -- Export -------------------------------------
+    // -- Export -----------------------------------
 
     exportJSON: (reportId) =>
         api.post(`/export/json/${reportId}`),
@@ -150,7 +152,7 @@ export const reportAPI = {
     getExportDownloadURL: (reportId, format) =>
         `${API_BASE}/export/download/${reportId}/${format}`,
 
-    // -- Cloud / Supabase --------------------------------
+    // -- Cloud / Supabase ------------------------
 
     saveToCloud: (reportId) =>
         api.post(`/cloud/save/${reportId}`),
@@ -163,9 +165,6 @@ export const reportAPI = {
 
     deleteCloudReport: (reportId) =>
         api.delete(`/cloud/${reportId}`),
-
-    loadFromCloud: (reportId) =>
-        api.post(`/search/load/${reportId}`),
 
     // -- Local Reports
     getLocalReports: (skip = 0, limit = 50, status = null, search = null) => {

@@ -9,7 +9,6 @@ export default function FieldInput({
     required = false, helpText = '',
     onAfterChange = null,
     onChange = null,
-    canDelete = false,
     compact = false,
     fallbackFields = []
 }) {
@@ -230,7 +229,7 @@ export default function FieldInput({
                     )}
                 </div>
 
-                {canDelete && !localValue && (
+                {!required && !locked && !localValue && (
                     <button
                         type="button"
                         onClick={() => deleteField(fieldName)}

@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from services.auth import get_current_user
+
 from database.crud import (
     get_report,
     get_uploaded_files,
@@ -45,7 +47,9 @@ from ai.lm_client import LMStudioClient
 
 load_dotenv()
 
-router = APIRouter(prefix="/api/extract", tags=["extract"])
+router = APIRouter(
+    prefix="/api/extract", tags=["extract"], dependencies=[Depends(get_current_user)]
+)
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 
@@ -62,6 +66,7 @@ _lm_client = LMStudioClient()
 # ==========================================================================
 # Helper utilities
 # ==========================================================================
+
 
 def _safe_float(value) -> float | None:
     """Convert a field value to float, return None on failure."""
@@ -154,6 +159,7 @@ def _count_fields(report) -> dict:
 # POST /api/extract/start/{report_id}
 # ==========================================================================
 
+
 @router.post("/start/{report_id}")
 async def start_extraction(
     report_id: str,
@@ -195,10 +201,10 @@ async def start_extraction(
 
     # -- Step 2: Set status -----------------------------------------------
     await update_report_status(db, report_id, "extracting")
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  EXTRACTION STARTED — Report {report_id}")
     print(f"  Files: {len(file_rows)}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # -- Step 3: Process each file ----------------------------------------
     all_pattern_results: dict = {}
@@ -217,7 +223,7 @@ async def start_extraction(
     for i, file_row in enumerate(file_rows):
         file_path = Path(file_row.file_path)
         fname = file_row.filename
-        print(f"\n[EXTRACT] Processing file {i+1}/{len(file_rows)}: {fname}")
+        print(f"\n[EXTRACT] Processing file {i + 1}/{len(file_rows)}: {fname}")
 
         if not file_path.exists():
             msg = f"File not found on disk: {file_path}"
@@ -232,8 +238,10 @@ async def start_extraction(
             tables = extraction.get("tables", [])
             success = extraction.get("success", False)
 
-            print(f"[EXTRACT] Text: {len(text)} chars | "
-                  f"Tables: {len(tables)} | Success: {success}")
+            print(
+                f"[EXTRACT] Text: {len(text)} chars | "
+                f"Tables: {len(tables)} | Success: {success}"
+            )
 
             if not success:
                 error_msg = extraction.get("error", "Unknown extraction error")
@@ -253,11 +261,15 @@ async def start_extraction(
                 for field_name, field_data in pattern_results.items():
                     if field_data.get("value") is not None:
                         # Keep first found value (higher confidence)
-                        if field_name not in all_pattern_results or \
-                           all_pattern_results[field_name].get("value") is None:
+                        if (
+                            field_name not in all_pattern_results
+                            or all_pattern_results[field_name].get("value") is None
+                        ):
                             all_pattern_results[field_name] = field_data
-                            print(f"[PATTERN] {field_name} = "
-                                  f"{str(field_data.get('value', ''))[:50]}")
+                            print(
+                                f"[PATTERN] {field_name} = "
+                                f"{str(field_data.get('value', ''))[:50]}"
+                            )
 
             # -- 3c. Table extraction -------------------------------------
             if tables:
@@ -296,11 +308,11 @@ async def start_extraction(
             await _save_partial_progress(
                 db, report_id, all_pattern_results, all_table_data
             )
-            print(f"[EXTRACT] File {i+1} done — progress saved")
+            print(f"[EXTRACT] File {i + 1} done — progress saved")
 
         except Exception as exc:
             msg = f"{fname}: {exc}"
-            print(f"[EXTRACT] ERROR on file {i+1}: {exc}")
+            print(f"[EXTRACT] ERROR on file {i + 1}: {exc}")
             traceback.print_exc()
             errors.append(msg)
 
@@ -442,7 +454,7 @@ async def start_extraction(
                 if k in report.fields:
                     existing = report.fields[k]
                     # Skip if field came from Easy Way Import
-                    if getattr(existing, 'source', '') == "easy_way_import":
+                    if getattr(existing, "source", "") == "easy_way_import":
                         print(f"[CALC] Skipping ratio {k} - from Easy Way Import")
                         # Still save raw value for scoring
                         raw_val = _safe_float(v.get("value"))
@@ -461,7 +473,7 @@ async def start_extraction(
                 if k in report.fields:
                     existing = report.fields[k]
                     # Skip if field came from Easy Way Import
-                    if getattr(existing, 'source', '') == "easy_way_import":
+                    if getattr(existing, "source", "") == "easy_way_import":
                         print(f"[CALC] Skipping ratio {k} - from Easy Way Import")
                         raw_val = _safe_float(v.value)
                         if raw_val is not None:
@@ -483,7 +495,7 @@ async def start_extraction(
             if k in report.fields:
                 existing = report.fields[k]
                 # Skip if field came from Easy Way Import
-                if getattr(existing, 'source', '') == "easy_way_import":
+                if getattr(existing, "source", "") == "easy_way_import":
                     print(f"[CALC] Skipping trend {k} - from Easy Way Import")
                     continue
                 if isinstance(v, dict):
@@ -501,7 +513,7 @@ async def start_extraction(
         if "financial_trend" in report.fields:
             existing = report.fields["financial_trend"]
             # Skip if field came from Easy Way Import
-            if getattr(existing, 'source', '') != "easy_way_import":
+            if getattr(existing, "source", "") != "easy_way_import":
                 trend_summary = trends_engine.get_financial_trend_summary(report.fields)
                 report.fields["financial_trend"].value = trend_summary
                 report.fields["financial_trend"].confidence = "calculated"
@@ -513,9 +525,7 @@ async def start_extraction(
         # 7d. Credit scoring (uses raw ratio values)
         # IMPORTANT: Only calculate scores for fields that are missing or calculated
         # DO NOT overwrite fields that came from Easy Way Import (source=easy_way_import)
-        calc_scores = scoring_engine.calculate_all_scores(
-            report.fields, raw_ratios
-        )
+        calc_scores = scoring_engine.calculate_all_scores(report.fields, raw_ratios)
         for k, v in calc_scores.items():
             if k in report.fields:
                 existing = report.fields[k]
@@ -531,7 +541,7 @@ async def start_extraction(
                 if existing.confidence == "calculated":
                     print(f"[CALC] Skipping {k} - already calculated")
                     continue
-                
+
                 if isinstance(v, dict):
                     report.fields[k].value = v.get("value")
                     report.fields[k].confidence = v.get("confidence", "calculated")
@@ -591,11 +601,13 @@ async def start_extraction(
         },
     }
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  EXTRACTION COMPLETE — Report {report_id}")
     print(f"  Files: {files_processed}/{len(file_rows)}")
-    print(f"  High: {counts['high']}  Medium: {counts['medium']}  "
-          f"Calc: {counts['calculated']}  Missing: {counts['missing']}")
+    print(
+        f"  High: {counts['high']}  Medium: {counts['medium']}  "
+        f"Calc: {counts['calculated']}  Missing: {counts['missing']}"
+    )
     print(f"  System: {counts['system']}  User: {counts['user']}")
     print(f"  AI Filled: {ai_fields_filled}  LM Studio: {is_lm_available}")
     print(f"  Tables: {tables_found}  Chunks: {len(all_chunks)}")
@@ -603,7 +615,7 @@ async def start_extraction(
         print(f"  Errors: {len(errors)}")
         for err in errors:
             print(f"    - {err[:80]}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     return summary
 
@@ -611,6 +623,7 @@ async def start_extraction(
 # ==========================================================================
 # GET /api/extract/progress/{report_id}
 # ==========================================================================
+
 
 @router.get("/progress/{report_id}")
 async def get_extraction_progress(
@@ -687,6 +700,7 @@ async def get_extraction_progress(
 # GET /api/extract/fields/{report_id}
 # ==========================================================================
 
+
 @router.get("/fields/{report_id}")
 async def get_extracted_fields(
     report_id: str,
@@ -745,6 +759,7 @@ async def get_extracted_fields(
 # Internal helpers
 # ==========================================================================
 
+
 def _merge_ai_arrays(report, updated_arrays: dict) -> None:
     """
     Merge AI-generated array data into the report.
@@ -756,8 +771,7 @@ def _merge_ai_arrays(report, updated_arrays: dict) -> None:
             items = updated_arrays["shareholders"]
             if isinstance(items, list) and len(items) > 0:
                 report.arrays.shareholders = [
-                    Shareholder(**s) if isinstance(s, dict) else s
-                    for s in items
+                    Shareholder(**s) if isinstance(s, dict) else s for s in items
                 ]
                 print(f"[RAG] Filled shareholders: {len(items)} items")
 
@@ -766,14 +780,15 @@ def _merge_ai_arrays(report, updated_arrays: dict) -> None:
             items = updated_arrays["branches"]
             if isinstance(items, list) and len(items) > 0:
                 report.arrays.branches = [
-                    Branch(**b) if isinstance(b, dict) else b
-                    for b in items
+                    Branch(**b) if isinstance(b, dict) else b for b in items
                 ]
                 print(f"[RAG] Filled branches: {len(items)} items")
 
         # Banking relationships
-        if updated_arrays.get("banking_relationships") and \
-           not report.arrays.banking_relationships:
+        if (
+            updated_arrays.get("banking_relationships")
+            and not report.arrays.banking_relationships
+        ):
             items = updated_arrays["banking_relationships"]
             if isinstance(items, list) and len(items) > 0:
                 report.arrays.banking_relationships = [
@@ -783,8 +798,10 @@ def _merge_ai_arrays(report, updated_arrays: dict) -> None:
                 print(f"[RAG] Filled banking: {len(items)} items")
 
         # Regional affiliates (simple list)
-        if updated_arrays.get("regional_affiliates") and \
-           not report.arrays.regional_affiliates:
+        if (
+            updated_arrays.get("regional_affiliates")
+            and not report.arrays.regional_affiliates
+        ):
             items = updated_arrays["regional_affiliates"]
             if isinstance(items, list):
                 report.arrays.regional_affiliates = items

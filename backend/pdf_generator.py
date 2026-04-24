@@ -6,8 +6,10 @@ PDF Generator for Valyze Credit Reports.
 
 import re
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Set
 from datetime import datetime
+
+from utils.visibility import is_field_empty, filter_visible_fields, is_section_empty
 
 ICON_MAP = {
     "check-circle": "✅",
@@ -68,12 +70,54 @@ REGISTRATION_LICENSE_FIELDS = [
     "lei_number",
 ]
 
+# Egypt-specific fields (subset of registration fields)
+EGYPT_FIELDS = [
+    "tax_registration_number",
+    "tax_card_number",
+    "trade_license_number",
+    "social_insurance_number",
+    "gafi_registration",
+]
+
+# UAE-specific fields
+UAE_FIELDS = [
+    "trn_vat",
+    "vat_registration_number",
+    "ded_number",
+    "freezone_license",
+    "trade_license_number",
+]
+
+# Saudi-specific fields
+SAUDI_FIELDS = [
+    "gosi_registration",
+    "nitaqat_band",
+    "municipality_license",
+    "zakat_certificate",
+    "zakat_number",
+    "zakat_status",
+]
+
+# Physical assets fields (subset of OPERATIONS_FIELDS)
+PHYSICAL_ASSETS_FIELDS = [
+    "premises_type",
+    "premises_size",
+    "premises_owned_rental",
+    "vehicles",
+    "equipment",
+    "brands",
+]
+
 
 class PDFGenerator:
     def __init__(self):
-        self.template_path = Path("templates/template.html")
-        self.output_dir = Path("outputs")
+        # Use absolute path based on this file's location
+        base_dir = Path(__file__).resolve().parent
+        self.template_path = base_dir / "templates" / "template.html"
+        self.output_dir = base_dir / "outputs"
         self.output_dir.mkdir(exist_ok=True)
+        print(f"[PDF] Template path: {self.template_path}")
+        print(f"[PDF] Template exists: {self.template_path.exists()}")
 
     # -----------------------------------------------------------------
     # HELPERS
@@ -451,6 +495,23 @@ class PDFGenerator:
             fields = report_data.get("fields", {}) or {}
             arrays = report_data.get("arrays", {}) or {}
 
+        # -----------------------------------------------------------------
+        # Compute visible fields set (auto-hide empty + respect manual hidden)
+        # -----------------------------------------------------------------
+        hidden_fields_list = arrays.get("hidden_fields", [])
+        # Ensure it's a list of strings
+        if isinstance(hidden_fields_list, dict):
+            # Sometimes arrays come as dict with 'value'? Normalize
+            hidden_fields_list = (
+                hidden_fields_list.get("value", []) if hidden_fields_list else []
+            )
+        hidden_fields_set = set(hidden_fields_list or [])
+
+        # Compute which fields are actually visible (non-empty AND not hidden)
+        # We'll compute this early so section flags can use it
+        # Note: We compute it AFTER we have the final field values (after gf()).
+        # We'll compute visible_fields near the end after building all field values.
+
         # -- field getter -------------------------------------------------
         def gf(key: str, default="N/A", hide_empty=False):
             """Get field value. If hide_empty=True, returns '' instead of default for empty values."""
@@ -541,9 +602,9 @@ class PDFGenerator:
         )
 
         # -- boolean flags ------------------------------------------------
-        show_uae = self._boolify(gf("show_uae_fields", False), False)
-        show_saudi = self._boolify(gf("show_saudi_fields", False), False)
-        show_egypt = self._boolify(gf("show_egypt_fields", False), False)
+        show_egypt_flag = self._boolify(gf("show_egypt_fields", False), False)
+        show_uae_flag = self._boolify(gf("show_uae_fields", False), False)
+        show_saudi_flag = self._boolify(gf("show_saudi_fields", False), False)
 
         # -- auto-show flags for sections ----------------------------------
         has_ops = self._has_field_data(fields, OPERATIONS_FIELDS)
@@ -551,8 +612,47 @@ class PDFGenerator:
         has_sales = self._has_field_data(fields, SUPPLY_CHAIN_SALES_FIELDS)
         has_licenses = self._has_field_data(fields, REGISTRATION_LICENSE_FIELDS)
 
-        # Show registration section when Egypt is selected (even if no license numbers yet)
-        show_registration = show_egypt
+        # Effective visibility for Egypt block (hide if no Egypt-specific data)
+        show_egypt = show_egypt_flag
+        if show_egypt:
+            egypt_fields = [
+                "tax_registration_number",
+                "tax_card_number",
+                "trade_license_number",
+                "social_insurance_number",
+                "gafi_registration",
+            ]
+            if not self._has_field_data(fields, egypt_fields):
+                show_egypt = False
+
+        # Effective visibility for UAE block (hide if no UAE-specific data)
+        show_uae = show_uae_flag
+        if show_uae:
+            uae_fields = [
+                "trn_vat",
+                "ded_number",
+                "freezone_license",
+                "trade_license_number",
+            ]
+            if not self._has_field_data(fields, uae_fields):
+                show_uae = False
+
+        # Effective visibility for Saudi block (hide if no Saudi-specific data)
+        show_saudi = show_saudi_flag
+        if show_saudi:
+            saudi_fields = [
+                "gosi_registration",
+                "nitaqat_band",
+                "municipality_license",
+                "zakat_certificate",
+                "zakat_number",
+                "zakat_status",
+            ]
+            if not self._has_field_data(fields, saudi_fields):
+                show_saudi = False
+
+        # Registration license section: show only if Egypt flag is set AND there is license data
+        show_registration = show_egypt_flag and has_licenses
 
         # Show physical assets if there's any operations data (including the new asset fields)
         show_physical_assets = has_ops or self._has_field_data(
@@ -1040,6 +1140,88 @@ class PDFGenerator:
             pk = f"exclude_page_{i}"
             ctx[pk] = self._boolify(gf(pk, False), False)
 
+        # ------------------------------------------------------------
+        # Compute effective visible fields (accounting for hidden + empty)
+        # ------------------------------------------------------------
+        # Retrieve user-hidden fields list from arrays (stored via eye icon)
+        hidden_fields_list = arrays.get("hidden_fields", [])
+        if isinstance(hidden_fields_list, dict):
+            hidden_fields_list = hidden_fields_list.get("value", [])
+        hidden_set = set(hidden_fields_list or [])
+
+        # Build set of field names that should be considered visible
+        visible_fields_set: Set[str] = set()
+        for key, val in ctx.items():
+            # Skip control/internal keys
+            if (
+                key.startswith("show_")
+                or key.startswith("exclude_")
+                or key.endswith("_length")
+                or key.startswith("__")
+            ):
+                continue
+            # Skip arrays (non-scalar) - they are separate
+            if isinstance(val, list):
+                continue
+            # Skip if explicitly hidden
+            if key in hidden_set:
+                continue
+            # Check emptiness using shared utility
+            if not is_field_empty(val, key):
+                visible_fields_set.add(key)
+
+        # Compute visible arrays (non-empty arrays not hidden)
+        visible_arrays_set: Set[str] = set()
+        for arr_name, arr in arrays.items():
+            if isinstance(arr, list) and len(arr) > 0 and arr_name not in hidden_set:
+                visible_arrays_set.add(arr_name)
+
+        # Store visible set in context for HTML stripping step
+        ctx["__visible_fields_set__"] = visible_fields_set
+
+        # Helper to check if any field from a list is visible
+        def any_visible(field_list: list[str]) -> bool:
+            return any(f in visible_fields_set for f in field_list)
+
+        # Recompute section visibility flags based on visible fields/arrays
+        # Egypt: flag AND at least one Egypt field visible
+        ctx["show_egypt_fields"] = show_egypt_flag and any_visible(EGYPT_FIELDS)
+        ctx["show_uae_fields"] = show_uae_flag and any_visible(UAE_FIELDS)
+        ctx["show_saudi_fields"] = show_saudi_flag and any_visible(SAUDI_FIELDS)
+        ctx["show_registration_licenses"] = show_egypt_flag and any_visible(
+            REGISTRATION_LICENSE_FIELDS
+        )
+        ctx["show_operations"] = any_visible(OPERATIONS_FIELDS)
+        ctx["show_supply_chain_purchasing"] = any_visible(
+            SUPPLY_CHAIN_PURCHASING_FIELDS
+        )
+        ctx["show_supply_chain_sales"] = any_visible(SUPPLY_CHAIN_SALES_FIELDS)
+        ctx["show_physical_assets"] = any_visible(PHYSICAL_ASSETS_FIELDS)
+
+        # Board of directors: flag + non-empty board_members array
+        ctx["show_board_of_directors"] = (
+            self._boolify(gf("show_board_of_directors", False), False)
+            and "board_members" in visible_arrays_set
+        )
+
+        # Related concerns: flag + (any relation field visible OR any related array non-empty)
+        has_related = (
+            any_visible(
+                [
+                    "parent_company",
+                    "subsidiaries",
+                    "affiliates",
+                    "affiliated_entities",
+                    "ultimate_beneficial_owner",
+                ]
+            )
+            or "branches" in visible_arrays_set
+            or "regional_affiliates" in visible_arrays_set
+        )
+        ctx["show_related_concerns"] = (
+            self._boolify(gf("show_related_concerns", True), True) and has_related
+        )
+
         return ctx
 
     # -----------------------------------------------------------------
@@ -1156,65 +1338,92 @@ class PDFGenerator:
     # RENDER HTML
     # -----------------------------------------------------------------
 
-    def _prune_empty_html_nodes(self, html_content: str) -> str:
-        """Surgically strip elements evaluating to N/A using lxml."""
+    def _strip_hidden_fields(self, html_content: str, visible_fields: Set[str]) -> str:
+        """
+        Remove field rows whose data-field attribute is not in visible_fields.
+        Handles multiple structural patterns:
+          - registration grid: label+value as siblings; remove both
+          - info-row: remove the entire row container
+          - metric-box: remove entire box
+          - sc-row: remove entire row
+          - recommendation-item: remove entire item
+          - table rows (<tr>): remove entire row
+        """
         try:
             import lxml.html
 
             tree = lxml.html.fromstring(html_content)
 
-            # Find all nodes containing exactly "N/A"
-            for node in tree.xpath(
-                "//*[normalize-space(text())='N/A' or normalize-space(text())='n/a']"
-            ):
-                classes = set(node.attrib.get("class", "").split())
+            # Collect elements to remove
+            to_remove = []
 
-                # Check if it's a value container
-                if node.tag == "td" or any(
-                    c in classes
-                    for c in [
-                        "info-value",
-                        "metric-value",
-                        "reg-value",
-                        "sc-value",
-                        "value",
-                    ]
-                ):
-                    # Traverse upwards to find the row wrapper
-                    container = node.getparent()
-                    valid_container = False
-                    while container is not None and container.tag != "body":
-                        c_classes = set(container.attrib.get("class", "").split())
-                        if container.tag == "tr" or any(
-                            c in c_classes
-                            for c in [
-                                "info-row",
-                                "metric-box",
-                                "reg-row",
-                                "sc-row",
-                                "summary-item",
-                            ]
-                        ):
-                            valid_container = True
-                            break
-                        container = container.getparent()
+            for elem in tree.xpath("//*[@data-field]"):
+                field_name = elem.get("data-field")
+                if field_name in visible_fields:
+                    continue
 
-                    if (
-                        container is not None
-                        and valid_container
-                        and container.getparent() is not None
+                # Skip table cells to preserve column alignment
+                if elem.tag in ("td", "th"):
+                    continue
+
+                cls = elem.get("class") or ""
+                parent = elem.getparent()
+                if parent is None:
+                    continue
+
+                # Pattern 1: Registration grid fields (reg-value paired with reg-label)
+                if "reg-value" in cls:
+                    label = elem.getprevious()
+                    if label is not None and "reg-label" in (label.get("class") or ""):
+                        to_remove.append(label)
+                    to_remove.append(elem)
+                    continue
+
+                # Pattern 2: Rows container – climb to nearest row ancestor
+                row_ancestor = elem
+                while row_ancestor is not None:
+                    row_cls = row_ancestor.get("class") or ""
+                    if row_ancestor.tag == "tr" or any(
+                        marker in row_cls
+                        for marker in [
+                            "info-row",
+                            "metric-box",
+                            "sc-row",
+                            "summary-item",
+                            "metric-row",
+                            "recommendation-item",
+                            "alert-box",
+                            "info-card",
+                            "subsection",
+                        ]
                     ):
-                        container.getparent().remove(container)
+                        break
+                    row_ancestor = row_ancestor.getparent()
 
-            # Structural deletion passes (wrapper and subsection deletion) have been reverted
-            # to guarantee that valid text-only sections (like the Alerts or Disclaimers) are not deleted.
+                if row_ancestor is not None and row_ancestor.tag != "body":
+                    to_remove.append(row_ancestor)
+
+            # Deduplicate and remove
+            for node in set(to_remove):
+                try:
+                    parent = node.getparent()
+                    if parent is not None:
+                        parent.remove(node)
+                except:
+                    pass
 
             return lxml.html.tostring(tree, encoding="unicode", method="html")
         except ImportError:
-            print("[PDF] lxml not installed, skipping server-side pruning")
+            print("[PDF] lxml not installed, skipping field stripping")
             return html_content
         except Exception as e:
-            print(f"[PDF] LXML Pruning Error: {e}")
+            print(f"[PDF] Field stripping error: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return html_content
+        except Exception as e:
+            print(f"[PDF] Field stripping error: {e}")
             import traceback
 
             traceback.print_exc()
@@ -1229,9 +1438,9 @@ class PDFGenerator:
                 template_str = self.template_path.read_text(encoding="utf-8")
                 result = chevron.render(template_str, dict(ctx))
                 print("[PDF] Rendered via chevron OK")
-                # Temporarily disabled - causing issues
-                # return self._prune_empty_html_nodes(result)
-                return result
+                # Strip hidden/empty fields before returning
+                visible = ctx.get("__visible_fields_set__", set())
+                return self._strip_hidden_fields(result, visible)
         except ImportError:
             pass
         except Exception as e:
@@ -1242,9 +1451,9 @@ class PDFGenerator:
                 template_str = self.template_path.read_text(encoding="utf-8")
                 result = self._render_mustache(template_str, ctx)
                 print("[PDF] Rendered via custom Mustache OK")
-                # Temporarily disabled - causing issues
-                # return self._prune_empty_html_nodes(result)
-                return result
+                # Strip hidden/empty fields before returning
+                visible = ctx.get("__visible_fields_set__", set())
+                return self._strip_hidden_fields(result, visible)
         except Exception as e:
             print(f"[PDF] Render error: {e}")
             import traceback
