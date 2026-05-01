@@ -20,9 +20,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from database.db import init_db
+from database.exceptions import DuplicateReportError
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -85,6 +87,15 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+# ---------------------------------------------------------------------------
+# Exception Handlers
+# ---------------------------------------------------------------------------
+
+@app.exception_handler(DuplicateReportError)
+async def duplicate_report_handler(request, exc):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 # -- CORS ---------------------------------------------------------------------
 app.add_middleware(

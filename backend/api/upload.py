@@ -27,6 +27,7 @@ from database.crud import (
     update_report_field,
     update_report_status,
 )
+from services.supabase_client import get_report_by_cr_number
 
 load_dotenv()
 
@@ -282,3 +283,36 @@ async def remove_file(
         raise HTTPException(status_code=500, detail="Failed to delete file record")
 
     return {"success": True, "message": f"File '{sanitized_filename}' deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Duplicate Detection
+# ---------------------------------------------------------------------------
+
+@router.post("/check-duplicate")
+async def check_duplicate(body: dict):
+    """
+    Check if a report already exists for the given CR number or company name.
+    Used to prevent duplicate company reports.
+    """
+    cr_number = body.get("cr_number")
+    company_name = body.get("company_name")
+    if not cr_number and not company_name:
+        raise HTTPException(status_code=400, detail="cr_number or company_name required")
+
+    # Primary check: exact CR number (unique business key)
+    if cr_number:
+        existing = get_report_by_cr_number(str(cr_number))
+        if existing:
+            return {
+                "duplicate": True,
+                "existing_report": {
+                    "id": existing.get("id"),
+                    "company_name": existing.get("company_name"),
+                    "cr_number": existing.get("cr_number"),
+                    "status": existing.get("status"),
+                },
+            }
+
+    # Optional: company name fuzzy match (not implemented for now)
+    return {"duplicate": False}

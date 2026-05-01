@@ -9,8 +9,8 @@ import logging
 import requests
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
 from dotenv import load_dotenv
+from database.exceptions import DuplicateReportError
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -103,20 +103,22 @@ def create_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]
             result = response.json() if response.text else {}
             print(f"[SUPABASE] Success: {result}")
             return result
-        logger.error(
-            f"[Supabase] Create failed: {response.status_code} - {response.text[:200]}"
-        )
-        print(
-            f"[Supabase] Create report error: {response.status_code} - {response.text[:500]}"
-        )
-        raise Exception(f"Supabase Error {response.status_code}: {response.text}")
+        # Handle error
+        try:
+            err_json = response.json()
+            message = err_json.get('message', response.text[:200])
+        except Exception:
+            message = response.text[:200]
+        if response.status_code == 409:
+            raise DuplicateReportError(f"Duplicate CR number: {message}")
+        else:
+            raise Exception(f"Supabase create failed ({response.status_code}): {message}")
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Create request failed: {e}")
         print(f"[Supabase] Create request exception: {e}")
         import traceback
-
         traceback.print_exc()
-        raise Exception(f"Request failed: {e}")
+        raise
 
 
 def get_report(report_id: str) -> Optional[Dict[str, Any]]:
@@ -129,6 +131,24 @@ def get_report(report_id: str) -> Optional[Dict[str, Any]]:
         return results[0] if results else None
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Get report failed: {e}")
+        return None
+
+
+def get_report_by_cr_number(cr_number: str) -> Optional[Dict[str, Any]]:
+    """Get a report by exact cr_number match."""
+    if not cr_number:
+        return None
+    # URL-encode the cr_number
+    import urllib.parse
+    encoded = urllib.parse.quote(str(cr_number))
+    url = f"{get_base_url()}/reports?cr_number=eq.{encoded}"
+
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        results = _handle_response(response)
+        return results[0] if results else None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get by CR failed: {e}")
         return None
 
 
@@ -186,13 +206,20 @@ def update_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]
         response = requests.patch(url, json=data, headers=get_headers(), timeout=30)
         if response.status_code in [200, 204]:
             return report_data
-        logger.error(
-            f"[Supabase] Update failed: {response.status_code} - {response.text[:200]}"
-        )
-        return {}
+        # Non-successful response
+        try:
+            err_json = response.json()
+            message = err_json.get('message', response.text[:200])
+        except Exception:
+            message = response.text[:200]
+        # Raise specific error for duplicate key violation (409)
+        if response.status_code == 409:
+            raise DuplicateReportError(f"Duplicate CR number: {message}")
+        else:
+            raise Exception(f"Supabase update failed ({response.status_code}): {message}")
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Update request failed: {e}")
-        return {}
+        raise
 
 
 def delete_report(report_id: str) -> bool:

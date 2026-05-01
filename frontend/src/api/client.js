@@ -201,6 +201,13 @@ export const reportAPI = {
 
     deleteOutputReport: (reportId) =>
         api.delete(`/search/output/${reportId}`),
+
+    // -- Duplicate Detection
+    checkDuplicate: (crNumber, companyName) =>
+        api.post('/upload/check-duplicate', {
+            cr_number: crNumber,
+            company_name: companyName
+        }),
 }
 
 export default api

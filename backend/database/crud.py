@@ -19,9 +19,11 @@ from services.supabase_client import (
     add_uploaded_file as sb_add_uploaded_file,
     get_uploaded_files as sb_get_uploaded_files,
     delete_uploaded_file_by_report_and_filename as sb_delete_uploaded_file_fn,
+    get_report_by_cr_number as sb_get_report_by_cr_number,
 )
 from models.report_schema import FullReport, build_empty_report, FieldData
 from models.field_meta import FIELD_REGISTRY
+from database.exceptions import DuplicateReportError
 
 
 # ---------------------------------------------------------------------------
@@ -142,25 +144,47 @@ async def update_report_fields_bulk(
 
 
 async def save_report_json(db, report_id: str, json_data: Any) -> bool:
-    """Save raw JSON data to report. Accepts FullReport object, dict, or JSON string."""
-    try:
-        if isinstance(json_data, str):
-            try:
-                json_data = json.loads(json_data)
-            except json.JSONDecodeError:
-                pass
+    """Save raw JSON data to report. Accepts FullReport object, dict, or JSON string.
+    Raises DuplicateReportError if the update would create a duplicate cr_number.
+    """
+    # Parse and validate input
+    if isinstance(json_data, str):
+        try:
+            json_data = json.loads(json_data)
+        except json.JSONDecodeError:
+            pass  # keep original string? Let validation handle
 
-        if isinstance(json_data, dict):
+    if isinstance(json_data, dict):
+        try:
             report = FullReport.model_validate(json_data)
-        else:
-            report = json_data
+        except Exception as e:
+            print(f"[CRUD] Invalid report data: {e}")
+            raise
+    else:
+        report = json_data
 
-        report_dict = report.model_dump()
-        await asyncio.to_thread(sb_update_report, report_id, report_dict)
-        return True
-    except Exception as e:
-        print(f"[CRUD] Error saving report JSON: {e}")
-        return False
+    # Duplicate detection: if cr_number field is set and non-empty, ensure no other report has it
+    new_cr = None
+    try:
+        if hasattr(report, 'fields') and report.fields:
+            cr_field = report.fields.get('cr_number')
+            if cr_field and hasattr(cr_field, 'value'):
+                new_cr = cr_field.value
+    except Exception:
+        pass
+
+    if new_cr:
+        # Check for existing report with same CR (excluding this report_id)
+        existing = await asyncio.to_thread(sb_get_report_by_cr_number, str(new_cr))
+        if existing and existing.get('id') != report_id:
+            raise DuplicateReportError(
+                f"CR number '{new_cr}' already exists in report {existing.get('id')}"
+            )
+
+    # Proceed with update
+    report_dict = report.model_dump()
+    await asyncio.to_thread(sb_update_report, report_id, report_dict)
+    return True
 
 
 
