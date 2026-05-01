@@ -21,6 +21,7 @@ from services.supabase_client import (
     delete_uploaded_file_by_report_and_filename as sb_delete_uploaded_file_fn,
     get_report_by_cr_number as sb_get_report_by_cr_number,
     get_report_by_client_reference as sb_get_report_by_client_reference,
+    get_report_by_company_name as sb_get_report_by_company_name,
 )
 from models.report_schema import FullReport, build_empty_report, FieldData
 from models.field_meta import FIELD_REGISTRY
@@ -164,9 +165,10 @@ async def save_report_json(db, report_id: str, json_data: Any) -> bool:
     else:
         report = json_data
 
-    # Duplicate detection: check cr_number and client_reference
+    # Duplicate detection: check cr_number, client_reference, AND company_name
     new_cr = None
     new_client_ref = None
+    new_company_name = None
     try:
         if hasattr(report, 'fields') and report.fields:
             cr_field = report.fields.get('cr_number')
@@ -176,6 +178,10 @@ async def save_report_json(db, report_id: str, json_data: Any) -> bool:
             client_ref_field = report.fields.get('client_reference')
             if client_ref_field and hasattr(client_ref_field, 'value'):
                 new_client_ref = client_ref_field.value
+            
+            company_name_field = report.fields.get('company_name')
+            if company_name_field and hasattr(company_name_field, 'value'):
+                new_company_name = company_name_field.value
     except Exception:
         pass
 
@@ -185,6 +191,22 @@ async def save_report_json(db, report_id: str, json_data: Any) -> bool:
         if existing and existing.get('id') != report_id:
             raise DuplicateReportError(
                 f"CR number '{new_cr}' already exists in report {existing.get('id')}"
+            )
+
+    # Check for duplicate client_reference
+    if new_client_ref:
+        existing_ref = await asyncio.to_thread(sb_get_report_by_client_reference, str(new_client_ref))
+        if existing_ref and existing_ref.get('id') != report_id:
+            raise DuplicateReportError(
+                f"Client reference '{new_client_ref}' already exists in report {existing_ref.get('id')}"
+            )
+
+    # Check for duplicate company_name
+    if new_company_name:
+        existing_company = await asyncio.to_thread(sb_get_report_by_company_name, str(new_company_name))
+        if existing_company and existing_company.get('id') != report_id:
+            raise DuplicateReportError(
+                f"Company name '{new_company_name}' already exists in report {existing_company.get('id')}"
             )
 
     # Check for duplicate client_reference

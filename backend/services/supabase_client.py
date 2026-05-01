@@ -152,20 +152,20 @@ def get_report_by_cr_number(cr_number: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def get_report_by_client_reference(client_reference: str) -> Optional[Dict[str, Any]]:
-    """Get a report by exact client_reference match."""
-    if not client_reference:
+def get_report_by_company_name(company_name: str) -> Optional[Dict[str, Any]]:
+    """Get a report by exact company_name match."""
+    if not company_name:
         return None
     import urllib.parse
-    encoded = urllib.parse.quote(str(client_reference))
-    url = f"{get_base_url()}/reports?client_reference=eq.{encoded}"
+    encoded = urllib.parse.quote(str(company_name))
+    url = f"{get_base_url()}/reports?company_name=eq.{encoded}"
 
     try:
         response = requests.get(url, headers=get_headers(), timeout=30)
         results = _handle_response(response)
         return results[0] if results else None
     except requests.exceptions.RequestException as e:
-        logger.error(f"[Supabase] Get by client_reference failed: {e}")
+        logger.error(f"[Supabase] Get by company_name failed: {e}")
         return None
 
 
