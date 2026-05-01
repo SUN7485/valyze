@@ -20,6 +20,7 @@ from services.supabase_client import (
     get_uploaded_files as sb_get_uploaded_files,
     delete_uploaded_file_by_report_and_filename as sb_delete_uploaded_file_fn,
     get_report_by_cr_number as sb_get_report_by_cr_number,
+    get_report_by_client_reference as sb_get_report_by_client_reference,
 )
 from models.report_schema import FullReport, build_empty_report, FieldData
 from models.field_meta import FIELD_REGISTRY
@@ -163,22 +164,35 @@ async def save_report_json(db, report_id: str, json_data: Any) -> bool:
     else:
         report = json_data
 
-    # Duplicate detection: if cr_number field is set and non-empty, ensure no other report has it
+    # Duplicate detection: check cr_number and client_reference
     new_cr = None
+    new_client_ref = None
     try:
         if hasattr(report, 'fields') and report.fields:
             cr_field = report.fields.get('cr_number')
             if cr_field and hasattr(cr_field, 'value'):
                 new_cr = cr_field.value
+            
+            client_ref_field = report.fields.get('client_reference')
+            if client_ref_field and hasattr(client_ref_field, 'value'):
+                new_client_ref = client_ref_field.value
     except Exception:
         pass
 
+    # Check for duplicate CR number
     if new_cr:
-        # Check for existing report with same CR (excluding this report_id)
         existing = await asyncio.to_thread(sb_get_report_by_cr_number, str(new_cr))
         if existing and existing.get('id') != report_id:
             raise DuplicateReportError(
                 f"CR number '{new_cr}' already exists in report {existing.get('id')}"
+            )
+
+    # Check for duplicate client_reference
+    if new_client_ref:
+        existing_ref = await asyncio.to_thread(sb_get_report_by_client_reference, str(new_client_ref))
+        if existing_ref and existing_ref.get('id') != report_id:
+            raise DuplicateReportError(
+                f"Client reference '{new_client_ref}' already exists in report {existing_ref.get('id')}"
             )
 
     # Proceed with update

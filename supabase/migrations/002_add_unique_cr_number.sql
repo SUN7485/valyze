@@ -1,50 +1,70 @@
--- Migration: 002_add_unique_cr_number
--- Purpose: Prevent duplicate reports for the same company by enforcing cr_number uniqueness
+-- Migration: 002_add_unique_constraints
+-- Purpose: Prevent duplicate reports for the same company by enforcing unique cr_number and client_reference
 -- Created: 2026-05-01
 
 -- Step 0: Backup any existing duplicates before cleanup
--- This creates a snapshot of all reports that share a CR number with another report
 CREATE TABLE IF NOT EXISTS reports_duplicate_backup AS
 SELECT r.*
 FROM reports r
-JOIN (
-    SELECT cr_number
-    FROM reports
-    WHERE cr_number IS NOT NULL
-    GROUP BY cr_number
-    HAVING COUNT(*) > 1
-) dup ON r.cr_number = dup.cr_number;
+WHERE r.cr_number IN (
+    SELECT cr_number FROM reports WHERE cr_number IS NOT NULL GROUP BY cr_number HAVING COUNT(*) > 1
+)
+   OR r.client_reference IN (
+    SELECT client_reference FROM reports WHERE client_reference IS NOT NULL GROUP BY client_reference HAVING COUNT(*) > 1
+);
 
--- Step 1: Normalize empty CR numbers to NULL
--- Treat empty or whitespace-only strings as missing values
+-- Step 1: Normalize empty CR numbers and client references to NULL
 UPDATE reports
 SET cr_number = NULL
-WHERE cr_number IS NOT NULL
-  AND trim(cr_number) = '';
+WHERE cr_number IS NOT NULL AND trim(cr_number) = '';
 
--- Step 2: Delete duplicate reports, keeping the most recent per CR number
--- We define "most recent" by updated_at DESC, then created_at DESC, then id DESC
--- This preserves the latest version of each company's data
-WITH ranked AS (
+UPDATE reports
+SET client_reference = NULL
+WHERE client_reference IS NOT NULL AND trim(client_reference) = '';
+
+-- Step 2: Delete duplicate reports (keep most recent per CR)
+WITH ranked_cr AS (
   SELECT id,
          ROW_NUMBER() OVER (
            PARTITION BY cr_number
-           ORDER BY updated_at DESC NULLS LAST,
-                    created_at DESC NULLS LAST,
-                    id DESC
+           ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
          ) AS rn
   FROM reports
   WHERE cr_number IS NOT NULL
 )
 DELETE FROM reports
-WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
+WHERE id IN (SELECT id FROM ranked_cr WHERE rn > 1);
 
--- Step 3: Add unique constraint on cr_number
--- PostgreSQL allows multiple NULLs in a unique column, so this only enforces uniqueness for non-NULL values
+-- Step 3: Delete duplicate reports (keep most recent per client_reference)
+WITH ranked_client AS (
+  SELECT id,
+         ROW_NUMBER() OVER (
+           PARTITION BY client_reference
+           ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
+         ) AS rn
+  FROM reports
+  WHERE client_reference IS NOT NULL
+)
+DELETE FROM reports
+WHERE id IN (SELECT id FROM ranked_client WHERE rn > 1);
+
+-- Step 4: Add unique constraint on cr_number (NULLs allowed)
+ALTER TABLE reports
+DROP CONSTRAINT IF EXISTS reports_cr_number_key;
+
 ALTER TABLE reports
 ADD CONSTRAINT reports_cr_number_key UNIQUE (cr_number);
 
--- Optional: add a comment explaining the constraint
-COMMENT ON CONSTRAINT reports_cr_number_key ON reports IS 'Ensures each Commercial Registration (CR) number appears at most once across all reports';
+-- Step 5: Add unique constraint on client_reference (NULLs allowed)
+ALTER TABLE reports
+DROP CONSTRAINT IF EXISTS reports_client_reference_key;
+
+ALTER TABLE reports
+ADD CONSTRAINT reports_client_reference_key UNIQUE (client_reference);
+
+-- Optional comments
+COMMENT ON CONSTRAINT reports_cr_number_key ON reports IS 'Ensures each Commercial Registration (CR) number appears at most once';
+COMMENT ON CONSTRAINT reports_client_reference_key ON reports IS 'Ensures each client reference appears at most once';
+
 
   

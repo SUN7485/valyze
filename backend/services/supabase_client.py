@@ -152,6 +152,23 @@ def get_report_by_cr_number(cr_number: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def get_report_by_client_reference(client_reference: str) -> Optional[Dict[str, Any]]:
+    """Get a report by exact client_reference match."""
+    if not client_reference:
+        return None
+    import urllib.parse
+    encoded = urllib.parse.quote(str(client_reference))
+    url = f"{get_base_url()}/reports?client_reference=eq.{encoded}"
+
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        results = _handle_response(response)
+        return results[0] if results else None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get by client_reference failed: {e}")
+        return None
+
+
 def get_all_reports() -> List[Dict[str, Any]]:
     """Get all reports."""
     url = f"{get_base_url()}/reports"
