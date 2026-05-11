@@ -55,6 +55,23 @@ export const reportAPI = {
     deleteFile: (reportId, filename) =>
         api.delete(`/upload/file/${reportId}/${filename}`),
 
+    // -- Lookup ----------------------------------
+
+    lookupCompany: (companyName) =>
+        api.get('/report/lookup', {
+            params: { company_name: companyName }
+        }),
+
+    lookupByCr: (crNumber) =>
+        api.get('/report/lookup', {
+            params: { cr_number: crNumber }
+        }),
+
+    lookupByCr: (crNumber) =>
+        api.get('/report/lookup', {
+            params: { cr_number: crNumber }
+        }),
+
     // -- Extraction ------------------------------
 
     startExtraction: (reportId) =>
@@ -71,11 +88,11 @@ export const reportAPI = {
     getReport: (reportId) =>
         api.get(`/report/${reportId}`),
 
-    updateField: (reportId, fieldName, value) =>
+    updateField: (reportId, fieldName, value, source = 'user') =>
         api.patch(`/report/${reportId}/field`, {
             field_name: fieldName,
             value: value,
-            source: 'user'
+            source: source
         }),
 
     updateFieldsBulk: (reportId, fields) =>

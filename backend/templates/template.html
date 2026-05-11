@@ -960,9 +960,17 @@
     <div class="metrics-row">
       <div class="metric-box">
         <div class="metric-label">Company Size</div>
-         <div class="metric-value" data-field="company_size">{{company_size}}</div>
-         <div class="metric-value" data-field="payment_risk">{{payment_risk}}</div>
-         <div class="metric-value" data-field="financial_health">{{financial_health}}</div>
+        <div class="metric-value">{{company_size}}</div>
+        <div class="metric-subtext">{{annual_revenue}} Revenue</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-label">Payment Risk</div>
+        <div class="metric-value">{{payment_risk}}</div>
+        <div class="metric-subtext">PAYDEX: {{paydex_score}}</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-label">Financial Health</div>
+        <div class="metric-value">{{financial_health}}</div>
         <div class="metric-subtext">Score: {{health_score}}/100</div>
       </div>
     </div>
@@ -1071,18 +1079,18 @@
     <!-- Company Overview -->
     <div class="subsection">
       <div class="subsection-title">Company Overview</div>
-       <div class="info-card" data-field="executive_summary_text" style="line-height:1.7;text-align:justify;">
-         {{executive_summary_text}}
-       </div>
+      <div class="info-card" style="line-height:1.7;text-align:justify;">
+        {{executive_summary_text}}
+      </div>
     </div>
 
     <!-- Company History — flows here immediately if space allows -->
     <div class="subsection" style="page-break-before:avoid;">
       <div class="subsection-title">Company History</div>
-     <div class="alert-box info" data-field="company_history_text">
-       <span class="icon">📜</span>
-       <span>{{company_history_text}}</span>
-     </div>
+      <div class="alert-box info">
+        <span class="icon">📜</span>
+        <span>{{company_history_text}}</span>
+      </div>
     </div>
 
     <!-- Key Business Metrics -->
@@ -1091,9 +1099,17 @@
       <div class="metrics-row">
         <div class="metric-box">
           <div class="metric-label">Employees</div>
-          <div class="metric-value" data-field="employee_count">{{employee_count}}</div>
-          <div class="metric-value" data-field="capital" style="font-size:10pt;">{{capital}}</div>
-          <div class="metric-value" data-field="annual_turnover">{{annual_turnover}}</div>
+          <div class="metric-value">{{employee_count}}</div>
+          <div class="metric-subtext">{{employee_location}}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Registered Capital</div>
+          <div class="metric-value" style="font-size:10pt;">{{capital}}</div>
+          <div class="metric-subtext">Paid-up Capital</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Annual Turnover</div>
+          <div class="metric-value">{{annual_turnover}}</div>
           <div class="metric-subtext">Revenue</div>
         </div>
       </div>
@@ -1118,36 +1134,36 @@
         </div>
         <div class="info-row">
           <div class="info-label">Legal Name:</div>
-           <div class="info-value" data-field="legal_name">{{legal_name}}</div>
+          <div class="info-value">{{legal_name}}</div>
         </div>
         <div class="info-row">
           <div class="info-label">Trade Names:</div>
-           <div class="info-value" data-field="trade_names">{{trade_names}}</div>
+          <div class="info-value">{{trade_names}}</div>
         </div>
         <div class="info-row">
           <div class="info-label">Industry:</div>
-           <div class="info-value" data-field="industry">{{industry}}</div>
+          <div class="info-value">{{industry}}</div>
         </div>
         <div class="info-row">
           <div class="info-label">Company Type:</div>
-           <div class="info-value" data-field="company_type">{{company_type}}</div>
+          <div class="info-value">{{company_type}}</div>
         </div>
-         <div class="info-row">
-           <div class="info-label">Incorporation Date:</div>
-           <div class="info-value" data-field="incorporation_date">{{incorporation_date}}</div>
-         </div>
-         <div class="info-row">
-           <div class="info-label">Duration:</div>
-           <div class="info-value" data-field="company_duration">{{company_duration}}</div>
-         </div>
-         <div class="info-row">
-           <div class="info-label">Capital:</div>
-           <div class="info-value" data-field="capital">{{capital}}</div>
-         </div>
-         <div class="info-row">
-           <div class="info-label">SIC Codes:</div>
-           <div class="info-value" data-field="sic_codes">{{sic_codes}}</div>
-         </div>
+        <div class="info-row">
+          <div class="info-label">Incorporation Date:</div>
+          <div class="info-value">{{incorporation_date}}</div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Duration:</div>
+          <div class="info-value">{{company_duration}}</div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Capital:</div>
+          <div class="info-value">{{capital}}</div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">SIC Codes:</div>
+          <div class="info-value">{{sic_codes}}</div>
+        </div>
       </div>
     </div>
 
@@ -1157,7 +1173,7 @@
       <div class="info-card">
         <div class="info-row">
           <div class="info-label">Headquarters:</div>
-           <div class="info-value" data-field="headquarters_address">{{headquarters_address}}</div>
+          <div class="info-value">{{headquarters_address}}</div>
         </div>
 
         <!-- Phone Numbers Table -->
@@ -1175,22 +1191,22 @@
         {{^phone_numbers}}
         <div class="info-row">
           <div class="info-label">Phone:</div>
-           <div class="info-value" data-field="phone">{{phone}}</div>
+          <div class="info-value">{{phone}}</div>
         </div>
         {{/phone_numbers}}
 
-         <div class="info-row">
-           <div class="info-label">Fax:</div>
-           <div class="info-value" data-field="fax">{{fax}}</div>
-         </div>
-         <div class="info-row">
-           <div class="info-label">Email:</div>
-           <div class="info-value" data-field="email">{{email}}</div>
-         </div>
-         <div class="info-row">
-           <div class="info-label">Website:</div>
-           <div class="info-value" data-field="website">{{website}}</div>
-         </div>
+        <div class="info-row">
+          <div class="info-label">Fax:</div>
+          <div class="info-value">{{fax}}</div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Email:</div>
+          <div class="info-value">{{email}}</div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Website:</div>
+          <div class="info-value">{{website}}</div>
+        </div>
       </div>
     </div>
 
@@ -1202,81 +1218,98 @@
 
           <!-- ── Fields all countries share ── -->
           <div class="reg-label">CR / Registration No.</div>
-           <div class="reg-value" data-field="cr_number">{{cr_number}}</div>
+          <div class="reg-value">{{cr_number}}</div>
 
           <div class="reg-label">Unified Number</div>
-           <div class="reg-value" data-field="unified_number">{{unified_number}}</div>
+          <div class="reg-value">{{unified_number}}</div>
 
           <div class="reg-label">License Type</div>
-           <div class="reg-value" data-field="license_type">{{license_type}}</div>
+          <div class="reg-value">{{license_type}}</div>
 
           <div class="reg-label">Investment License No.</div>
-           <div class="reg-value" data-field="investment_license_no">{{investment_license_no}}</div>
+          <div class="reg-value">{{investment_license_no}}</div>
 
           <div class="reg-label">Issue Date</div>
-           <div class="reg-value" data-field="issue_date">{{issue_date}}</div>
+          <div class="reg-value">{{issue_date}}</div>
 
-           <div class="reg-value" data-field="expiry_date">{{expiry_date}}</div>
+          <div class="reg-label">Expiry Date</div>
+          <div class="reg-value">{{expiry_date}}</div>
 
-           <div class="reg-value" data-field="auditor_name">{{auditor_name}}</div>
+          <div class="reg-label">Auditor</div>
+          <div class="reg-value">{{auditor_name}}</div>
 
           <!-- ── Egypt-specific ── -->
           {{#show_egypt_fields}}
           <div class="reg-label">Tax Registration No.</div>
-           <div class="reg-value" data-field="tax_registration_number">{{tax_registration_number}}</div>
+          <div class="reg-value">{{tax_registration_number}}</div>
 
-           <div class="reg-value" data-field="tax_card_number">{{tax_card_number}}</div>
+          <div class="reg-label">Tax Card No.</div>
+          <div class="reg-value">{{tax_card_number}}</div>
 
-           <div class="reg-value" data-field="trade_license_number">{{trade_license_number}}</div>
+          <div class="reg-label">Trade License No.</div>
+          <div class="reg-value">{{trade_license_number}}</div>
 
-           <div class="reg-value" data-field="social_insurance_number">{{social_insurance_number}}</div>
+          <div class="reg-label">Social Insurance No.</div>
+          <div class="reg-value">{{social_insurance_number}}</div>
 
-           <div class="reg-value" data-field="gafi_registration">{{gafi_registration}}</div>
+          <div class="reg-label">GAFI Registration</div>
+          <div class="reg-value">{{gafi_registration}}</div>
           {{/show_egypt_fields}}
 
           {{#show_registration_licenses}}
           <div class="reg-label">Industrial License No.</div>
-           <div class="reg-value" data-field="industrial_license_number">{{industrial_license_number}}</div>
+          <div class="reg-value">{{industrial_license_number}}</div>
 
-           <div class="reg-value" data-field="import_license_number">{{import_license_number}}</div>
+          <div class="reg-label">Import License No.</div>
+          <div class="reg-value">{{import_license_number}}</div>
 
-           <div class="reg-value" data-field="export_license_number">{{export_license_number}}</div>
+          <div class="reg-label">Export License No.</div>
+          <div class="reg-value">{{export_license_number}}</div>
 
-           <div class="reg-value" data-field="lei_number">{{lei_number}}</div>
+          <div class="reg-label">LEI Number</div>
+          <div class="reg-value">{{lei_number}}</div>
           {{/show_registration_licenses}}
 
           <!-- ── Saudi-specific ── -->
           {{#show_saudi_fields}}
           <div class="reg-label">GOSI Registration</div>
-           <div class="reg-value" data-field="gosi_registration">{{gosi_registration}}</div>
+          <div class="reg-value">{{gosi_registration}}</div>
 
-           <div class="reg-value" data-field="nitaqat_band">{{nitaqat_band}}</div>
+          <div class="reg-label">Saudization (Nitaqat)</div>
+          <div class="reg-value">{{nitaqat_band}}</div>
 
-           <div class="reg-value" data-field="municipality_license">{{municipality_license}}</div>
+          <div class="reg-label">Municipality License</div>
+          <div class="reg-value">{{municipality_license}}</div>
 
-           <div class="reg-value" data-field="zakat_certificate">{{zakat_certificate}}</div>
+          <div class="reg-label">Zakat Certificate</div>
+          <div class="reg-value">{{zakat_certificate}}</div>
 
-           <div class="reg-value" data-field="zakat_number">{{zakat_number}}</div>
+          <div class="reg-label">Zakat Number</div>
+          <div class="reg-value">{{zakat_number}}</div>
 
-           <div class="reg-value" data-field="zakat_status"><span class="risk-badge {{zakat_alert}}">{{zakat_status}}</span></div>
+          <div class="reg-label">Zakat Status</div>
+          <div class="reg-value"><span class="risk-badge {{zakat_alert}}">{{zakat_status}}</span></div>
           {{/show_saudi_fields}}
 
           <!-- ── UAE-specific ── -->
           {{#show_uae_fields}}
           <div class="reg-label">Trade License No.</div>
-           <div class="reg-value" data-field="trade_license_number">{{trade_license_number}}</div>
+          <div class="reg-value">{{trade_license_number}}</div>
 
-           <div class="reg-value" data-field="trn_vat">{{trn_vat}}</div>
+          <div class="reg-label">TRN (VAT)</div>
+          <div class="reg-value">{{trn_vat}}</div>
 
-           <div class="reg-value" data-field="ded_number">{{ded_number}}</div>
+          <div class="reg-label">Economic Dept. (DED)</div>
+          <div class="reg-value">{{ded_number}}</div>
 
-           <div class="reg-value" data-field="freezone_license">{{freezone_license}}</div>
+          <div class="reg-label">Free Zone License</div>
+          <div class="reg-value">{{freezone_license}}</div>
           {{/show_uae_fields}}
 
           <!-- ── Generic extra field (any country) ── -->
           {{#extra_reg_fields}}
           <div class="reg-label">{{extra_reg_label}}</div>
-           <div class="reg-value" data-field="extra_reg_value">{{extra_reg_value}}</div>
+          <div class="reg-value">{{extra_reg_value}}</div>
           {{/extra_reg_fields}}
 
         </div>
@@ -1364,15 +1397,15 @@
       <div class="info-card">
         <div class="info-row">
           <div class="info-label">Parent Company:</div>
-           <div class="info-value" data-field="parent_company">{{parent_company}}</div>
-         </div>
-         <div class="info-row">
-           <div class="info-label">Subsidiaries:</div>
-           <div class="info-value" data-field="subsidiaries">{{subsidiaries}}</div>
-         </div>
-         <div class="info-row">
-           <div class="info-label">Affiliates:</div>
-           <div class="info-value" data-field="affiliates">{{affiliates}}</div>
+          <div class="info-value">{{parent_company}}</div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Subsidiaries:</div>
+          <div class="info-value">{{subsidiaries}}</div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Affiliates:</div>
+          <div class="info-value">{{affiliates}}</div>
         </div>
       </div>
     </div>
@@ -1436,7 +1469,7 @@
       <div class="info-card">
         <div class="info-row">
           <div class="info-label">Business Description:</div>
-           <div class="info-value" data-field="registration_activities_description">{{registration_activities_description}}</div>
+          <div class="info-value">{{registration_activities_description}}</div>
         </div>
       </div>
     </div>
@@ -1481,15 +1514,15 @@
         {{#facilities_count}}
         <div class="metric-box">
           <div class="metric-label">Facilities</div>
-           <div class="metric-value" data-field="facilities_count">{{facilities_count}}</div>
-           <div class="metric-subtext">{{main_facility_location}}</div>
+          <div class="metric-value">{{facilities_count}}</div>
+          <div class="metric-subtext">{{main_facility_location}}</div>
         </div>
         {{/facilities_count}}
         {{#markets_count}}
         <div class="metric-box">
           <div class="metric-label">Markets Served</div>
-           <div class="metric-value" data-field="markets_count">{{markets_count}}</div>
-           <div class="metric-subtext">{{markets_regions}}</div>
+          <div class="metric-value">{{markets_count}}</div>
+          <div class="metric-subtext">{{markets_regions}}</div>
         </div>
         {{/markets_count}}
       </div>
@@ -1503,26 +1536,26 @@
         {{#premises_type}}
         <div class="metric-box">
           <div class="metric-label">Premises</div>
-           <div class="metric-value" data-field="premises_type">{{premises_type}}</div>
-           <div class="metric-subtext">{{premises_size}} • {{premises_owned_rental}}</div>
-         </div>
-         {{/premises_type}}
-         {{#vehicles}}
-         <div class="metric-box">
-           <div class="metric-label">Vehicles</div>
-           <div class="metric-value" data-field="vehicles">{{vehicles}}</div>
-         </div>
-         {{/vehicles}}
-         {{#equipment}}
-         <div class="metric-box">
-           <div class="metric-label">Equipment</div>
-           <div class="metric-value" data-field="equipment">{{equipment}}</div>
-         </div>
-         {{/equipment}}
-         {{#brands}}
-         <div class="metric-box">
-           <div class="metric-label">Brands</div>
-           <div class="metric-value" data-field="brands">{{brands}}</div>
+          <div class="metric-value">{{premises_type}}</div>
+          <div class="metric-subtext">{{premises_size}} • {{premises_owned_rental}}</div>
+        </div>
+        {{/premises_type}}
+        {{#vehicles}}
+        <div class="metric-box">
+          <div class="metric-label">Vehicles</div>
+          <div class="metric-value">{{vehicles}}</div>
+        </div>
+        {{/vehicles}}
+        {{#equipment}}
+        <div class="metric-box">
+          <div class="metric-label">Equipment</div>
+          <div class="metric-value">{{equipment}}</div>
+        </div>
+        {{/equipment}}
+        {{#brands}}
+        <div class="metric-box">
+          <div class="metric-label">Brands</div>
+          <div class="metric-value">{{brands}}</div>
         </div>
         {{/brands}}
       </div>
@@ -1544,57 +1577,57 @@
             {{#main_suppliers}}
             <div class="sc-row">
               <div class="sc-row-label">Main Suppliers:</div>
-               <div class="sc-row-value" data-field="main_suppliers">{{main_suppliers}}</div>
+              <div class="sc-row-value">{{main_suppliers}}</div>
             </div>
             {{/main_suppliers}}
 
             {{#local_purchasing_pct}}
             <div class="sc-row">
               <div class="sc-row-label">Local Sourcing:</div>
-               <div class="sc-row-value" data-field="local_purchasing_pct">
-                 <span class="sc-badge local">{{local_purchasing_pct}}</span>
-                 {{local_purchasing_detail}}
-               </div>
+              <div class="sc-row-value">
+                <span class="sc-badge local">{{local_purchasing_pct}}</span>
+                {{local_purchasing_detail}}
+              </div>
             </div>
             {{/local_purchasing_pct}}
 
             {{#import_purchasing_pct}}
             <div class="sc-row">
               <div class="sc-row-label">Importing:</div>
-               <div class="sc-row-value" data-field="import_purchasing_pct">
-                 <span class="sc-badge import">{{import_purchasing_pct}}</span>
-                 {{import_countries}}
-               </div>
+              <div class="sc-row-value">
+                <span class="sc-badge import">{{import_purchasing_pct}}</span>
+                {{import_countries}}
+              </div>
             </div>
             {{/import_purchasing_pct}}
 
             {{#import_items}}
             <div class="sc-row">
               <div class="sc-row-label">Imported Items:</div>
-               <div class="sc-row-value" data-field="import_items">{{import_items}}</div>
+              <div class="sc-row-value">{{import_items}}</div>
             </div>
             {{/import_items}}
 
             {{#supplier_payment_method}}
             <div class="sc-row">
               <div class="sc-row-label">Payment Method:</div>
-               <div class="sc-row-value" data-field="supplier_payment_method">
-                 <span class="sc-badge payment">{{supplier_payment_method}}</span>
-               </div>
+              <div class="sc-row-value">
+                <span class="sc-badge payment">{{supplier_payment_method}}</span>
+              </div>
             </div>
             {{/supplier_payment_method}}
 
             {{#supplier_payment_terms}}
             <div class="sc-row">
               <div class="sc-row-label">Payment Terms:</div>
-               <div class="sc-row-value" data-field="supplier_payment_terms">{{supplier_payment_terms}}</div>
+              <div class="sc-row-value">{{supplier_payment_terms}}</div>
             </div>
             {{/supplier_payment_terms}}
 
             {{#suppliers_number}}
             <div class="sc-row">
               <div class="sc-row-label">Suppliers:</div>
-               <div class="sc-row-value" data-field="suppliers_number">{{suppliers_number}}</div>
+              <div class="sc-row-value">{{suppliers_number}}</div>
             </div>
             {{/suppliers_number}}
 
@@ -1611,57 +1644,57 @@
             {{#key_customers}}
             <div class="sc-row">
               <div class="sc-row-label">Key Customers:</div>
-               <div class="sc-row-value" data-field="key_customers">{{key_customers}}</div>
+              <div class="sc-row-value">{{key_customers}}</div>
             </div>
             {{/key_customers}}
 
             {{#local_sales_pct}}
             <div class="sc-row">
               <div class="sc-row-label">Local Sales:</div>
-               <div class="sc-row-value" data-field="local_sales_pct">
-                 <span class="sc-badge local">{{local_sales_pct}}</span>
-                 {{local_sales_detail}}
-               </div>
+              <div class="sc-row-value">
+                <span class="sc-badge local">{{local_sales_pct}}</span>
+                {{local_sales_detail}}
+              </div>
             </div>
             {{/local_sales_pct}}
 
             {{#export_sales_pct}}
             <div class="sc-row">
               <div class="sc-row-label">Export:</div>
-               <div class="sc-row-value" data-field="export_sales_pct">
-                 <span class="sc-badge export">{{export_sales_pct}}</span>
-                 {{export_countries}}
-               </div>
+              <div class="sc-row-value">
+                <span class="sc-badge export">{{export_sales_pct}}</span>
+                {{export_countries}}
+              </div>
             </div>
             {{/export_sales_pct}}
 
             {{#export_items}}
             <div class="sc-row">
               <div class="sc-row-label">Exported Items:</div>
-               <div class="sc-row-value" data-field="export_items">{{export_items}}</div>
+              <div class="sc-row-value">{{export_items}}</div>
             </div>
             {{/export_items}}
 
             {{#customer_payment_method}}
             <div class="sc-row">
               <div class="sc-row-label">Payment Method:</div>
-               <div class="sc-row-value" data-field="customer_payment_method">
-                 <span class="sc-badge payment">{{customer_payment_method}}</span>
-               </div>
+              <div class="sc-row-value">
+                <span class="sc-badge payment">{{customer_payment_method}}</span>
+              </div>
             </div>
             {{/customer_payment_method}}
 
             {{#customer_payment_terms}}
             <div class="sc-row">
               <div class="sc-row-label">Payment Terms:</div>
-               <div class="sc-row-value" data-field="customer_payment_terms">{{customer_payment_terms}}</div>
+              <div class="sc-row-value">{{customer_payment_terms}}</div>
             </div>
             {{/customer_payment_terms}}
 
             {{#clients_number}}
             <div class="sc-row">
               <div class="sc-row-label">Clients:</div>
-               <div class="sc-row-value" data-field="clients_number">{{clients_number}}</div>
+              <div class="sc-row-value">{{clients_number}}</div>
             </div>
             {{/clients_number}}
 
@@ -1989,32 +2022,32 @@
           <th class="ratio-table-status">Status</th>
           <th class="ratio-table-interpretation">Interpretation</th>
         </tr>
-         <tr>
-           <td>Current Ratio</td>
-           <td data-field="current_ratio">{{current_ratio}}</td>
-           <td data-field="current_ratio_prev">{{current_ratio_prev}}</td>
-           <td data-field="current_ratio_industry">{{current_ratio_industry}}</td>
-           <td class="ratio-table-status" data-field="current_ratio_status"><span
-               class="risk-badge {{current_ratio_status}}">{{current_ratio_label}}</span></td>
-           <td class="ratio-table-interpretation" data-field="current_ratio_interpretation">{{current_ratio_interpretation}}</td>
-         </tr>
-         <tr>
-           <td>Quick Ratio</td>
-           <td data-field="quick_ratio">{{quick_ratio}}</td>
-           <td data-field="quick_ratio_prev">{{quick_ratio_prev}}</td>
-           <td data-field="quick_ratio_industry">{{quick_ratio_industry}}</td>
-           <td class="ratio-table-status" data-field="quick_ratio_status"><span class="risk-badge {{quick_ratio_status}}">{{quick_ratio_label}}</span>
-           </td>
-           <td class="ratio-table-interpretation" data-field="quick_ratio_interpretation">{{quick_ratio_interpretation}}</td>
-         </tr>
-         <tr>
-           <td>Cash Ratio</td>
-           <td data-field="cash_ratio">{{cash_ratio}}</td>
-           <td data-field="cash_ratio_prev">{{cash_ratio_prev}}</td>
-           <td data-field="cash_ratio_industry">{{cash_ratio_industry}}</td>
-           <td class="ratio-table-status" data-field="cash_ratio_status"><span class="risk-badge {{cash_ratio_status}}">{{cash_ratio_label}}</span></td>
-           <td class="ratio-table-interpretation" data-field="cash_ratio_interpretation">{{cash_ratio_interpretation}}</td>
-         </tr
+        <tr>
+          <td>Current Ratio</td>
+          <td>{{current_ratio}}</td>
+          <td>{{current_ratio_prev}}</td>
+          <td>{{current_ratio_industry}}</td>
+          <td class="ratio-table-status"><span
+              class="risk-badge {{current_ratio_status}}">{{current_ratio_label}}</span></td>
+          <td class="ratio-table-interpretation">{{current_ratio_interpretation}}</td>
+        </tr>
+        <tr>
+          <td>Quick Ratio</td>
+          <td>{{quick_ratio}}</td>
+          <td>{{quick_ratio_prev}}</td>
+          <td>{{quick_ratio_industry}}</td>
+          <td class="ratio-table-status"><span class="risk-badge {{quick_ratio_status}}">{{quick_ratio_label}}</span>
+          </td>
+          <td class="ratio-table-interpretation">{{quick_ratio_interpretation}}</td>
+        </tr>
+        <tr>
+          <td>Cash Ratio</td>
+          <td>{{cash_ratio}}</td>
+          <td>{{cash_ratio_prev}}</td>
+          <td>{{cash_ratio_industry}}</td>
+          <td class="ratio-table-status"><span class="risk-badge {{cash_ratio_status}}">{{cash_ratio_label}}</span></td>
+          <td class="ratio-table-interpretation">{{cash_ratio_interpretation}}</td>
+        </tr>
       </table>
     </div>
 
@@ -2039,32 +2072,15 @@
           </td>
           <td class="ratio-table-interpretation">{{gross_margin_interpretation}}</td>
         </tr>
-         <tr>
-           <td>Current Ratio</td>
-           <td data-field="current_ratio">{{current_ratio}}</td>
-           <td data-field="current_ratio_prev">{{current_ratio_prev}}</td>
-           <td data-field="current_ratio_industry">{{current_ratio_industry}}</td>
-           <td class="ratio-table-status" data-field="current_ratio_status"><span
-               class="risk-badge {{current_ratio_status}}">{{current_ratio_label}}</span></td>
-           <td class="ratio-table-interpretation" data-field="current_ratio_interpretation">{{current_ratio_interpretation}}</td>
-         </tr>
-         <tr>
-           <td>Quick Ratio</td>
-           <td data-field="quick_ratio">{{quick_ratio}}</td>
-           <td data-field="quick_ratio_prev">{{quick_ratio_prev}}</td>
-           <td data-field="quick_ratio_industry">{{quick_ratio_industry}}</td>
-           <td class="ratio-table-status" data-field="quick_ratio_status"><span class="risk-badge {{quick_ratio_status}}">{{quick_ratio_label}}</span>
-           </td>
-           <td class="ratio-table-interpretation" data-field="quick_ratio_interpretation">{{quick_ratio_interpretation}}</td>
-         </tr>
-         <tr>
-           <td>Cash Ratio</td>
-           <td data-field="cash_ratio">{{cash_ratio}}</td>
-           <td data-field="cash_ratio_prev">{{cash_ratio_prev}}</td>
-           <td data-field="cash_ratio_industry">{{cash_ratio_industry}}</td>
-           <td class="ratio-table-status" data-field="cash_ratio_status"><span class="risk-badge {{cash_ratio_status}}">{{cash_ratio_label}}</span></td>
-           <td class="ratio-table-interpretation" data-field="cash_ratio_interpretation">{{cash_ratio_interpretation}}</td>
-         </tr
+        <tr>
+          <td>EBITDA Margin</td>
+          <td>{{ebitda_margin}}</td>
+          <td>{{ebitda_margin_prev}}</td>
+          <td>{{ebitda_margin_industry}}</td>
+          <td class="ratio-table-status"><span
+              class="risk-badge {{ebitda_margin_status}}">{{ebitda_margin_label}}</span></td>
+          <td class="ratio-table-interpretation">{{ebitda_margin_interpretation}}</td>
+        </tr>
         <tr>
           <td>Net Margin</td>
           <td>{{net_margin}}</td>
@@ -2214,20 +2230,20 @@
           <th style="width:10%;">Prob.</th>
           <th>Meaning</th>
         </tr>
-         <tr>
-           <td>Viability</td>
-           <td data-field="viability_score"><strong>{{viability_score}}</strong></td>
-           <td data-field="viability_level"><span class="risk-badge {{viability_badge}}">{{viability_level}}</span></td>
-           <td data-field="viability_probability">{{viability_probability}}</td>
-           <td data-field="viability_meaning">{{viability_meaning}}</td>
-         </tr>
-         <tr>
-           <td>Delinquency</td>
-           <td data-field="delinquency_score"><strong>{{delinquency_score}}</strong></td>
-           <td data-field="delinquency_level"><span class="risk-badge {{delinquency_badge}}">{{delinquency_level}}</span></td>
-           <td data-field="delinquency_probability">{{delinquency_probability}}</td>
-           <td data-field="delinquency_meaning">{{delinquency_meaning}}</td>
-         </tr>
+        <tr>
+          <td>Viability</td>
+          <td><strong>{{viability_score}}</strong></td>
+          <td><span class="risk-badge {{viability_badge}}">{{viability_level}}</span></td>
+          <td>{{viability_probability}}</td>
+          <td>{{viability_meaning}}</td>
+        </tr>
+        <tr>
+          <td>Delinquency</td>
+          <td><strong>{{delinquency_score}}</strong></td>
+          <td><span class="risk-badge {{delinquency_badge}}">{{delinquency_level}}</span></td>
+          <td>{{delinquency_probability}}</td>
+          <td>{{delinquency_meaning}}</td>
+        </tr>
       </table>
     </div>
 
@@ -2238,9 +2254,17 @@
       <div class="metrics-row">
         <div class="metric-box">
           <div class="metric-label">Avg Days Beyond Terms</div>
-           <div class="metric-value" data-field="avg_dbt">{{avg_dbt}}</div>
-           <div class="metric-value" data-field="pct_on_time">{{pct_on_time}}</div>
-           <div class="metric-value" data-field="highest_past_due">{{highest_past_due}}</div>
+          <div class="metric-value">{{avg_dbt}}</div>
+          <div class="metric-subtext">days late</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">% Paid on Time</div>
+          <div class="metric-value">{{pct_on_time}}</div>
+          <div class="metric-subtext">last 24 months</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Highest Past Due</div>
+          <div class="metric-value">{{highest_past_due}}</div>
           <div class="metric-subtext">maximum amount</div>
         </div>
       </div>
@@ -2251,26 +2275,26 @@
           <th>% of Payments</th>
           <th>Amount</th>
         </tr>
-         <tr>
-           <td>Prompt (within terms)</td>
-           <td data-field="prompt_pct">{{prompt_pct}}</td>
-           <td data-field="prompt_amount">{{prompt_amount}}</td>
-         </tr>
-         <tr>
-           <td>1–30 days slow</td>
-           <td data-field="slow_30_pct">{{slow_30_pct}}</td>
-           <td data-field="slow_30_amount">{{slow_30_amount}}</td>
-         </tr>
-         <tr>
-           <td>31–60 days slow</td>
-           <td data-field="slow_60_pct">{{slow_60_pct}}</td>
-           <td data-field="slow_60_amount">{{slow_60_amount}}</td>
-         </tr>
-         <tr>
-           <td>90+ days slow</td>
-           <td data-field="slow_90plus_pct">{{slow_90plus_pct}}</td>
-           <td data-field="slow_90plus_amount">{{slow_90plus_amount}}</td>
-         </tr>
+        <tr>
+          <td>Prompt (within terms)</td>
+          <td>{{prompt_pct}}</td>
+          <td>{{prompt_amount}}</td>
+        </tr>
+        <tr>
+          <td>1–30 days slow</td>
+          <td>{{slow_30_pct}}</td>
+          <td>{{slow_30_amount}}</td>
+        </tr>
+        <tr>
+          <td>31–60 days slow</td>
+          <td>{{slow_60_pct}}</td>
+          <td>{{slow_60_amount}}</td>
+        </tr>
+        <tr>
+          <td>90+ days slow</td>
+          <td>{{slow_90plus_pct}}</td>
+          <td>{{slow_90plus_amount}}</td>
+        </tr>
       </table>
     </div>
   </div>
@@ -2289,27 +2313,27 @@
         <th>Last Filing</th>
         <th>Status</th>
       </tr>
-       <tr>
-         <td>Lawsuits</td>
-         <td data-field="lawsuit_count">{{lawsuit_count}}</td>
-         <td data-field="lawsuit_amount">{{lawsuit_amount}}</td>
-         <td data-field="lawsuit_last_date">{{lawsuit_last_date}}</td>
-         <td data-field="lawsuit_status"><span class="risk-badge {{lawsuit_badge}}">{{lawsuit_status}}</span></td>
-       </tr>
-       <tr>
-         <td>Liens</td>
-         <td data-field="lien_count">{{lien_count}}</td>
-         <td data-field="lien_amount">{{lien_amount}}</td>
-         <td data-field="lien_last_date">{{lien_last_date}}</td>
-         <td data-field="lien_status"><span class="risk-badge {{lien_badge}}">{{lien_status}}</span></td>
-       </tr>
-       <tr>
-         <td>Judgments</td>
-         <td data-field="judgment_count">{{judgment_count}}</td>
-         <td data-field="judgment_amount">{{judgment_amount}}</td>
-         <td data-field="judgment_last_date">{{judgment_last_date}}</td>
-         <td data-field="judgment_status"><span class="risk-badge {{judgment_badge}}">{{judgment_status}}</span></td>
-       </tr>
+      <tr>
+        <td>Lawsuits</td>
+        <td>{{lawsuit_count}}</td>
+        <td>{{lawsuit_amount}}</td>
+        <td>{{lawsuit_last_date}}</td>
+        <td><span class="risk-badge {{lawsuit_badge}}">{{lawsuit_status}}</span></td>
+      </tr>
+      <tr>
+        <td>Liens</td>
+        <td>{{lien_count}}</td>
+        <td>{{lien_amount}}</td>
+        <td>{{lien_last_date}}</td>
+        <td><span class="risk-badge {{lien_badge}}">{{lien_status}}</span></td>
+      </tr>
+      <tr>
+        <td>Judgments</td>
+        <td>{{judgment_count}}</td>
+        <td>{{judgment_amount}}</td>
+        <td>{{judgment_last_date}}</td>
+        <td><span class="risk-badge {{judgment_badge}}">{{judgment_status}}</span></td>
+      </tr>
     </table>
   </div>
 
@@ -2330,34 +2354,22 @@
   <div class="subsection" style="page-break-before:avoid;">
     <div class="subsection-title">Legal Event Details</div>
     <div class="info-card">
-       <div class="info-row">
-         <div class="info-label">Type:</div>
-         <div class="info-value" data-field="event_type">{{event_type}}</div>
-       </div>
-       <div class="info-row">
-         <div class="info-label">Date Filed:</div>
-         <div class="info-value" data-field="event_date">{{event_date}}</div>
-       </div>
-       <div class="info-row">
-         <div class="info-label">Amount:</div>
-         <div class="info-value" data-field="event_amount">{{event_amount}}</div>
-       </div>
-       <div class="info-row">
-         <div class="info-label">Description:</div>
-         <div class="info-value" data-field="event_description">{{event_description}}</div>
-       </div>
-       <div class="info-row">
-         <div class="info-label">Date Filed:</div>
-         <div class="info-value" data-field="event_date">{{event_date}}</div>
-       </div>
-       <div class="info-row">
-         <div class="info-label">Amount:</div>
-         <div class="info-value" data-field="event_amount">{{event_amount}}</div>
-       </div>
-       <div class="info-row">
-         <div class="info-label">Description:</div>
-         <div class="info-value" data-field="event_description">{{event_description}}</div>
-       </div>
+      <div class="info-row">
+        <div class="info-label">Type:</div>
+        <div class="info-value">{{event_type}}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Date Filed:</div>
+        <div class="info-value">{{event_date}}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Amount:</div>
+        <div class="info-value">{{event_amount}}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Description:</div>
+        <div class="info-value">{{event_description}}</div>
+      </div>
     </div>
   </div>
   {{/legal_details}}
@@ -2403,15 +2415,15 @@
     <div class="info-card">
       <div class="info-row">
         <div class="info-label">Industry:</div>
-         <div class="info-value" data-field="industry_name">{{industry_name}}</div>
-       </div>
-       <div class="info-row">
-         <div class="info-label">Market Size:</div>
-         <div class="info-value" data-field="market_size">{{market_size}}</div>
-       </div>
-       <div class="info-row">
-         <div class="info-label">Growth Rate:</div>
-         <div class="info-value" data-field="industry_growth_rate">{{industry_growth_rate}}</div>
+        <div class="info-value">{{industry_name}}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Market Size:</div>
+        <div class="info-value">{{market_size}}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Growth Rate:</div>
+        <div class="info-value">{{industry_growth_rate}}</div>
       </div>
     </div>
   </div>
@@ -2529,41 +2541,41 @@
         📋 Final Credit Assessment
       </h3>
       <div class="recommendation-grid">
-         <div class="recommendation-item">
-           <div class="label">Credit Rating</div>
-           <div class="value" data-field="final_credit_rating">{{final_credit_rating}}</div>
-         </div>
-         <div class="recommendation-item">
-           <div class="label">Risk Level</div>
-           <div class="value {{final_risk_color}}" data-field="final_risk_level">{{final_risk_level}}</div>
-         </div>
-         <div class="recommendation-item">
-           <div class="label">Recommended Limit (USD)</div>
-           <div class="value" data-field="recommended_credit_limit">{{recommended_credit_limit}}</div>
-         </div>
-         <div class="recommendation-item">
-           <div class="label">Maximum Exposure (USD)</div>
-           <div class="value" data-field="maximum_exposure">{{maximum_exposure}}</div>
-         </div>
-         <div class="recommendation-item">
-           <div class="label">Maximum Exposure (USD)</div>
-           <div class="value" data-field="maximum_exposure">{{maximum_exposure}}</div>
-         </div>
-         <div class="recommendation-item">
-           <div class="label">Payment Terms</div>
-           <div class="value" style="font-size:10pt;" data-field="recommended_payment_terms">{{recommended_payment_terms}}</div>
-         </div>
-         <div class="recommendation-item">
-           <div class="label">Review Frequency</div>
-           <div class="value" style="font-size:10pt;" data-field="review_frequency">{{review_frequency}}</div>
-         </div>
+        <div class="recommendation-item">
+          <div class="label">Credit Rating</div>
+          <div class="value">{{final_credit_rating}}</div>
+        </div>
+        <div class="recommendation-item">
+          <div class="label">Risk Level</div>
+          <div class="value {{final_risk_color}}">{{final_risk_level}}</div>
+        </div>
+        <div class="recommendation-item">
+          <div class="label">Recommended Limit (USD)</div>
+          <div class="value">{{recommended_credit_limit}}</div>
+        </div>
+        <div class="recommendation-item">
+          <div class="label">Maximum Exposure (USD)</div>
+          <div class="value">{{maximum_exposure}}</div>
+        </div>
+        <div class="recommendation-item">
+          <div class="label">Maximum Exposure (USD)</div>
+          <div class="value">{{maximum_exposure}}</div>
+        </div>
+        <div class="recommendation-item">
+          <div class="label">Payment Terms</div>
+          <div class="value" style="font-size:10pt;">{{recommended_payment_terms}}</div>
+        </div>
+        <div class="recommendation-item">
+          <div class="label">Review Frequency</div>
+          <div class="value" style="font-size:10pt;">{{review_frequency}}</div>
+        </div>
       </div>
-       <div data-field="credit_opinion_text" style="background:white;padding:14px;border-radius:8px;
-                   border-left:4px solid #2ecc71;font-style:italic;
-                   line-height:1.7;margin-top:10px;font-size:9pt;">
-         <strong style="font-style:normal;">Credit Opinion:</strong><br>
-         {{credit_opinion_text}}
-       </div>
+      <div style="background:white;padding:14px;border-radius:8px;
+                  border-left:4px solid #2ecc71;font-style:italic;
+                  line-height:1.7;margin-top:10px;font-size:9pt;">
+        <strong style="font-style:normal;">Credit Opinion:</strong><br>
+        {{credit_opinion_text}}
+      </div>
 
     </div>
 
@@ -2603,23 +2615,23 @@
     <div class="metrics-row">
       <div class="metric-box">
         <div class="metric-label">Payment Delays</div>
-         <div class="metric-value" data-field="payment_delay_status" style="color:{{payment_delay_color}};font-size:13pt;">
-           {{payment_delay_status}}
-         </div>
-         <div class="metric-subtext">vs. last quarter</div>
-       </div>
-       <div class="metric-box">
-         <div class="metric-label">Credit Utilization</div>
-         <div class="metric-value" data-field="credit_utilization" style="color:{{utilization_color}};font-size:13pt;">
-           {{credit_utilization}}
-         </div>
-         <div class="metric-subtext">of approved limit</div>
-       </div>
-       <div class="metric-box">
-         <div class="metric-label">Financial Trend</div>
-         <div class="metric-value" data-field="financial_trend" style="color:{{trend_color}};font-size:13pt;">
-           {{financial_trend}}
-         </div>
+        <div class="metric-value" style="color:{{payment_delay_color}};font-size:13pt;">
+          {{payment_delay_status}}
+        </div>
+        <div class="metric-subtext">vs. last quarter</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-label">Credit Utilization</div>
+        <div class="metric-value" style="color:{{utilization_color}};font-size:13pt;">
+          {{credit_utilization}}
+        </div>
+        <div class="metric-subtext">of approved limit</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-label">Financial Trend</div>
+        <div class="metric-value" style="color:{{trend_color}};font-size:13pt;">
+          {{financial_trend}}
+        </div>
         <div class="metric-subtext">12-month outlook</div>
       </div>
     </div>
@@ -2629,13 +2641,13 @@
   <!-- Critical Alerts — flows on same page -->
   <div class="subsection" style="page-break-before:avoid;">
     <div class="subsection-title">Critical Alerts to Watch</div>
-     <div class="alert-box danger">
-       <span class="icon">🚨</span>
-       <span data-field="legal_threshold"><strong>High Priority:</strong> {{legal_threshold}}</span>
-     </div>
-     <div class="alert-box warning">
-       <span class="icon">⚠️</span>
-       <span data-field="payment_delay_threshold"><strong>Medium Priority:</strong> Payment delays — threshold: {{payment_delay_threshold}}</span>
+    <div class="alert-box danger">
+      <span class="icon">🚨</span>
+      <span><strong>High Priority:</strong> {{legal_threshold}}</span>
+    </div>
+    <div class="alert-box warning">
+      <span class="icon">⚠️</span>
+      <span><strong>Medium Priority:</strong> Payment delays — threshold: {{payment_delay_threshold}}</span>
     </div>
     <div class="alert-box info">
       <span class="icon">ℹ️</span>
@@ -2783,26 +2795,18 @@
           📝 Analyst Comment on Data Quality
         </div>
         <div class="info-card" style="margin-bottom:0;">
-           <div class="info-row">
-             <div class="info-label">Data Quality:</div>
-             <div class="info-value" data-field="data_quality_rating">{{data_quality_rating}}</div>
-           </div>
-           <div class="info-row">
-             <div class="info-label">Limitations:</div>
-             <div class="info-value" data-field="data_limitations">{{data_limitations}}</div>
-           </div>
-           <div class="info-row">
-             <div class="info-label">Analyst Note:</div>
-             <div class="info-value" data-field="data_source_analyst_comment">{{data_source_analyst_comment}}</div>
-           </div>
-           <div class="info-row">
-             <div class="info-label">Limitations:</div>
-             <div class="info-value" data-field="data_limitations">{{data_limitations}}</div>
-           </div>
-           <div class="info-row">
-             <div class="info-label">Analyst Note:</div>
-             <div class="info-value" data-field="data_source_analyst_comment">{{data_source_analyst_comment}}</div>
-           </div>
+          <div class="info-row">
+            <div class="info-label">Data Quality:</div>
+            <div class="info-value">{{data_quality_rating}}</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Limitations:</div>
+            <div class="info-value">{{data_limitations}}</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Analyst Note:</div>
+            <div class="info-value">{{data_source_analyst_comment}}</div>
+          </div>
         </div>
       </div>
     </div>

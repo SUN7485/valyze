@@ -98,21 +98,29 @@ async def update_report_field(
     source: str = "user",
 ) -> Optional[FullReport]:
     """Update a single field in the report."""
+    print(f"[CRUD] update_report_field: {report_id}, {field_name} = {value}, source={source}")
     report = await get_report(db, report_id)
     if report is None:
+        print(f"[CRUD] Report not found: {report_id}")
         return None
 
     if field_name in report.fields:
         report.fields[field_name].value = value
         report.fields[field_name].confidence = confidence
         report.fields[field_name].source = source
+        # Unlock for user-facing sources (editable fields)
+        if source in ('user', 'auto_lookup', 'easy_way_import'):
+            report.fields[field_name].locked = False
+            print(f"[CRUD] Set locked=False for {source} field")
     elif field_name in FIELD_REGISTRY:
         report.fields[field_name] = FieldData(
             value=value, confidence=confidence, source=source, locked=False
         )
+        print(f"[CRUD] Created new field: {field_name}")
 
     report.updated_at = datetime.now(timezone.utc).isoformat()
-    await save_report_json(db, report_id, report)
+    result = await save_report_json(db, report_id, report)
+    print(f"[CRUD] save_report_json result: {result}")
     return report
 
 
@@ -147,80 +155,75 @@ async def update_report_fields_bulk(
 
 async def save_report_json(db, report_id: str, json_data: Any) -> bool:
     """Save raw JSON data to report. Accepts FullReport object, dict, or JSON string.
-    Raises DuplicateReportError if the update would create a duplicate cr_number.
+    Raises DuplicateReportError if the update would create a duplicate cr_number or client_reference.
     """
-    # Parse and validate input
-    if isinstance(json_data, str):
-        try:
-            json_data = json.loads(json_data)
-        except json.JSONDecodeError:
-            pass  # keep original string? Let validation handle
-
-    if isinstance(json_data, dict):
-        try:
-            report = FullReport.model_validate(json_data)
-        except Exception as e:
-            print(f"[CRUD] Invalid report data: {e}")
-            raise
-    else:
-        report = json_data
-
-    # Duplicate detection: check cr_number, client_reference, AND company_name
-    new_cr = None
-    new_client_ref = None
-    new_company_name = None
     try:
-        if hasattr(report, 'fields') and report.fields:
-            cr_field = report.fields.get('cr_number')
-            if cr_field and hasattr(cr_field, 'value'):
-                new_cr = cr_field.value
-            
-            client_ref_field = report.fields.get('client_reference')
-            if client_ref_field and hasattr(client_ref_field, 'value'):
-                new_client_ref = client_ref_field.value
-            
-            company_name_field = report.fields.get('company_name')
-            if company_name_field and hasattr(company_name_field, 'value'):
-                new_company_name = company_name_field.value
-    except Exception:
-        pass
+        if isinstance(json_data, str):
+            try:
+                json_data = json.loads(json_data)
+            except json.JSONDecodeError:
+                pass  # Let validation handle
 
-    # Check for duplicate CR number
-    if new_cr:
-        existing = await asyncio.to_thread(sb_get_report_by_cr_number, str(new_cr))
-        if existing and existing.get('id') != report_id:
-            raise DuplicateReportError(
-                f"CR number '{new_cr}' already exists in report {existing.get('id')}"
-            )
+        if isinstance(json_data, dict):
+            report = FullReport.model_validate(json_data)
+        else:
+            report = json_data
 
-    # Check for duplicate client_reference
-    if new_client_ref:
-        existing_ref = await asyncio.to_thread(sb_get_report_by_client_reference, str(new_client_ref))
-        if existing_ref and existing_ref.get('id') != report_id:
-            raise DuplicateReportError(
-                f"Client reference '{new_client_ref}' already exists in report {existing_ref.get('id')}"
-            )
+        # Duplicate detection: check cr_number, client_reference, and company_name
+        new_cr = None
+        new_client_ref = None
+        new_company_name = None
 
-    # Check for duplicate company_name
-    if new_company_name:
-        existing_company = await asyncio.to_thread(sb_get_report_by_company_name, str(new_company_name))
-        if existing_company and existing_company.get('id') != report_id:
-            raise DuplicateReportError(
-                f"Company name '{new_company_name}' already exists in report {existing_company.get('id')}"
-            )
+        try:
+            if hasattr(report, 'fields') and report.fields:
+                cr_field = report.fields.get('cr_number')
+                if cr_field and hasattr(cr_field, 'value'):
+                    new_cr = cr_field.value
 
-    # Check for duplicate client_reference
-    if new_client_ref:
-        existing_ref = await asyncio.to_thread(sb_get_report_by_client_reference, str(new_client_ref))
-        if existing_ref and existing_ref.get('id') != report_id:
-            raise DuplicateReportError(
-                f"Client reference '{new_client_ref}' already exists in report {existing_ref.get('id')}"
-            )
+                client_ref_field = report.fields.get('client_reference')
+                if client_ref_field and hasattr(client_ref_field, 'value'):
+                    new_client_ref = client_ref_field.value
 
-    # Proceed with update
-    report_dict = report.model_dump()
-    await asyncio.to_thread(sb_update_report, report_id, report_dict)
-    return True
+                company_name_field = report.fields.get('company_name')
+                if company_name_field and hasattr(company_name_field, 'value'):
+                    new_company_name = company_name_field.value
+        except Exception:
+            pass
+
+        # Check for duplicate CR number
+        if new_cr:
+            existing = await asyncio.to_thread(sb_get_report_by_cr_number, str(new_cr))
+            if existing and existing.get('id') != report_id:
+                raise DuplicateReportError(
+                    f"CR number '{new_cr}' already exists in report {existing.get('id')}"
+                )
+
+        # Check for duplicate client_reference
+        if new_client_ref:
+            existing_ref = await asyncio.to_thread(sb_get_report_by_client_reference, str(new_client_ref))
+            if existing_ref and existing_ref.get('id') != report_id:
+                raise DuplicateReportError(
+                    f"Client reference '{new_client_ref}' already exists in report {existing_ref.get('id')}"
+                )
+
+        # Check for duplicate company_name
+        if new_company_name:
+            existing_company = await asyncio.to_thread(sb_get_report_by_company_name, str(new_company_name))
+            if existing_company and existing_company.get('id') != report_id:
+                raise DuplicateReportError(
+                    f"Company name '{new_company_name}' already exists in report {existing_company.get('id')}"
+                )
+
+        # Proceed with update
+        report_dict = report.model_dump()
+        await asyncio.to_thread(sb_update_report, report_id, report_dict)
+        return True
+    except DuplicateReportError:
+        # Re-raise duplicate errors - don't swallow them
+        raise
+    except Exception as e:
+        print(f"[CRUD] Error saving report JSON: {e}")
+        return False
 
 
 

@@ -51,48 +51,59 @@ async def _get_report_or_404(report_id: str):
 async def export_report_json(report_id: str):
     """Export report as JSON."""
     report = await _get_report_or_404(report_id)
-    return {"report": report.model_dump()}
+    result = export_service.export_json(report.model_dump(), report_id)
+    if not result.get("success"):
+        raise HTTPException(500, f"JSON export failed: {result.get('error', 'Unknown error')}")
+    result["download_url"] = f"/api/export/download/{report_id}/json"
+    return result
 
 
 @router.post("/xml/{report_id}")
 async def export_report_xml(report_id: str):
     """Export report as XML."""
     report = await _get_report_or_404(report_id)
-    xml_content = await export_service.generate_xml(report)
-    return {"xml": xml_content}
+    result = export_service.export_xml(report.model_dump(), report_id)
+    if not result.get("success"):
+        raise HTTPException(500, f"XML export failed: {result.get('error', 'Unknown error')}")
+    result["download_url"] = f"/api/export/download/{report_id}/xml"
+    return result
 
 
 @router.post("/excel/{report_id}")
 async def export_report_excel(report_id: str):
     """Export report as Excel."""
     report = await _get_report_or_404(report_id)
-    filepath = await export_service.generate_excel(report, OUTPUT_DIR)
-    return {
-        "filepath": filepath,
-        "download_url": f"/api/export/download/{report_id}/excel",
-    }
+    result = export_service.export_excel(report.model_dump(), report_id)
+    if not result.get("success"):
+        raise HTTPException(500, f"Excel export failed: {result.get('error', 'Unknown error')}")
+    result["download_url"] = f"/api/export/download/{report_id}/excel"
+    # Rename file_path to filepath for frontend compatibility (optional)
+    result["filepath"] = result.pop("file_path")
+    return result
 
 
 @router.post("/csv/{report_id}")
 async def export_report_csv(report_id: str):
     """Export report as CSV."""
     report = await _get_report_or_404(report_id)
-    filepath = await export_service.generate_csv(report, OUTPUT_DIR)
-    return {
-        "filepath": filepath,
-        "download_url": f"/api/export/download/{report_id}/csv",
-    }
+    result = export_service.export_csv(report.model_dump(), report_id)
+    if not result.get("success"):
+        raise HTTPException(500, f"CSV export failed: {result.get('error', 'Unknown error')}")
+    result["download_url"] = f"/api/export/download/{report_id}/csv"
+    result["filepath"] = result.pop("file_path")
+    return result
 
 
 @router.post("/word/{report_id}")
 async def export_report_word(report_id: str):
     """Export report as Word."""
     report = await _get_report_or_404(report_id)
-    filepath = await export_service.generate_word(report, OUTPUT_DIR)
-    return {
-        "filepath": filepath,
-        "download_url": f"/api/export/download/{report_id}/word",
-    }
+    result = export_service.export_word(report.model_dump(), report_id)
+    if not result.get("success"):
+        raise HTTPException(500, f"Word export failed: {result.get('error', 'Unknown error')}")
+    result["download_url"] = f"/api/export/download/{report_id}/word"
+    result["filepath"] = result.pop("file_path")
+    return result
 
 
 @router.get("/download/{report_id}/{format}")

@@ -8,6 +8,7 @@ SINGLE SOURCE OF TRUTH. NO AUTO-RECALCULATION. EVER.
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -122,6 +123,51 @@ async def list_reports():
 # GET
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Company Lookup (must be before variable /{report_id} route)
+# ---------------------------------------------------------------------------
+
+@router.get("/lookup")
+async def lookup_company(
+    company_name: Optional[str] = None,
+    cr_number: Optional[str] = None,
+):
+    """
+    Lookup company details by company name or CR number.
+    Returns matching report's company_name and cr_number.
+    Used for auto-fill when entering company info.
+    """
+    try:
+        from services.supabase_client import get_report_by_company_name, get_report_by_cr_number
+        
+        if company_name:
+            # Search by company name
+            result = await asyncio.to_thread(get_report_by_company_name, company_name)
+            if result:
+                return {
+                    "success": True,
+                    "company_name": result.get("company_name"),
+                    "cr_number": result.get("cr_number"),
+                    "legal_name": result.get("legal_name"),
+                    "client_reference": result.get("client_reference"),
+                }
+        
+        if cr_number:
+            # Search by CR number
+            result = await asyncio.to_thread(get_report_by_cr_number, cr_number)
+            if result:
+                return {
+                    "success": True,
+                    "company_name": result.get("company_name"),
+                    "cr_number": result.get("cr_number"),
+                    "legal_name": result.get("legal_name"),
+                    "client_reference": result.get("client_reference"),
+                }
+        
+        return {"success": False, "message": "No matching company found"}
+    except Exception as e:
+        raise HTTPException(500, f"Lookup failed: {str(e)}")
+
 
 REPORT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,100}$")
 
@@ -148,15 +194,22 @@ async def update_single_field(
     report_id: str,
     body: UpdateFieldRequest,
 ):
+    print(f"[PATCH_FIELD] report_id={report_id}, field={body.field_name}, value='{body.value}', source='{body.source}'")
     report = await get_report(None, report_id)
     if report is None:
+        print(f"[PATCH_FIELD] Report not found: {report_id}")
         raise HTTPException(status_code=404, detail="Report not found")
 
+    # Check if field is locked – allow updates from user-facing sources
     if body.field_name in report.fields and report.fields[body.field_name].locked:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Field '{body.field_name}' is locked",
-        )
+        print(f"[PATCH_FIELD] Field '{body.field_name}' is locked (source={body.source})")
+        if body.source not in ('user', 'auto_lookup', 'easy_way_import'):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Field '{body.field_name}' is locked",
+            )
+        else:
+            print(f"[PATCH_FIELD] Allowing locked update because source={body.source}")
 
     updated = await update_report_field(
         None,
@@ -167,8 +220,10 @@ async def update_single_field(
         source=body.source,
     )
     if updated is None:
+        print(f"[PATCH_FIELD] update_report_field returned None")
         raise HTTPException(status_code=500, detail="Failed to update field")
 
+    print(f"[PATCH_FIELD] Field updated successfully")
     return {
         "field_name": body.field_name,
         "value": body.value,

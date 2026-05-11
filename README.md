@@ -11,7 +11,7 @@ A full-stack credit report analysis and PDF extraction system with AI-powered fe
 
 ### macOS
 ```bash
-chmod +x install.sh startall.sh startbackend.sh
+chmod +x install.sh startall.sh startbackend.sh startfrontend.sh stop-all.sh
 ./install.sh
 ./startall.sh
 ```
@@ -19,7 +19,15 @@ Then open http://localhost:1573
 
 ---
 
-## Installation Notes
+## Available Commands
+
+| Command | Purpose |
+|---------|---------|
+| `startall.bat` / `startall.sh` | Start all services (backend + frontend + extractor) |
+| `stop-all.bat` / `stop-all.sh` | Stop all running services |
+| `startbackend.bat` / `startbackend.sh` | Start only the backend API |
+| `startfrontend.bat` | Start only the frontend |
+| `install.bat` / `install.sh` | Install all dependencies |
 
 ### External Dependencies (must be installed separately)
 

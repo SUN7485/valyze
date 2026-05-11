@@ -153,15 +153,15 @@ export function ReportProvider({ children }) {
     }, [report])
 
     // Check if field is locked
-    // Fields with source 'easy_way_import' should never be locked
+    // Fields with source 'easy_way_import' or 'auto_lookup' should never be locked
     const isFieldLocked = useCallback((fieldName) => {
         if (!report?.fields) return false
         const field = report.fields[fieldName]
         if (!field) return false
         if (typeof field === 'object') {
             console.log(`isFieldLocked(${fieldName}): source=${field.source}, locked=${field.locked}`)
-            // Never lock fields that were imported via easy_way_import
-            if (field.source === 'easy_way_import') return false
+            // Never lock fields that were imported via easy_way_import or auto_lookup
+            if (field.source === 'easy_way_import' || field.source === 'auto_lookup') return false
             return field.locked ?? false
         }
         return false
@@ -169,11 +169,13 @@ export function ReportProvider({ children }) {
 
     // Update single field
     const updateField = useCallback(async (fieldName, value) => {
+        console.log(`[ReportContext] updateField called: ${fieldName} = ${value}`)
         if (!reportId) return
 
         // Optimistic update
         setReport(prev => {
             if (!prev) return prev
+            console.log(`[Optimistic] Setting ${fieldName} = ${value}`)
             return {
                 ...prev,
                 fields: {
@@ -189,13 +191,99 @@ export function ReportProvider({ children }) {
         })
 
         try {
+            console.log(`[ReportContext] Calling API updateField(${reportId}, ${fieldName}, ${value})`)
             await reportAPI.updateField(reportId, fieldName, value)
+            console.log(`[ReportContext] API updateField succeeded`)
+
+            // Auto-fill: if company_name was updated, look up CR number
+            if (fieldName === 'company_name' && value && value.trim()) {
+                console.log(`[AutoFill] Looking up CR for company: ${value.trim()}`)
+                try {
+                    const lookupRes = await reportAPI.lookupCompany(value.trim())
+                    console.log(`[AutoFill] Lookup result:`, lookupRes.data)
+                    if (lookupRes.data?.success && lookupRes.data.cr_number) {
+                        // Auto-fill cr_number if not already set by user
+                        const currentCr = getFieldValue('cr_number')
+                        console.log(`[AutoFill] Current CR value: '${currentCr}'`)
+                        if (!currentCr || currentCr === '') {
+                            console.log(`[AutoFill] Auto-filling CR with: ${lookupRes.data.cr_number}`)
+                            await reportAPI.updateField(reportId, 'cr_number', lookupRes.data.cr_number, 'auto_lookup')
+                            // Optimistic update for cr_number
+                            setReport(prev => {
+                                if (!prev) return prev
+                                return {
+                                    ...prev,
+                                    fields: {
+                                        ...prev.fields,
+                                        cr_number: {
+                                            ...(prev.fields?.cr_number || {}),
+                                            value: lookupRes.data.cr_number,
+                                            confidence: 'high',
+                                            source: 'auto_lookup',
+                                            locked: false
+                                        }
+                                    }
+                                }
+                            })
+                            console.log(`[AutoFill] Auto-fill CR done`)
+                        } else {
+                            console.log(`[AutoFill] CR already has value, skipping`)
+                        }
+                    } else {
+                        console.log(`[AutoFill] Lookup failed or no CR returned`)
+                    }
+                } catch (e) {
+                    console.error('[AutoFill] Lookup error:', e)
+                }
+            }
+
+            // Auto-fill: if cr_number was updated, look up company name
+            if (fieldName === 'cr_number' && value && value.trim()) {
+                console.log(`[AutoFill] Looking up company for CR: ${value.trim()}`)
+                try {
+                    const lookupRes = await reportAPI.lookupByCr(value.trim())
+                    console.log(`[AutoFill] Lookup result:`, lookupRes.data)
+                    if (lookupRes.data?.success && lookupRes.data.company_name) {
+                        // Auto-fill company_name if not already set by user
+                        const currentCompany = getFieldValue('company_name')
+                        console.log(`[AutoFill] Current company value: '${currentCompany}'`)
+                        if (!currentCompany || currentCompany === '') {
+                            console.log(`[AutoFill] Auto-filling company with: ${lookupRes.data.company_name}`)
+                            await reportAPI.updateField(reportId, 'company_name', lookupRes.data.company_name, 'auto_lookup')
+                            // Optimistic update for company_name
+                            setReport(prev => {
+                                if (!prev) return prev
+                                return {
+                                    ...prev,
+                                    fields: {
+                                        ...prev.fields,
+                                        company_name: {
+                                            ...(prev.fields?.company_name || {}),
+                                            value: lookupRes.data.company_name,
+                                            confidence: 'high',
+                                            source: 'auto_lookup',
+                                            locked: false
+                                        }
+                                    }
+                                }
+                            })
+                            console.log(`[AutoFill] Auto-fill company done`)
+                        } else {
+                            console.log(`[AutoFill] Company already has value, skipping`)
+                        }
+                    } else {
+                        console.log(`[AutoFill] Lookup failed or no company returned`)
+                    }
+                } catch (e) {
+                    console.error('[AutoFill] Lookup error:', e)
+                }
+            }
         } catch (err) {
             console.error('Field update failed:', err)
             // Reload to get correct state
             await loadReport()
         }
-    }, [reportId, loadReport])
+    }, [reportId, loadReport, getFieldValue])
 
     // Delete a field (set to empty string)
     const deleteField = useCallback(async (fieldName) => {
@@ -223,6 +311,95 @@ export function ReportProvider({ children }) {
             await loadReport()
         }
     }, [reportId, loadReport])
+
+    // Update bulk fields
+    const updateFieldsBulk = useCallback(async (fields) => {
+        if (!reportId) return
+
+        // Optimistic update
+        setReport(prev => {
+            if (!prev) return prev
+            const newFields = { ...prev.fields }
+            Object.keys(fields).forEach(key => {
+                newFields[key] = {
+                    ...(newFields[key] || {}),
+                    value: fields[key],
+                    confidence: 'high',
+                    source: 'user'
+                }
+            })
+            return { ...prev, fields: newFields }
+        })
+
+        try {
+            await reportAPI.updateFieldsBulk(reportId, fields)
+
+            // Auto-fill: if company_name was in the bulk update, look up CR
+            if (fields.company_name && fields.company_name.trim()) {
+                try {
+                    const lookupRes = await reportAPI.lookupCompany(fields.company_name.trim())
+                    if (lookupRes.data?.success && lookupRes.data.cr_number) {
+                        const currentCr = getFieldValue('cr_number')
+                        if (!currentCr || currentCr === '') {
+                            await reportAPI.updateField(reportId, 'cr_number', lookupRes.data.cr_number, 'auto_lookup')
+                            setReport(prev => {
+                                if (!prev) return prev
+                                return {
+                                    ...prev,
+                                    fields: {
+                                        ...prev.fields,
+                                        cr_number: {
+                                            ...(prev.fields?.cr_number || {}),
+                                            value: lookupRes.data.cr_number,
+                                            confidence: 'high',
+                                            source: 'auto_lookup',
+                                            locked: false
+                                        }
+                                    }
+                                }
+                            })
+                        }
+                    }
+                } catch (e) {
+                    // Lookup failed - OK
+                }
+            }
+
+            // Auto-fill: if cr_number was in the bulk update, look up company
+            if (fields.cr_number && fields.cr_number.trim()) {
+                try {
+                    const lookupRes = await reportAPI.lookupByCr(fields.cr_number.trim())
+                    if (lookupRes.data?.success && lookupRes.data.company_name) {
+                        const currentCompany = getFieldValue('company_name')
+                        if (!currentCompany || currentCompany === '') {
+                            await reportAPI.updateField(reportId, 'company_name', lookupRes.data.company_name, 'auto_lookup')
+                            setReport(prev => {
+                                if (!prev) return prev
+                                return {
+                                    ...prev,
+                                    fields: {
+                                        ...prev.fields,
+                                        company_name: {
+                                            ...(prev.fields?.company_name || {}),
+                                            value: lookupRes.data.company_name,
+                                            confidence: 'high',
+                                            source: 'auto_lookup',
+                                            locked: false
+                                        }
+                                    }
+                                }
+                            })
+                        }
+                    }
+                } catch (e) {
+                    // Lookup failed - OK
+                }
+            }
+        } catch (err) {
+            console.error('Bulk update failed:', err)
+            await loadReport()
+        }
+    }, [reportId, loadReport, getFieldValue])
 
     // Delete all fields for a page
     const deletePage = useCallback(async (pageId) => {
@@ -386,6 +563,7 @@ export function ReportProvider({ children }) {
         getFieldConfidence,
         isFieldLocked,
         updateField,
+        updateFieldsBulk,
         deleteField,
         deletePage,
         updateArray,

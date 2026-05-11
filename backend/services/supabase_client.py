@@ -138,6 +138,57 @@ def get_report_by_cr_number(cr_number: str) -> Optional[Dict[str, Any]]:
     """Get a report by exact cr_number match."""
     if not cr_number:
         return None
+    import urllib.parse
+    encoded = urllib.parse.quote(str(cr_number))
+    url = f"{get_base_url()}/reports?cr_number=eq.{encoded}"
+
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        results = _handle_response(response)
+        return results[0] if results else None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get by CR failed: {e}")
+        return None
+
+
+def get_report_by_client_reference(client_reference: str) -> Optional[Dict[str, Any]]:
+    """Get a report by exact client_reference match."""
+    if not client_reference:
+        return None
+    import urllib.parse
+    encoded = urllib.parse.quote(str(client_reference))
+    url = f"{get_base_url()}/reports?client_reference=eq.{encoded}"
+
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        results = _handle_response(response)
+        return results[0] if results else None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get by client_reference failed: {e}")
+        return None
+
+
+def get_report_by_company_name(company_name: str) -> Optional[Dict[str, Any]]:
+    """Get a report by exact company_name match."""
+    if not company_name:
+        return None
+    import urllib.parse
+    encoded = urllib.parse.quote(str(company_name))
+    url = f"{get_base_url()}/reports?company_name=eq.{encoded}"
+
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        results = _handle_response(response)
+        return results[0] if results else None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get by company_name failed: {e}")
+        return None
+
+
+def get_report_by_cr_number(cr_number: str) -> Optional[Dict[str, Any]]:
+    """Get a report by exact cr_number match."""
+    if not cr_number:
+        return None
     # URL-encode the cr_number
     import urllib.parse
     encoded = urllib.parse.quote(str(cr_number))
@@ -152,13 +203,35 @@ def get_report_by_cr_number(cr_number: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def get_report_by_client_reference(client_reference: str) -> Optional[Dict[str, Any]]:
+    """Get a report by exact client_reference match."""
+    if not client_reference:
+        return None
+    import urllib.parse
+    encoded = urllib.parse.quote(str(client_reference))
+    url = f"{get_base_url()}/reports?client_reference=eq.{encoded}"
+
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        results = _handle_response(response)
+        return results[0] if results else None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get by client_reference failed: {e}")
+        return None
+
+
 def get_report_by_company_name(company_name: str) -> Optional[Dict[str, Any]]:
-    """Get a report by exact company_name match."""
+    """Get a report by company_name match (case-insensitive, whitespace trimmed)."""
+    if not company_name:
+        return None
+    # Normalize: strip leading/trailing whitespace
+    company_name = str(company_name).strip()
     if not company_name:
         return None
     import urllib.parse
-    encoded = urllib.parse.quote(str(company_name))
-    url = f"{get_base_url()}/reports?company_name=eq.{encoded}"
+    encoded = urllib.parse.quote(company_name)
+    # Use ilike for case-insensitive match
+    url = f"{get_base_url()}/reports?company_name=ilike.{encoded}"
 
     try:
         response = requests.get(url, headers=get_headers(), timeout=30)
@@ -229,11 +302,7 @@ def update_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]
             message = err_json.get('message', response.text[:200])
         except Exception:
             message = response.text[:200]
-        # Raise specific error for duplicate key violation (409)
-        if response.status_code == 409:
-            raise DuplicateReportError(f"Duplicate CR number: {message}")
-        else:
-            raise Exception(f"Supabase update failed ({response.status_code}): {message}")
+        raise Exception(f"Supabase update failed ({response.status_code}): {message}")
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Update request failed: {e}")
         raise
@@ -322,83 +391,3 @@ def delete_uploaded_file_by_id(file_id: int) -> bool:
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Delete uploaded file failed: {e}")
         return False
-
-
-# ---------------------------------------------------------------------------
-# Search & Count
-# ---------------------------------------------------------------------------
-# Client wrapper for compatibility
-# ---------------------------------------------------------------------------
-
-
-class SupabaseClient:
-    """Wrapper for compatibility with existing code."""
-
-    def __init__(self):
-        self.url = os.getenv("SUPABASE_URL")
-        self.key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
-
-    def table(self, table_name):
-        return TableProxy(table_name, self.url, self.key)
-
-
-class TableProxy:
-    def __init__(self, table: str, url: str, key: str):
-        self._table = table
-        self._url = url
-        self._key = key
-        self._filters = []
-
-    def select(self, columns="*"):
-        self._columns = columns
-        return self
-
-    def insert(self, data):
-        url = f"{self._url}/rest/v1/{self._table}"
-        headers = {
-            "apikey": self._key,
-            "Authorization": f"Bearer {self._key}",
-            "Content-Type": "application/json",
-            "Prefer": "return=representation",
-        }
-        response = requests.post(url, json=data, headers=headers)
-        return Response(response)
-
-    def limit(self, n):
-        self._limit = n
-        return self
-
-
-class Response:
-    def __init__(self, response: requests.Response):
-        self.response = response
-
-    @property
-    def data(self):
-        try:
-            return self.response.json() if self.response.text else []
-        except:
-            return []
-
-
-# Create singleton instance for backward compatibility
-
-
-class _Client:
-    """Fake client for compatibility."""
-
-    def table(self, name):
-        return TableProxy(
-            name, os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", "")
-        )
-
-
-_client = _Client()
-
-
-def get_supabase():
-    return _client
-
-
-def init_supabase():
-    return _client

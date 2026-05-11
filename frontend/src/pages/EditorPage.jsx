@@ -336,7 +336,8 @@ export default function EditorPage() {
                                 try {
                                     setSavingToCloud(true)
                                     await reportAPI.saveToCloud(reportId)
-                                    await reportAPI.loadFromCloud(reportId)
+                                    // Reload the report after saving
+                                    await loadReport(reportId)
                                     setCloudSaved(true)
                                     setTimeout(() => setCloudSaved(false), 3000)
                                 } catch (e) {
