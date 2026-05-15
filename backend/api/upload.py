@@ -31,7 +31,10 @@ from services.supabase_client import get_report_by_cr_number
 
 load_dotenv()
 
-router = APIRouter(prefix="/api/upload", tags=["upload"])
+from services.auth import get_current_user
+
+# All endpoints require authentication
+router = APIRouter(prefix="/api/upload", tags=["upload"], dependencies=[Depends(get_current_user)])
 
 
 # ---------------------------------------------------------------------------

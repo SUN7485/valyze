@@ -28,3 +28,5 @@ chevron
 openpyxl
 lxml
 supabase
+python-jose[cryptography]
+slowapi

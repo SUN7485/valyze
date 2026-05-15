@@ -16,7 +16,9 @@ from fastapi.responses import FileResponse
 from services import export_service
 from database.crud import get_report
 
-router = APIRouter(prefix="/api/export", tags=["export"])
+from services.auth import get_current_user
+
+router = APIRouter(prefix="/api/export", tags=["export"], dependencies=[Depends(get_current_user)])
 
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)

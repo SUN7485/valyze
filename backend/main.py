@@ -18,13 +18,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import SlowApi, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
 
 from database.db import init_db
 from database.exceptions import DuplicateReportError
+from services.auth import require_valid_config
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -32,8 +35,14 @@ from database.exceptions import DuplicateReportError
 
 load_dotenv()
 
+# Validate environment variables at startup
+require_valid_config()
+
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 GOTENBERG_URL = os.getenv("GOTENBERG_URL", "http://localhost:3000")
+
+# Rate limiter setup
+rate_limiter = SlowApi()
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +97,49 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Add rate limiter to app
+app.state.limiter = rate_limiter
+app.add_exception_handler(429, _rate_limit_exceeded_handler)
+
+
+# ---------------------------------------------------------------------------
+# Security Middleware - Security Headers
+# ---------------------------------------------------------------------------
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Add security headers to all responses."""
+    response = await call_next(request)
+    
+    # Prevent clickjacking
+    response.headers["X-Frame-Options"] = "DENY"
+    
+    # XSS protection
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    
+    # HSTS (force HTTPS in production)
+    if os.getenv("ENVIRONMENT") == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    
+    # Content Security Policy (restrictive but functional)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "font-src 'self'; "
+        "connect-src 'self' https://*.supabase.co;"
+    )
+    
+    # Referrer policy
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    
+    # Permissions policy
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    
+    return response
+
 
 # ---------------------------------------------------------------------------
 # Exception Handlers
@@ -98,25 +150,32 @@ async def duplicate_report_handler(request, exc):
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 # -- CORS ---------------------------------------------------------------------
+# Restricted CORS - only allow specific origins in production
+allowed_origins = [
+    "http://localhost:1573",
+    "http://localhost:1574",
+    "http://localhost:1575",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "http://localhost:5176",
+    "http://localhost:5177",
+    "http://localhost:5178",
+    "http://localhost:5179",
+    "http://localhost:3000",
+    "http://localhost:3001",
+]
+
+# Add production domains from environment variable
+if os.getenv("ALLOWED_ORIGINS"):
+    allowed_origins.extend([origin.strip() for origin in os.getenv("ALLOWED_ORIGINS").split(",")])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:1573",
-        "http://localhost:1574",
-        "http://localhost:1575",
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:5175",
-        "http://localhost:5176",
-        "http://localhost:5177",
-        "http://localhost:5178",
-        "http://localhost:5179",
-        "http://localhost:3000",
-        "http://localhost:3001",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # -- Static files -------------------------------------------------------------

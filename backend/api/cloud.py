@@ -10,7 +10,9 @@ from fastapi import APIRouter, HTTPException
 
 from services import supabase_client
 
-router = APIRouter(prefix="/api/cloud", tags=["cloud"])
+from services.auth import get_current_user
+
+router = APIRouter(prefix="/api/cloud", tags=["cloud"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/save/{report_id}")

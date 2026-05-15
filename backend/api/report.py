@@ -40,8 +40,10 @@ from models.report_schema import (
     UpdateFieldsBulkRequest,
 )
 
+from services.auth import get_current_user, UserPayload
+
 # All endpoints require authentication
-router = APIRouter(prefix="/api/report", tags=["report"])
+router = APIRouter(prefix="/api/report", tags=["report"], dependencies=[Depends(get_current_user)])
 
 
 # ---------------------------------------------------------------------------
@@ -194,22 +196,22 @@ async def update_single_field(
     report_id: str,
     body: UpdateFieldRequest,
 ):
-    print(f"[PATCH_FIELD] report_id={report_id}, field={body.field_name}, value='{body.value}', source='{body.source}'")
+    # Sanitize input to prevent injection
+    from services.auth import sanitize_input
+    body.field_name = sanitize_input(body.field_name, max_length=100)
+    body.value = sanitize_input(body.value, max_length=10000)
+    
     report = await get_report(None, report_id)
     if report is None:
-        print(f"[PATCH_FIELD] Report not found: {report_id}")
         raise HTTPException(status_code=404, detail="Report not found")
 
     # Check if field is locked – allow updates from user-facing sources
     if body.field_name in report.fields and report.fields[body.field_name].locked:
-        print(f"[PATCH_FIELD] Field '{body.field_name}' is locked (source={body.source})")
         if body.source not in ('user', 'auto_lookup', 'easy_way_import'):
             raise HTTPException(
                 status_code=400,
                 detail=f"Field '{body.field_name}' is locked",
             )
-        else:
-            print(f"[PATCH_FIELD] Allowing locked update because source={body.source}")
 
     updated = await update_report_field(
         None,
@@ -220,10 +222,8 @@ async def update_single_field(
         source=body.source,
     )
     if updated is None:
-        print(f"[PATCH_FIELD] update_report_field returned None")
         raise HTTPException(status_code=500, detail="Failed to update field")
 
-    print(f"[PATCH_FIELD] Field updated successfully")
     return {
         "field_name": body.field_name,
         "value": body.value,

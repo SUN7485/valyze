@@ -17,7 +17,9 @@ from fastapi.responses import FileResponse, HTMLResponse
 from database.crud import get_report
 from pdf_generator import PDFGenerator
 
-router = APIRouter(prefix="/api/pdf", tags=["pdf"])
+from services.auth import get_current_user
+
+router = APIRouter(prefix="/api/pdf", tags=["pdf"], dependencies=[Depends(get_current_user)])
 
 # Gotenberg URL - running in Docker
 GOTENBERG_URL = os.getenv("GOTENBERG_URL", "http://localhost:3000")

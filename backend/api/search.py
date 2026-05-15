@@ -14,7 +14,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 
-router = APIRouter(prefix="/api/search", tags=["search"])
+from services.auth import get_current_user
+
+router = APIRouter(prefix="/api/search", tags=["search"], dependencies=[Depends(get_current_user)])
 
 
 class SearchRequest(BaseModel):
