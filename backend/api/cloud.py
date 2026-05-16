@@ -5,7 +5,7 @@ Endpoints for saving, status checking, and deleting reports in Supabase.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 
 from services import supabase_client

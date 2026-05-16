@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Path as PathParam
+from fastapi import APIRouter, Depends, HTTPException, Path as PathParam
 from pydantic import BaseModel, Field
 import re
 

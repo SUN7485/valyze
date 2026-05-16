@@ -22,7 +22,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import SlowApi, _rate_limit_exceeded_handler
+from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 
 from database.db import init_db
@@ -42,7 +42,7 @@ UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 GOTENBERG_URL = os.getenv("GOTENBERG_URL", "http://localhost:3000")
 
 # Rate limiter setup
-rate_limiter = SlowApi()
+limiter = Limiter(key_func=get_remote_address)
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ app = FastAPI(
 )
 
 # Add rate limiter to app
-app.state.limiter = rate_limiter
+app.state.limiter = limiter
 app.add_exception_handler(429, _rate_limit_exceeded_handler)
 
 
@@ -195,7 +195,9 @@ from api.pdf import router as pdf_router
 from api.export import router as export_router
 from api.search import router as search_router
 from api.cloud import router as cloud_router
+from api.auth import router as auth_router
 
+app.include_router(auth_router)
 app.include_router(upload_router)
 app.include_router(report_router)
 app.include_router(pdf_router)

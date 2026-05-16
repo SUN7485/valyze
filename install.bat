@@ -101,19 +101,23 @@ if not exist "chroma_db" mkdir chroma_db
 echo       Directories OK
 echo.
 
-:: Verify installation
-echo [8/8] Verifying installation...
+:: Setup environment file
+echo [8/8] Setting up environment configuration...
 cd /d "%~dp0backend"
-py -3.12 -c "import fastapi; print('  FastAPI OK')"
-py -3.12 -c "import pydantic; print('  Pydantic OK')"
-py -3.12 -c "import pystache; print('  pystache OK')"
-py -3.12 -c "import httpx; print('  httpx OK')"
-py -3.12 -c "from rank_bm25 import BM25Okapi; print('  BM25 OK')"
-py -3.12 -c "from PIL import Image; print('  Pillow OK')"
-py -3.12 -c "import cv2; print('  OpenCV OK')"
-py -3.12 -c "from pypdf import PdfReader; print('  pypdf OK')"
-py -3.12 -c "import pdfplumber; print('  pdfplumber OK')"
-py -3.12 -c "from playwright.sync_api import sync_playwright; print('  Playwright OK')"
+if not exist ".env" (
+    echo WARNING: No .env file found!
+    echo.
+    echo Please create a .env file in the backend folder with:
+    echo   SUPABASE_URL=your-supabase-url
+    echo   SUPABASE_SERVICE_KEY=your-service-key
+    echo   JWT_SECRET_KEY=your-secret-key-min-32-chars
+    echo.
+    echo See .env.example for template.
+    echo.
+    pause
+) else (
+    echo       .env file found
+)
 echo.
 
 :: Check Tesseract (optional)

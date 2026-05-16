@@ -57,6 +57,23 @@ mkdir -p backend/uploads
 mkdir -p backend/outputs
 
 echo ""
+echo "[7/7] Setting up environment configuration..."
+if [ ! -f "backend/.env" ]; then
+    echo "WARNING: No .env file found!"
+    echo ""
+    echo "Please create a .env file in the backend folder with:"
+    echo "  SUPABASE_URL=your-supabase-url"
+    echo "  SUPABASE_SERVICE_KEY=your-service-key"
+    echo "  JWT_SECRET_KEY=your-secret-key-min-32-chars"
+    echo ""
+    echo "See .env.example for template."
+    echo ""
+    read -p "Press Enter to continue..."
+else
+    echo "  .env file found"
+fi
+
+echo ""
 echo "============================================"
 echo "  INSTALLATION COMPLETE!"
 echo "============================================"
