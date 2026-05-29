@@ -1,214 +1,150 @@
-# 🚀 Valyze Credit Report — Free Deployment Guide
+# 🚀 Valyze Credit Report — Deployment Guide (Vercel Only)
 
 ## Architecture
 
 ```
-┌──────────────────────┐     ┌──────────────────────────┐
-│   FRONTEND (Vercel)  │────▶│  BACKEND (Render)         │
-│   React + Vite       │     │  FastAPI + Python 3.11    │
-│   FREE forever       │     │  FREE: 750 hrs/month      │
-│   No cold starts     │     │  Spins down after 15min   │
-└──────────────────────┘     └──────────┬───────────────┘
-                                        │
-                               ┌────────▼───────────────┐
-                               │  DATABASE (Supabase)    │
-                               │  PostgreSQL (FREE)       │
-                               │  Already configured ✅   │
-                               └────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│                  VERCEL (Free)                   │
+├─────────────────────┬───────────────────────────┤
+│   Frontend          │   Backend API              │
+│   React/Vite        │   Python FastAPI           │
+│   (Static Site)     │   (Serverless Function)    │
+│                     │                           │
+│   Free forever      │   100K invocations/month   │
+│   No cold starts    │   ~5s execution limit      │
+├─────────────────────┴───────────────────────────┤
+│              Supabase (Free)                     │
+│              Database + Storage                  │
+│              Already configured ✅               │
+└─────────────────────────────────────────────────┘
 ```
 
-**Total cost: $0/month**
+**Total cost: $0/month — Everything on Vercel + Supabase**
 
 ---
 
-## Part 1: Deploy Backend to Render
+## Part 1: Deploy Backend API to Vercel
 
 ### Step 1: Push Code to GitHub
 
-Make sure all the new files are committed and pushed:
-
 ```bash
 git add .
-git commit -m "Add deployment configs (Dockerfile, render.yaml, vercel.json)"
+git commit -m "Vercel-only deployment setup"
 git push origin main
 ```
 
-### Step 2: Create Render Account
-
-1. Go to [https://render.com](https://render.com)
-2. Click **"Get Started for Free"**
-3. Sign up with your GitHub account
-4. Authorize Render to access your repositories
-
-### Step 3: Create Backend Service
-
-1. In Render Dashboard, click **"New +"** → **"Web Service"**
-2. Connect your GitHub repository: `SUN7485/valyze`
-3. Configure the service:
-   - **Name:** `valyze-backend`
-   - **Runtime:** `Docker`
-   - **Region:** `Frankfurt (EU)` or closest to your users
-   - **Branch:** `main`
-   - **Dockerfile Path:** `./backend/Dockerfile`
-   - **Docker Context:** `./backend`
-   - **Plan:** `Free`
-
-### Step 4: Set Environment Variables
-
-In Render Dashboard → your service → **Environment** tab, add these:
-
-| Key | Value | Notes |
-|-----|-------|-------|
-| `SUPABASE_URL` | `https://dnhtowmzrluqtlivdqqj.supabase.co` | From your Supabase dashboard |
-| `SUPABASE_SERVICE_KEY` | `eyJhbG...` (your service role key) | ⚠️ Set as **Secret** |
-| `FRONTEND_URL` | `https://your-app.vercel.app` | Set AFTER deploying frontend |
-| `ENV` | `production` | |
-| `TESSERACT_CMD` | `/usr/bin/tesseract` | Linux path in Docker |
-| `GOTENBERG_URL` | *(leave empty)* | Uses Playwright fallback |
-| `LOG_LEVEL` | `INFO` | |
-
-> ⚠️ **IMPORTANT:** Set `SUPABASE_SERVICE_KEY` as a **Secret File** or **Secret Environment Variable** in Render, not as a plain env var.
-
-### Step 5: Deploy
-
-1. Click **"Create Web Service"**
-2. Render will start building your Docker image (takes 5-10 min first time)
-3. Wait for the build to complete
-4. Your backend will be available at: `https://valyze-backend.onrender.com`
-
-### Step 6: Verify Backend
-
-Visit: `https://valyze-backend.onrender.com/health`
-
-You should see:
-```json
-{"status": "ok", "version": "1.0.0"}
-```
-
----
-
-## Part 2: Deploy Frontend to Vercel
-
-### Step 1: Create Vercel Account
+### Step 2: Create Vercel Account
 
 1. Go to [https://vercel.com](https://vercel.com)
 2. Click **"Sign Up"**
 3. Sign up with your GitHub account
 
-### Step 2: Import Project
+### Step 3: Import Backend Project
 
 1. In Vercel Dashboard, click **"Add New..."** → **"Project"**
 2. Import your GitHub repository: `SUN7485/valyze`
-3. **IMPORTANT:** Configure the project:
+3. **IMPORTANT:** Configure:
+   - **Framework Preset:** `Other`
+   - **Root Directory:** `backend` ← **MUST SET THIS!**
+   - **Build Command:** *(leave empty or set to `pip install -r requirements.txt`)*
+   - **Output Directory:** *(leave empty)*
+
+### Step 4: Set Environment Variables
+
+Click **"Environment Variables"** and add:
+
+| Key | Value |
+|-----|-------|
+| `SUPABASE_URL` | `https://dnhtowmzrluqtlivdqqj.supabase.co` |
+| `SUPABASE_SERVICE_KEY` | `eyJhbG...` (your service role key) |
+| `FRONTEND_URL` | *(set AFTER deploying frontend)* |
+| `ENV` | `production` |
+
+### Step 5: Deploy
+
+1. Click **"Deploy"**
+2. Wait for build to complete (~1-2 minutes)
+3. Your backend API will be at: `https://valyze-backend.vercel.app`
+
+### Step 6: Verify
+
+Visit: `https://valyze-backend.vercel.app/health`
+
+Should return: `{"status": "ok", "version": "1.0.0", "pdf": "client-side"}`
+
+---
+
+## Part 2: Deploy Frontend to Vercel
+
+### Step 1: Create Second Vercel Project
+
+1. In Vercel Dashboard, click **"Add New..."** → **"Project"**
+2. Import the **same** GitHub repository: `SUN7485/valyze`
+3. **IMPORTANT:** Configure:
    - **Framework Preset:** `Vite`
    - **Root Directory:** `frontend` ← **MUST SET THIS!**
    - **Build Command:** `npm run build`
    - **Output Directory:** `dist`
 
-### Step 3: Set Environment Variables
+### Step 2: Set Environment Variables
 
-Click **"Environment Variables"** and add:
+| Key | Value |
+|-----|-------|
+| `VITE_SUPABASE_URL` | `https://dnhtowmzrluqtlivdqqj.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | `eyJhbG...` (your anon key) |
+| `VITE_API_BASE_URL` | `https://valyze-backend.vercel.app` |
 
-| Key | Value | Environments |
-|-----|-------|-------------|
-| `VITE_SUPABASE_URL` | `https://dnhtowmzrluqtlivdqqj.supabase.co` | Production, Preview |
-| `VITE_SUPABASE_ANON_KEY` | `eyJhbG...` (your anon key) | Production, Preview |
-| `VITE_API_BASE_URL` | `https://valyze-backend.onrender.com` | Production |
-| `VITE_API_BASE_URL` | `https://valyze-backend.onrender.com` | Preview |
+> ⚠️ **CRITICAL:** `VITE_API_BASE_URL` must have **NO trailing slash**
 
-> ⚠️ **CRITICAL:** `VITE_API_BASE_URL` must point to your Render backend URL with **NO trailing slash**.
-
-### Step 4: Deploy
+### Step 3: Deploy
 
 1. Click **"Deploy"**
-2. Vercel will build and deploy (usually 30-60 seconds)
-3. Your frontend will be available at: `https://your-app.vercel.app`
+2. Your frontend will be at: `https://valyze-frontend.vercel.app`
 
-### Step 5: Update Backend CORS
+### Step 4: Update Backend CORS
 
-1. Go back to Render Dashboard → your backend → **Environment**
-2. Update `FRONTEND_URL` to your Vercel URL:
+1. Go to your **backend** Vercel project → Settings → Environment Variables
+2. Update `FRONTEND_URL`:
    ```
-   FRONTEND_URL=https://your-app.vercel.app
+   FRONTEND_URL=https://valyze-frontend.vercel.app
    ```
-3. Save — Render will auto-redeploy
+3. Redeploy the backend
 
 ---
 
-## Part 3: Post-Deployment Checklist
+## Post-Deployment Checklist
 
 - [ ] Backend health check returns `{"status": "ok"}`
 - [ ] Frontend loads without errors
 - [ ] Can create a new report
 - [ ] Can edit report fields
-- [ ] Can generate PDF
+- [ ] Can generate PDF (client-side)
 - [ ] Can export to JSON/Excel/CSV
 - [ ] Reports save to Supabase (cloud)
 - [ ] No CORS errors in browser console
 
 ---
 
-## Understanding Render Free Tier Limitations
+## How PDF Generation Works (Client-Side)
 
-### Spin-Down Behavior
-- After **15 minutes** of no incoming requests, Render puts your service to "sleep"
-- The **first request** after sleep takes **~30 seconds** to respond (cold start)
-- Subsequent requests are fast
-- For 5-6 users, this is usually fine
+1. Frontend calls `POST /api/pdf/generate/{reportId}`
+2. Backend returns the rendered HTML
+3. Frontend uses `html2pdf.js` to convert HTML → PDF in the browser
+4. User downloads the PDF directly
 
-### How to Minimize Cold Start Impact
-1. **Tell users** the first click may take ~30 seconds
-2. The health check endpoint (`/health`) is very fast
-3. Once awake, the service stays awake as long as there's traffic
-
-### Monthly Limits
-- **750 hours/month** free (enough for 24/7 if usage is moderate)
-- If you exceed 750 hours, the service pauses until next month
-- For 5-6 users, you'll likely use 200-400 hours/month
-
----
-
-## Troubleshooting
-
-### Backend Won't Build
-- Check Render build logs for errors
-- Common issue: Large Docker image (first build takes 5-10 min)
-- If `playwright install` fails, the system chromium will be used instead
-
-### Frontend Shows "Network Error"
-- Check that `VITE_API_BASE_URL` is set correctly in Vercel
-- Make sure there's no trailing slash
-- Check that Render backend is running (not sleeping)
-- Check browser console for CORS errors
-
-### CORS Errors
-- Make sure `FRONTEND_URL` is set in Render env vars
-- The URL must match exactly (including `https://`)
-- After changing env vars, Render redeploys automatically (takes ~2 min)
-
-### PDF Generation Fails
-- Playwright uses system Chromium in Docker
-- If Playwright isn't installed, check Render build logs
-- The system falls back gracefully — reports still work, just no PDF
+**No Docker, no Gotenberg, no Playwright needed.**
 
 ---
 
 ## Updating the App
 
-### Code Changes
 ```bash
 git add .
 git commit -m "Your changes"
 git push origin main
 ```
 
-Both Render and Vercel auto-deploy on push to `main`:
-- **Vercel:** ~30 seconds
-- **Render:** ~3-5 minutes (Docker rebuild)
-
-### Environment Variable Changes
-- **Vercel:** Dashboard → Settings → Environment Variables → Edit → Redeploy
-- **Render:** Dashboard → Environment → Edit → Save (auto-redeploys)
+Both Vercel projects auto-deploy on push to `main` (~30 seconds each).
 
 ---
 
@@ -217,6 +153,25 @@ Both Render and Vercel auto-deploy on push to `main`:
 | Service | Plan | Monthly Cost |
 |---------|------|-------------|
 | Vercel (Frontend) | Free | $0 |
-| Render (Backend) | Free | $0 |
+| Vercel (Backend) | Free | $0 |
 | Supabase (Database) | Free | $0 |
 | **Total** | | **$0/month** |
+
+---
+
+## Troubleshooting
+
+### Backend Import Error
+- Check Vercel build logs
+- Ensure `requirements.txt` is in the `backend/` root
+- Ensure `api/index.py` exists in `backend/api/`
+
+### CORS Errors
+- Make sure `FRONTEND_URL` matches your Vercel frontend URL exactly
+- Include `https://` prefix
+- After changing env vars, redeploy the backend
+
+### PDF Generation Fails
+- PDF is generated client-side using html2pdf.js
+- Check browser console for errors
+- Ensure the backend returns HTML (test `/api/pdf/preview/{id}`)

@@ -33,7 +33,6 @@ from database.exceptions import DuplicateReportError
 load_dotenv()
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
-GOTENBERG_URL = os.getenv("GOTENBERG_URL", "http://localhost:3000")
 
 
 # ---------------------------------------------------------------------------
@@ -48,29 +47,13 @@ async def lifespan(app: FastAPI):
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     Path("outputs").mkdir(exist_ok=True)
 
-    # Check Gotenberg availability
-    try:
-        import aiohttp
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"{GOTENBERG_URL}/health", timeout=aiohttp.ClientTimeout(total=3)
-            ) as r:
-                if r.status == 200:
-                    print(f"[OK] Gotenberg PDF service online at {GOTENBERG_URL}")
-                else:
-                    print(f"[!] Gotenberg returned status {r.status}")
-    except Exception:
-        print(f"[!] Gotenberg not reachable at {GOTENBERG_URL}")
-        print("   Run: docker compose up -d gotenberg")
-
     print("\n" + "=" * 60)
     print("VALYZE CREDIT REPORT BACKEND READY")
     print("=" * 60)
     print("API:        http://localhost:8000")
     print("Docs:       http://localhost:8000/docs")
     print("Health:     http://localhost:8000/health")
-    print("Gotenberg: ", GOTENBERG_URL)
+    print("PDF:        Client-side (html2pdf.js)")
     print("=" * 60)
     print()
     yield
@@ -173,7 +156,7 @@ async def health_check():
     return {
         "status": "ok",
         "version": "1.0.0",
-        "gotenberg": GOTENBERG_URL,
+        "pdf": "client-side",
     }
 
 
@@ -197,31 +180,5 @@ async def readiness_check():
         }, 503
 
 
-@app.get("/api/pdf/service-status")
-async def pdf_service_status():
-    """Check Gotenberg PDF service status."""
-    try:
-        import aiohttp
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"{GOTENBERG_URL}/health",
-                timeout=aiohttp.ClientTimeout(total=5),
-            ) as r:
-                if r.status == 200:
-                    return {
-                        "status": "online",
-                        "service": "gotenberg",
-                        "url": GOTENBERG_URL,
-                    }
-    except Exception as e:
-        pass
-
-    return {
-        "status": "offline",
-        "service": "gotenberg",
-        "url": GOTENBERG_URL,
-        "fix": "Run: docker compose up -d gotenberg",
-    }
 
 
