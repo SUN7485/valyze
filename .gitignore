@@ -45,6 +45,24 @@ node_modules/
 # Uploaded files and outputs (local dev)
 uploads/
 outputs/
+*.pdf
 
 # Docker
 docker-compose.override.yml
+
+# Render
+.render/
+
+# Vercel
+.vercel/
+
+# Python distribution
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Misc
+*.swp
+*.swo
+*~

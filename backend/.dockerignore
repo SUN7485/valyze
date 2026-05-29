@@ -1,0 +1,63 @@
+# =============================================================================
+# Backend .dockerignore — Keep Docker image small
+# =============================================================================
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Environment (secrets are set via Render env vars)
+.env
+.env.*
+!.env.example
+
+# Dev/test files
+test*.py
+*_test.py
+*.log
+*.db
+*.sqlite
+check_*.py
+inspect_*.py
+verify_*.py
+quick_test.py
+report_check.json
+db_output.txt
+*.pdf
+real_test.pdf
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Docs
+*.md
+LICENSE
+
+# Uploads/outputs (created at runtime)
+uploads/
+outputs/
+
+# Node (shouldn't exist in backend, but just in case)
+node_modules/

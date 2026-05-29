@@ -1,0 +1,39 @@
+# =============================================================================
+# Render Blueprint — Valyze Credit Report System
+# =============================================================================
+# This file configures automatic deployment on Render.
+# Connect your GitHub repo to Render and it will detect this file.
+# =============================================================================
+
+services:
+  # -------------------------------------------------------------------------
+  # Backend API (FastAPI + Python)
+  # -------------------------------------------------------------------------
+  - type: web
+    name: valyze-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Supabase (set these in Render Dashboard → Environment)
+      - key: SUPABASE_URL
+        sync: false  # Set manually in dashboard
+      - key: SUPABASE_SERVICE_KEY
+        sync: false  # Set manually in dashboard (sensitive!)
+      # App Config
+      - key: ENV
+        value: production
+      - key: GOTENBERG_URL
+        value: ""  # Empty = use Playwright fallback for PDF
+      - key: UPLOAD_DIR
+        value: uploads
+      - key: TESSERACT_CMD
+        value: /usr/bin/tesseract
+      - key: LOG_LEVEL
+        value: INFO
+    # Free tier: spins down after 15 min of inactivity
+    # First request after spin-down takes ~30s to respond
+    autoDeploy: true
+    branch: main
