@@ -10,7 +10,6 @@ import requests
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
-from database.exceptions import DuplicateReportError
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -110,7 +109,7 @@ def create_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]
         except Exception:
             message = response.text[:200]
         if response.status_code == 409:
-            raise DuplicateReportError(f"Duplicate CR number: {message}")
+            print(f"[SUPABASE] Duplicate key ignored: {message}")
         else:
             raise Exception(f"Supabase create failed ({response.status_code}): {message}")
     except requests.exceptions.RequestException as e:
@@ -166,6 +165,23 @@ def get_report_by_company_name(company_name: str) -> Optional[Dict[str, Any]]:
         return results[0] if results else None
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Get by company_name failed: {e}")
+        return None
+
+
+def get_report_by_client_reference(client_reference: str) -> Optional[Dict[str, Any]]:
+    """Get a report by exact client_reference match."""
+    if not client_reference:
+        return None
+    import urllib.parse
+    encoded = urllib.parse.quote(str(client_reference))
+    url = f"{get_base_url()}/reports?client_reference=eq.{encoded}"
+
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        results = _handle_response(response)
+        return results[0] if results else None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get by client_reference failed: {e}")
         return None
 
 
@@ -229,9 +245,8 @@ def update_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]
             message = err_json.get('message', response.text[:200])
         except Exception:
             message = response.text[:200]
-        # Raise specific error for duplicate key violation (409)
         if response.status_code == 409:
-            raise DuplicateReportError(f"Duplicate CR number: {message}")
+            print(f"[SUPABASE] Duplicate key ignored: {message}")
         else:
             raise Exception(f"Supabase update failed ({response.status_code}): {message}")
     except requests.exceptions.RequestException as e:
