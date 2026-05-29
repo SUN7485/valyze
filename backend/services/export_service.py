@@ -18,8 +18,12 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from xml.etree.ElementTree import Element, SubElement, ElementTree, tostring
 
 
-OUTPUT_DIR = Path("outputs")
-OUTPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR = Path("/tmp/outputs")
+
+
+def _ensure_output_dir():
+    """Create output directory if it doesn't exist (lazy init for Vercel serverless)."""
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _get_company_name(report: Dict[str, Any]) -> str:
@@ -52,6 +56,7 @@ def _get_field_value(fields: Dict, key: str) -> Any:
 
 def _export_json(report: Dict[str, Any], report_id: str) -> Path:
     """Export report as JSON."""
+    _ensure_output_dir()
     output_path = OUTPUT_DIR / f"{report_id}.json"
 
     # Convert report to clean JSON structure
@@ -90,6 +95,7 @@ def _export_json(report: Dict[str, Any], report_id: str) -> Path:
 
 def _export_xml(report: Dict[str, Any], report_id: str) -> Path:
     """Export report as XML."""
+    _ensure_output_dir()
     output_path = OUTPUT_DIR / f"{report_id}.xml"
 
     root = Element("Report")
@@ -155,6 +161,7 @@ def _export_xml(report: Dict[str, Any], report_id: str) -> Path:
 
 def _export_excel(report: Dict[str, Any], report_id: str) -> Path:
     """Export report as Excel workbook."""
+    _ensure_output_dir()
     output_path = OUTPUT_DIR / f"{report_id}.xlsx"
 
     wb = Workbook()
@@ -342,6 +349,7 @@ def _export_excel(report: Dict[str, Any], report_id: str) -> Path:
 
 def _export_csv(report: Dict[str, Any], report_id: str) -> Path:
     """Export report as CSV (main fields only)."""
+    _ensure_output_dir()
     output_path = OUTPUT_DIR / f"{report_id}.csv"
 
     fields = report.get("fields", {})
@@ -382,6 +390,7 @@ def _export_csv(report: Dict[str, Any], report_id: str) -> Path:
 
 def _export_word(report: Dict[str, Any], report_id: str) -> Path:
     """Export report as Word document."""
+    _ensure_output_dir()
     try:
         from docx import Document
         from docx.shared import Inches, Pt
