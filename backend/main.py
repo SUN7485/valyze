@@ -33,6 +33,7 @@ from database.exceptions import DuplicateReportError
 load_dotenv()
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
+IS_VERCEL = os.getenv("VERCEL") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -44,18 +45,12 @@ UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 async def lifespan(app: FastAPI):
     # -- Startup --------------------------------------------------------------
     await init_db()
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    Path("outputs").mkdir(exist_ok=True)
 
-    print("\n" + "=" * 60)
-    print("VALYZE CREDIT REPORT BACKEND READY")
-    print("=" * 60)
-    print("API:        http://localhost:8000")
-    print("Docs:       http://localhost:8000/docs")
-    print("Health:     http://localhost:8000/health")
-    print("PDF:        Client-side (html2pdf.js)")
-    print("=" * 60)
-    print()
+    # Only create directories in non-serverless environments
+    if not IS_VERCEL:
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        Path("outputs").mkdir(exist_ok=True)
+
     yield
     # -- Shutdown ------------------------------------------------------------- 
 
@@ -119,12 +114,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -- Static files -------------------------------------------------------------
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-Path("outputs").mkdir(exist_ok=True)
+# -- Static files (skip in Vercel serverless - no persistent filesystem) -----
 
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
-app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
+if not IS_VERCEL:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    Path("outputs").mkdir(exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+    app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
 
 # -- Routers ------------------------------------------------------------------
 # SIMPLIFIED: No AI extraction, no calculations
