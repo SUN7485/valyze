@@ -152,33 +152,36 @@ export default function EditorPage() {
         setPdfSuccess(false)
 
         if (!hasData) {
-            setPdfError(
-                'No company data found. ' +
-                'Please use Easy Way Import first.'
-            )
+            setPdfError('No company data found. Please use Easy Way Import first.')
             return
         }
 
         try {
             setGeneratingPDF(true)
 
+            // Fetch rendered HTML from backend
             const res = await reportAPI.generatePDF(reportId)
+            const html = res.data?.html
 
-            if (res.data?.success) {
-                setPdfSuccess(true)
-
-                setTimeout(() => {
-                    const downloadUrl = reportAPI.getDownloadURL(reportId)
-                    const link        = document.createElement('a')
-                    link.href         = downloadUrl
-                    link.download     = `CreditReport_${companyName.replace(/\s+/g, '_').slice(0,30)}.pdf`
-                    document.body.appendChild(link)
-                    link.click()
-                    document.body.removeChild(link)
-                    setPdfSuccess(false)
-                }, 500)
+            if (html) {
+                // Open HTML in a new window and trigger browser Print → Save as PDF
+                const win = window.open('', '_blank')
+                if (win) {
+                    win.document.write(html)
+                    win.document.close()
+                    win.focus()
+                    // Give the window time to render, then trigger print dialog
+                    setTimeout(() => {
+                        win.print()
+                        setPdfSuccess(true)
+                        setTimeout(() => setPdfSuccess(false), 3000)
+                    }, 1000)
+                } else {
+                    setPdfError('Pop-up blocked. Please allow pop-ups for this site.')
+                }
+            } else {
+                setPdfError('Failed to generate PDF — no HTML returned.')
             }
-
         } catch (err) {
             const msg = err.message || 'PDF generation failed'
             setPdfError(msg)
