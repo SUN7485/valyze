@@ -8,7 +8,7 @@ function getBaseUrl() {
   }
   // Auto-detect: if running on Vercel (not localhost), use the deployed backend
   if (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')) {
-    return 'https://valyze-backend.vercel.app'
+    return 'https://valyze-backend-sun7485s-projects.vercel.app'
   }
   // Local development fallback
   return 'http://localhost:8000'
