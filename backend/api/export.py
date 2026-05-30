@@ -1,54 +1,71 @@
 """
 Export API - Multi-format export endpoints.
-Supports: JSON, XML, Excel (XLSX), CSV, Word (DOCX)
+All generation is done inline to avoid import failures in Vercel serverless.
 """
 
 from __future__ import annotations
 
+import csv
+import io
+import json as json_mod
+import base64
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
-
-import json as json_mod
+from xml.etree.ElementTree import Element, SubElement, tostring
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 
-from services import export_service
 from database.crud import get_report
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
-# Safe directory init for Vercel serverless (read-only filesystem)
-OUTPUT_DIR = Path("/tmp/outputs")
-try:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-except OSError:
-    pass  # Vercel serverless - will create on first request
 
-
-def _get_company_name_from_report(report) -> str:
-    """Extract company name from report."""
+def _get_fields(report) -> dict:
+    """Extract fields dict from report (handles both model and dict)."""
     fields = report.fields if hasattr(report, "fields") else report.get("fields", {})
-    if hasattr(fields, "get"):
-        company_name = fields.get("company_name")
-        if company_name and hasattr(company_name, "value"):
-            return str(company_name.value) or "Report"
-        if isinstance(company_name, dict):
-            return str(company_name.get("value", "")) or "Report"
-    return "Report"
+    if hasattr(fields, "items"):
+        return fields
+    return {}
+
+
+def _fv(fields: dict, key: str, default="") -> str:
+    """Get a field value as string."""
+    f = fields.get(key)
+    if f is None:
+        return default
+    if hasattr(f, "value"):
+        v = f.value
+    elif isinstance(f, dict):
+        v = f.get("value")
+    else:
+        v = f
+    if v is None:
+        return default
+    return str(v)
+
+
+def _safe(val) -> str:
+    if val is None:
+        return ""
+    return str(val)
 
 
 async def _get_report_or_404(report_id: str):
-    """Get report or raise 404."""
     report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(404, f"Report {report_id} not found")
     return report
 
 
+def _company_name(report) -> str:
+    fields = _get_fields(report)
+    name = _fv(fields, "company_name") or _fv(fields, "legal_name") or "Report"
+    return name
+
+
 # ---------------------------------------------------------------------------
-# Export Endpoints
+# Export Endpoints — all return content directly
 # ---------------------------------------------------------------------------
 
 
@@ -56,7 +73,8 @@ async def _get_report_or_404(report_id: str):
 async def export_report_json(report_id: str):
     """Export report as JSON file download."""
     report = await _get_report_or_404(report_id)
-    content = json_mod.dumps(report.model_dump(), indent=2, default=str)
+    data = report.model_dump() if hasattr(report, "model_dump") else report
+    content = json_mod.dumps(data, indent=2, default=str, ensure_ascii=False)
     return Response(
         content=content,
         media_type="application/json",
@@ -68,65 +86,138 @@ async def export_report_json(report_id: str):
 async def export_report_xml(report_id: str):
     """Export report as XML file download."""
     report = await _get_report_or_404(report_id)
-    xml_content = await export_service.generate_xml(report)
+    fields = _get_fields(report)
+
+    root = Element("CreditReport")
+    for key in sorted(fields.keys()):
+        val = _fv(fields, key)
+        if val:
+            SubElement(root, key).text = val
+
+    xml_bytes = tostring(root, encoding="unicode", method="xml")
+    xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_bytes
+
     return Response(
-        content=xml_content,
+        content=xml_str,
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="{report_id}.xml"'},
     )
 
 
+@router.post("/csv/{report_id}")
+async def export_report_csv(report_id: str):
+    """Export report as CSV file download."""
+    report = await _get_report_or_404(report_id)
+    fields = _get_fields(report)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Field", "Value"])
+    for key in sorted(fields.keys()):
+        writer.writerow([key, _fv(fields, key)])
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{_company_name(report)}.csv"'},
+    )
+
+
 @router.post("/excel/{report_id}")
 async def export_report_excel(report_id: str):
-    """Export report as Excel — returns base64-encoded content."""
+    """Export report as Excel — returns base64-encoded XLSX."""
     report = await _get_report_or_404(report_id)
+    fields = _get_fields(report)
+
     try:
-        filepath = await export_service.generate_excel(report, OUTPUT_DIR)
-        import base64
-        data = filepath.read_bytes()
-        b64 = base64.b64encode(data).decode()
-        return {"success": True, "base64": b64, "filename": f"{_get_company_name_from_report(report)}.xlsx"}
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Credit Report"
+
+        # Header style
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+
+        ws.cell(row=1, column=1, value="Field").font = header_font
+        ws.cell(row=1, column=1).fill = header_fill
+        ws.cell(row=1, column=2, value="Value").font = header_font
+        ws.cell(row=1, column=2).fill = header_fill
+
+        for i, key in enumerate(sorted(fields.keys()), start=2):
+            ws.cell(row=i, column=1, value=key)
+            ws.cell(row=i, column=2, value=_fv(fields, key))
+
+        ws.column_dimensions["A"].width = 35
+        ws.column_dimensions["B"].width = 60
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        b64 = base64.b64encode(buf.read()).decode()
+
+        return {"success": True, "base64": b64, "filename": f"{_company_name(report)}.xlsx"}
+    except ImportError:
+        raise HTTPException(500, "Excel export requires openpyxl — not installed")
     except Exception as e:
         raise HTTPException(500, f"Excel export failed: {str(e)}")
 
 
-@router.post("/csv/{report_id}")
-async def export_report_csv(report_id: str):
-    """Export report as CSV — returns content directly."""
-    report = await _get_report_or_404(report_id)
-    try:
-        filepath = await export_service.generate_csv(report, OUTPUT_DIR)
-        content = filepath.read_text(encoding="utf-8")
-        return Response(
-            content=content,
-            media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="{_get_company_name_from_report(report)}.csv"'},
-        )
-    except Exception as e:
-        raise HTTPException(500, f"CSV export failed: {str(e)}")
-
-
 @router.post("/word/{report_id}")
 async def export_report_word(report_id: str):
-    """Export report as Word — returns base64-encoded content."""
+    """Export report as Word — returns base64-encoded DOCX."""
     report = await _get_report_or_404(report_id)
+    fields = _get_fields(report)
+
     try:
-        filepath = await export_service.generate_word(report, OUTPUT_DIR)
-        import base64
-        data = filepath.read_bytes()
-        b64 = base64.b64encode(data).decode()
-        return {"success": True, "base64": b64, "filename": f"{_get_company_name_from_report(report)}.docx"}
+        from docx import Document
+        from docx.shared import Inches, Pt
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        doc = Document()
+        doc.add_heading(_company_name(report), level=0)
+        doc.add_heading("Credit Report", level=1)
+
+        table = doc.add_table(rows=1, cols=2)
+        table.style = "Table Grid"
+        hdr = table.rows[0].cells
+        hdr[0].text = "Field"
+        hdr[1].text = "Value"
+
+        for key in sorted(fields.keys()):
+            row = table.add_row().cells
+            row[0].text = key
+            row[1].text = _fv(fields, key)
+
+        buf = io.BytesIO()
+        doc.save(buf)
+        buf.seek(0)
+        b64 = base64.b64encode(buf.read()).decode()
+
+        return {"success": True, "base64": b64, "filename": f"{_company_name(report)}.docx"}
+    except ImportError:
+        raise HTTPException(500, "Word export requires python-docx — not installed")
     except Exception as e:
         raise HTTPException(500, f"Word export failed: {str(e)}")
 
 
+# ---------------------------------------------------------------------------
+# Legacy download endpoint (kept for backward compatibility)
+# ---------------------------------------------------------------------------
+
+OUTPUT_DIR = Path("/tmp/outputs")
+
+
 @router.get("/download/{report_id}/{format}")
 async def download_export(report_id: str, format: str):
-    """Download generated export file."""
+    """Download previously generated export file."""
     filename = f"{report_id}.{format}"
     file_path = OUTPUT_DIR / filename
     if not file_path.exists():
         raise HTTPException(404, "Export file not found")
+    from fastapi.responses import FileResponse
     return FileResponse(
         path=str(file_path),
         filename=filename,
@@ -137,15 +228,10 @@ async def download_export(report_id: str, format: str):
 @router.get("/status/{report_id}")
 async def export_status(report_id: str):
     """Check export generation status."""
-    formats = ["json", "xml", "xlsx", "csv", "docx"]
-    available = []
-    for fmt in formats:
-        if (OUTPUT_DIR / f"{report_id}.{fmt}").exists():
-            available.append(fmt)
     return {
         "report_id": report_id,
-        "export_formats": available,
-        "total": len(available),
+        "engine": "inline",
+        "message": "Exports are generated on-demand",
     }
 
 
@@ -156,49 +242,35 @@ async def export_status(report_id: str):
 
 @router.get("/backup/all")
 async def export_all_reports_backup():
-    """Export all reports as a single JSON backup file."""
+    """Export all reports as JSON."""
     from database.crud import get_all_reports
-
     reports = await get_all_reports(None)
     if not reports:
         return {"message": "No reports to backup", "count": 0}
-
-    backup_data = {
+    return {
         "version": "1.0.0",
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "total_reports": len(reports),
         "reports": [r.model_dump() if hasattr(r, "model_dump") else r for r in reports],
     }
-
-    return backup_data
 
 
 @router.get("/backup/download/all")
 async def download_all_reports_backup():
-    """Download all reports as a downloadable JSON backup file."""
+    """Download all reports as a downloadable JSON backup."""
     from database.crud import get_all_reports
-
     reports = await get_all_reports(None)
     if not reports:
         raise HTTPException(404, "No reports to backup")
-
     backup_data = {
         "version": "1.0.0",
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "total_reports": len(reports),
         "reports": [r.model_dump() if hasattr(r, "model_dump") else r for r in reports],
     }
-
-    import json
-
-    filename = (
-        f"valyze_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
-    )
-    file_path = OUTPUT_DIR / filename
-    file_path.write_text(json.dumps(backup_data, indent=2, default=str))
-
-    return FileResponse(
-        path=str(file_path),
-        filename=filename,
+    content = json_mod.dumps(backup_data, indent=2, default=str)
+    return Response(
+        content=content,
         media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="valyze_backup.json"'},
     )
