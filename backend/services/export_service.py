@@ -20,10 +20,18 @@ from xml.etree.ElementTree import Element, SubElement, ElementTree, tostring
 
 OUTPUT_DIR = Path("/tmp/outputs")
 
+try:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass  # Vercel serverless - directory will be created on first request
+
 
 def _ensure_output_dir():
     """Create output directory if it doesn't exist (lazy init for Vercel serverless)."""
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
 
 
 def _get_company_name(report: Dict[str, Any]) -> str:

@@ -12,13 +12,17 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-
 from services import export_service
 from database.crud import get_report
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
+# Safe directory init for Vercel serverless (read-only filesystem)
 OUTPUT_DIR = Path("/tmp/outputs")
+try:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass  # Vercel serverless - will create on first request
 
 
 def _get_company_name_from_report(report) -> str:
@@ -111,7 +115,6 @@ async def download_export(report_id: str, format: str):
 @router.get("/status/{report_id}")
 async def export_status(report_id: str):
     """Check export generation status."""
-    # Check if any export files exist
     formats = ["json", "xml", "xlsx", "csv", "docx"]
     available = []
     for fmt in formats:
@@ -125,7 +128,7 @@ async def export_status(report_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Backup Endpoints (Phase 6)
+# Backup Endpoints
 # ---------------------------------------------------------------------------
 
 
