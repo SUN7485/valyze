@@ -1,8 +1,10 @@
 import React, { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
+import { AuthProvider, useAuth } from './context/AuthContext'
 
 // Lazy load pages
+const LoginPage = lazy(() => import('./pages/LoginPage'))
 const HomePage = lazy(() => import('./pages/HomePage'))
 const UploadPage = lazy(() => import('./pages/UploadPage'))
 const ProcessingPage = lazy(() => import('./pages/ProcessingPage'))
@@ -20,21 +22,43 @@ function PageLoader() {
   )
 }
 
+// Protected route wrapper — redirects to /login if not authenticated
+function ProtectedRoute({ children }) {
+  const { user, loading } = useAuth()
+  if (loading) return <PageLoader />
+  if (!user) return <Navigate to="/login" replace />
+  return children
+}
+
+function AppRoutes() {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        {/* Public routes */}
+        <Route path="/login" element={<LoginPage />} />
+
+        {/* Protected routes (require login) */}
+        <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
+        <Route path="/reports" element={<ProtectedRoute><ReportsPage /></ProtectedRoute>} />
+        <Route path="/upload" element={<ProtectedRoute><UploadPage /></ProtectedRoute>} />
+        <Route path="/processing/:reportId" element={<ProtectedRoute><ProcessingPage /></ProtectedRoute>} />
+        <Route path="/editor/:reportId" element={<ProtectedRoute><EditorPage /></ProtectedRoute>} />
+        <Route path="/generating/:reportId" element={<ProtectedRoute><GeneratingPage /></ProtectedRoute>} />
+        <Route path="/done/:reportId" element={<ProtectedRoute><DonePage /></ProtectedRoute>} />
+
+        {/* Catch-all */}
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
+    </Suspense>
+  )
+}
+
 export default function App() {
   return (
-    <Layout>
-      <Suspense fallback={<PageLoader />}>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/upload" element={<UploadPage />} />
-          <Route path="/processing/:reportId" element={<ProcessingPage />} />
-          <Route path="/editor/:reportId" element={<EditorPage />} />
-          <Route path="/generating/:reportId" element={<GeneratingPage />} />
-          <Route path="/done/:reportId" element={<DonePage />} />
-          <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
-      </Suspense>
-    </Layout>
+    <AuthProvider>
+      <Layout>
+        <AppRoutes />
+      </Layout>
+    </AuthProvider>
   )
 }

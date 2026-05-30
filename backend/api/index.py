@@ -27,6 +27,8 @@ CORS_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:3001",
     "https://valyze-front.vercel.app",
+    "https://valyze.vercel.app",
+    "https://valyze-credit.vercel.app",
 ]
 if FRONTEND_URL:
     CORS_ORIGINS.append(FRONTEND_URL)
@@ -53,10 +55,9 @@ async def ready():
     except Exception as e:
         return {"status": "error", "supabase": "unavailable", "error": str(e)}, 503
 
-# Register all API routes (lazy imports that won't trigger filesystem writes)
+# Register all API routes
 def _register_all_routers():
-    # These imports are safe because api/export.py no longer calls mkdir at module level
-    # (It was changed to use /tmp/outputs without any mkdir)
+    from api.auth import router as auth_router
     from api.upload import router as upload_router
     from api.report import router as report_router
     from api.pdf import router as pdf_router
@@ -64,11 +65,16 @@ def _register_all_routers():
     from api.search import router as search_router
     from api.cloud import router as cloud_router
 
-    app.include_router(upload_router)
-    app.include_router(report_router)
-    app.include_router(pdf_router)
-    app.include_router(export_router)
-    app.include_router(search_router)
-    app.include_router(cloud_router)
+    # Auth router — /api/auth/* is public (login)
+    app.include_router(auth_router)
+
+    # Protected routers — require valid JWT
+    from api.auth import get_current_user
+    from fastapi import Depends
+
+    for r in [upload_router, report_router, pdf_router,
+              export_router, search_router, cloud_router]:
+        r.dependencies.append(Depends(get_current_user))
+        app.include_router(r)
 
 _register_all_routers()

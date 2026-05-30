@@ -25,8 +25,12 @@ const api = axios.create({
     }
 })
 
-// Request interceptor for logging
+// Request interceptor — attach JWT token + logging
 api.interceptors.request.use(config => {
+    const token = localStorage.getItem('valyze_token')
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+    }
     console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`)
     return config
 })
@@ -42,6 +46,21 @@ api.interceptors.response.use(
         return Promise.reject(new Error(msg))
     }
 )
+
+// ---------------------------------------------------------------------------
+// Auth API
+// ---------------------------------------------------------------------------
+
+export const authAPI = {
+    login: (email, password) =>
+        api.post('/auth/login', { email, password }),
+
+    me: () =>
+        api.get('/auth/me'),
+
+    verify: () =>
+        api.post('/auth/verify'),
+}
 
 export const reportAPI = {
 
