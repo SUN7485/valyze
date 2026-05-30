@@ -78,38 +78,46 @@ async def export_report_xml(report_id: str):
 
 @router.post("/excel/{report_id}")
 async def export_report_excel(report_id: str):
-    """Export report as Excel file download."""
+    """Export report as Excel — returns base64-encoded content."""
     report = await _get_report_or_404(report_id)
-    filepath = await export_service.generate_excel(report, OUTPUT_DIR)
-    return FileResponse(
-        path=str(filepath),
-        filename=f"{_get_company_name_from_report(report)}.xlsx",
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    try:
+        filepath = await export_service.generate_excel(report, OUTPUT_DIR)
+        import base64
+        data = filepath.read_bytes()
+        b64 = base64.b64encode(data).decode()
+        return {"success": True, "base64": b64, "filename": f"{_get_company_name_from_report(report)}.xlsx"}
+    except Exception as e:
+        raise HTTPException(500, f"Excel export failed: {str(e)}")
 
 
 @router.post("/csv/{report_id}")
 async def export_report_csv(report_id: str):
-    """Export report as CSV file download."""
+    """Export report as CSV — returns content directly."""
     report = await _get_report_or_404(report_id)
-    filepath = await export_service.generate_csv(report, OUTPUT_DIR)
-    return FileResponse(
-        path=str(filepath),
-        filename=f"{_get_company_name_from_report(report)}.csv",
-        media_type="text/csv",
-    )
+    try:
+        filepath = await export_service.generate_csv(report, OUTPUT_DIR)
+        content = filepath.read_text(encoding="utf-8")
+        return Response(
+            content=content,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{_get_company_name_from_report(report)}.csv"'},
+        )
+    except Exception as e:
+        raise HTTPException(500, f"CSV export failed: {str(e)}")
 
 
 @router.post("/word/{report_id}")
 async def export_report_word(report_id: str):
-    """Export report as Word file download."""
+    """Export report as Word — returns base64-encoded content."""
     report = await _get_report_or_404(report_id)
-    filepath = await export_service.generate_word(report, OUTPUT_DIR)
-    return FileResponse(
-        path=str(filepath),
-        filename=f"{_get_company_name_from_report(report)}.docx",
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    )
+    try:
+        filepath = await export_service.generate_word(report, OUTPUT_DIR)
+        import base64
+        data = filepath.read_bytes()
+        b64 = base64.b64encode(data).decode()
+        return {"success": True, "base64": b64, "filename": f"{_get_company_name_from_report(report)}.docx"}
+    except Exception as e:
+        raise HTTPException(500, f"Word export failed: {str(e)}")
 
 
 @router.get("/download/{report_id}/{format}")

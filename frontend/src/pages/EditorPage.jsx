@@ -211,13 +211,30 @@ export default function EditorPage() {
                 docx: reportAPI.exportWord,
             }[format]
 
-            // Request as blob — backend returns the file directly
-            const res = await exportAPI(reportId, { responseType: 'blob' })
-            const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+            // Excel/Word return JSON with base64; JSON/XML/CSV return file content
+            const res = await exportAPI(reportId, {
+                responseType: (format === 'xlsx' || format === 'docx') ? 'json' : 'blob'
+            })
+
+            let blob, filename
+            if (res.data?.base64) {
+                // base64 response (Excel / Word)
+                const binary = atob(res.data.base64)
+                const bytes = new Uint8Array(binary.length)
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+                const mimeMap = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }
+                blob = new Blob([bytes], { type: mimeMap[format] || 'application/octet-stream' })
+                filename = res.data.filename || `CreditReport.${format}`
+            } else {
+                // Direct file response (JSON / XML / CSV)
+                blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+                filename = `CreditReport_${companyName.replace(/\s+/g, '_').slice(0,30)}.${format}`
+            }
+
             const url = window.URL.createObjectURL(blob)
             const link = document.createElement('a')
             link.href = url
-            link.download = `CreditReport_${companyName.replace(/\s+/g, '_').slice(0,30)}.${format === 'xlsx' ? 'xlsx' : format}`
+            link.download = filename
             document.body.appendChild(link)
             link.click()
             document.body.removeChild(link)
