@@ -18,8 +18,7 @@ from database.crud import get_report
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
-OUTPUT_DIR = Path("outputs")
-OUTPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR = Path("/tmp/outputs")
 
 
 def _get_company_name_from_report(report) -> str:
