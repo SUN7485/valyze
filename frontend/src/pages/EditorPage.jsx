@@ -211,22 +211,19 @@ export default function EditorPage() {
                 docx: reportAPI.exportWord,
             }[format]
 
-            const res = await exportAPI(reportId)
-
-            if (res.data?.success) {
-                setExportSuccess(prev => ({ ...prev, [format]: true }))
-
-                setTimeout(() => {
-                    const downloadUrl = reportAPI.getExportDownloadURL(reportId, format)
-                    const link = document.createElement('a')
-                    link.href = downloadUrl
-                    link.download = `CreditReport_${companyName.replace(/\s+/g, '_').slice(0,30)}.${format}`
-                    document.body.appendChild(link)
-                    link.click()
-                    document.body.removeChild(link)
-                    setExportSuccess(prev => ({ ...prev, [format]: false }))
-                }, 500)
-            }
+            // Request as blob — backend returns the file directly
+            const res = await exportAPI(reportId, { responseType: 'blob' })
+            const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+            const url = window.URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = url
+            link.download = `CreditReport_${companyName.replace(/\s+/g, '_').slice(0,30)}.${format === 'xlsx' ? 'xlsx' : format}`
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            window.URL.revokeObjectURL(url)
+            setExportSuccess(prev => ({ ...prev, [format]: true }))
+            setTimeout(() => setExportSuccess(prev => ({ ...prev, [format]: false })), 2000)
         } catch (err) {
             const msg = err.message || `${format.toUpperCase()} export failed`
             setExportError(prev => ({ ...prev, [format]: msg }))

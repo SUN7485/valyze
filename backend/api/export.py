@@ -9,8 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import json as json_mod
+
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from services import export_service
 from database.crud import get_report
@@ -52,50 +54,62 @@ async def _get_report_or_404(report_id: str):
 
 @router.post("/json/{report_id}")
 async def export_report_json(report_id: str):
-    """Export report as JSON."""
+    """Export report as JSON file download."""
     report = await _get_report_or_404(report_id)
-    return {"report": report.model_dump()}
+    content = json_mod.dumps(report.model_dump(), indent=2, default=str)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{report_id}.json"'},
+    )
 
 
 @router.post("/xml/{report_id}")
 async def export_report_xml(report_id: str):
-    """Export report as XML."""
+    """Export report as XML file download."""
     report = await _get_report_or_404(report_id)
     xml_content = await export_service.generate_xml(report)
-    return {"xml": xml_content}
+    return Response(
+        content=xml_content,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{report_id}.xml"'},
+    )
 
 
 @router.post("/excel/{report_id}")
 async def export_report_excel(report_id: str):
-    """Export report as Excel."""
+    """Export report as Excel file download."""
     report = await _get_report_or_404(report_id)
     filepath = await export_service.generate_excel(report, OUTPUT_DIR)
-    return {
-        "filepath": filepath,
-        "download_url": f"/api/export/download/{report_id}/excel",
-    }
+    return FileResponse(
+        path=str(filepath),
+        filename=f"{_get_company_name_from_report(report)}.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @router.post("/csv/{report_id}")
 async def export_report_csv(report_id: str):
-    """Export report as CSV."""
+    """Export report as CSV file download."""
     report = await _get_report_or_404(report_id)
     filepath = await export_service.generate_csv(report, OUTPUT_DIR)
-    return {
-        "filepath": filepath,
-        "download_url": f"/api/export/download/{report_id}/csv",
-    }
+    return FileResponse(
+        path=str(filepath),
+        filename=f"{_get_company_name_from_report(report)}.csv",
+        media_type="text/csv",
+    )
 
 
 @router.post("/word/{report_id}")
 async def export_report_word(report_id: str):
-    """Export report as Word."""
+    """Export report as Word file download."""
     report = await _get_report_or_404(report_id)
     filepath = await export_service.generate_word(report, OUTPUT_DIR)
-    return {
-        "filepath": filepath,
-        "download_url": f"/api/export/download/{report_id}/word",
-    }
+    return FileResponse(
+        path=str(filepath),
+        filename=f"{_get_company_name_from_report(report)}.docx",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
 
 
 @router.get("/download/{report_id}/{format}")

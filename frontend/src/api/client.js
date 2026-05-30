@@ -144,20 +144,20 @@ export const reportAPI = {
 
     // -- Export -----------------------------------
 
-    exportJSON: (reportId) =>
-        api.post(`/export/json/${reportId}`),
+    exportJSON: (reportId, opts) =>
+        api.post(`/export/json/${reportId}`, null, opts),
 
-    exportXML: (reportId) =>
-        api.post(`/export/xml/${reportId}`),
+    exportXML: (reportId, opts) =>
+        api.post(`/export/xml/${reportId}`, null, opts),
 
-    exportExcel: (reportId) =>
-        api.post(`/export/excel/${reportId}`),
+    exportExcel: (reportId, opts) =>
+        api.post(`/export/excel/${reportId}`, null, opts),
 
-    exportCSV: (reportId) =>
-        api.post(`/export/csv/${reportId}`),
+    exportCSV: (reportId, opts) =>
+        api.post(`/export/csv/${reportId}`, null, opts),
 
-    exportWord: (reportId) =>
-        api.post(`/export/word/${reportId}`),
+    exportWord: (reportId, opts) =>
+        api.post(`/export/word/${reportId}`, null, opts),
 
     getExportStatus: (reportId) =>
         api.get(`/export/status/${reportId}`),
