@@ -19,13 +19,16 @@ from fastapi.middleware.cors import CORSMiddleware
 # Create a clean FastAPI app (don't import main.py which triggers filesystem errors)
 app = FastAPI(title="ValyzeCredit", version="1.0.0")
 
-# CORS - allow all in serverless (frontend origin set in env)
+# CORS — allow production + local origins
 FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 CORS_ORIGINS = [
     "http://localhost:1573",
     "http://localhost:5173",
     "http://localhost:3000",
     "http://localhost:3001",
+    "https://valyze-frontend.vercel.app",
+    "https://valyze.vercel.app",
+    "https://valyze-credit.vercel.app",
 ]
 if FRONTEND_URL:
     CORS_ORIGINS.append(FRONTEND_URL)

@@ -1,7 +1,20 @@
 import axios from 'axios'
 
-// Determine API base URL - use environment variable or default
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api'
+// Determine API base URL - use env var, or auto-detect from window location
+function getBaseUrl() {
+  // Explicit env var takes priority
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL
+  }
+  // Auto-detect: if running on Vercel (not localhost), use the deployed backend
+  if (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')) {
+    return 'https://valyze-backend.vercel.app'
+  }
+  // Local development fallback
+  return 'http://localhost:8000'
+}
+
+const API_BASE = getBaseUrl() + '/api'
 
 // Create axios instance with proper configuration
 const api = axios.create({
