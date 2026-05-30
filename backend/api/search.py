@@ -298,7 +298,7 @@ async def get_output_reports(
 ):
     """Get reports from output folder (generated PDF/Export files)."""
     try:
-        output_dir = Path("outputs")
+        output_dir = Path("/tmp/outputs")
 
         if not output_dir.exists():
             return {"total": 0, "reports": []}
@@ -372,7 +372,7 @@ async def get_output_reports(
 async def delete_output_report(report_id: str):
     """Delete all output files for a report."""
     try:
-        output_dir = Path("outputs")
+        output_dir = Path("/tmp/outputs")
 
         if not output_dir.exists():
             raise HTTPException(404, "Output folder not found")

@@ -114,8 +114,9 @@ class PDFGenerator:
         # Use absolute path based on this file's location
         base_dir = Path(__file__).resolve().parent
         self.template_path = base_dir / "templates" / "template.html"
-        self.output_dir = base_dir / "outputs"
-        self.output_dir.mkdir(exist_ok=True)
+        # Use /tmp for writable directory in Vercel serverless
+        self.output_dir = Path("/tmp/outputs")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         print(f"[PDF] Template path: {self.template_path}")
         print(f"[PDF] Template exists: {self.template_path.exists()}")
 
