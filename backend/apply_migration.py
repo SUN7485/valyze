@@ -36,7 +36,7 @@ migration_path = (
     Path(__file__).resolve().parent
     / "supabase"
     / "migrations"
-    / "001_initial_schema.sql"
+    / "003_remove_unique_constraints.sql"
 )
 print(f"Reading migration: {migration_path}")
 sql = migration_path.read_text()

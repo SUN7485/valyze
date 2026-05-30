@@ -167,11 +167,56 @@ Both Vercel projects auto-deploy on push to `main` (~30 seconds each).
 - Ensure `api/index.py` exists in `backend/api/`
 
 ### CORS Errors
-- Make sure `FRONTEND_URL` matches your Vercel frontend URL exactly
-- Include `https://` prefix
-- After changing env vars, redeploy the backend
+
+## Troubleshooting
+
+### Backend Won't Build
+- Check Render build logs for errors
+- Common issue: Large Docker image (first build takes 5-10 min)
+- If `playwright install` fails, the system chromium will be used instead
+
+### Frontend Shows "Network Error"
+- Check that `VITE_API_BASE_URL` is set correctly in Vercel
+- Make sure there's no trailing slash
+- Check that Render backend is running (not sleeping)
+- Check browser console for CORS errors
+
+### CORS Errors
+- Make sure `FRONTEND_URL` is set in Render env vars
+- The URL must match exactly (including `https://`)
+- After changing env vars, Render redeploys automatically (takes ~2 min)
 
 ### PDF Generation Fails
-- PDF is generated client-side using html2pdf.js
-- Check browser console for errors
-- Ensure the backend returns HTML (test `/api/pdf/preview/{id}`)
+- Playwright uses system Chromium in Docker
+- If Playwright isn't installed, check Render build logs
+- The system falls back gracefully — reports still work, just no PDF
+
+---
+
+## Updating the App
+
+### Code Changes
+```bash
+git add .
+git commit -m "Your changes"
+git push origin main
+```
+
+Both Render and Vercel auto-deploy on push to `main`:
+- **Vercel:** ~30 seconds
+- **Render:** ~3-5 minutes (Docker rebuild)
+
+### Environment Variable Changes
+- **Vercel:** Dashboard → Settings → Environment Variables → Edit → Redeploy
+- **Render:** Dashboard → Environment → Edit → Save (auto-redeploys)
+
+---
+
+## Cost Summary
+
+| Service | Plan | Monthly Cost |
+|---------|------|-------------|
+| Vercel (Frontend) | Free | $0 |
+| Render (Backend) | Free | $0 |
+| Supabase (Database) | Free | $0 |
+| **Total** | | **$0/month** |

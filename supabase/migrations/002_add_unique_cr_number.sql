@@ -1,7 +1,10 @@
 -- Migration: 002_add_unique_constraints
--- Purpose: Prevent duplicate reports for the same company by enforcing unique cr_number, client_reference, and company_name
+-- Purpose: DISABLED - unique constraints were blocking updates
 -- Created: 2026-05-01
+-- This migration is now disabled to allow duplicate values
 
+-- Original migration content commented out below:
+/*
 -- Step 0: Backup any existing duplicates before cleanup
 CREATE TABLE IF NOT EXISTS reports_duplicate_backup AS
 SELECT r.*
@@ -93,3 +96,5 @@ ADD CONSTRAINT reports_company_name_key UNIQUE (company_name);
 COMMENT ON CONSTRAINT reports_cr_number_key ON reports IS 'Ensures each Commercial Registration (CR) number appears at most once';
 COMMENT ON CONSTRAINT reports_client_reference_key ON reports IS 'Ensures each client reference appears at most once';
 COMMENT ON CONSTRAINT reports_company_name_key ON reports IS 'Ensures each company name appears at most once';
+*/
+-- DISABLED: Unique constraints removed to allow duplicate values

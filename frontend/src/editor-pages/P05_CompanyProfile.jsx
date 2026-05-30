@@ -3,7 +3,8 @@ import React, { useState, useEffect } from 'react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
 import PhoneNumbersEditor from '../components/PhoneNumbersEditor'
-import { X } from 'lucide-react'
+import { X, AlertCircle } from 'lucide-react'
+import { reportAPI } from '../api/client'
 
 const COUNTRY_OPTIONS = [
   { value: 'Egypt',        label: '🇪🇬 Egypt' },
@@ -16,6 +17,8 @@ const COUNTRY_OPTIONS = [
 export default function P05_CompanyProfile() {
   const { getFieldValue, updateField, report, getArray } = useReport()
   const [initialized, setInitialized] = useState(false)
+  const [crDuplicateWarning, setCrDuplicateWarning] = useState(null)
+  const [companyDuplicateWarning, setCompanyDuplicateWarning] = useState(null)
 
   useEffect(() => {
     if (!report || initialized) return
@@ -43,6 +46,60 @@ export default function P05_CompanyProfile() {
     setInitialized(true)
   }, [report, initialized])
 
+  // Check for duplicate CR number
+  useEffect(() => {
+    const checkCrNumber = async () => {
+      const crNumber = getFieldValue('cr_number')
+      const currentReportId = report?.report_id
+      
+      if (!crNumber || !currentReportId) {
+        setCrDuplicateWarning(null)
+        return
+      }
+
+      try {
+        const response = await reportAPI.checkDuplicate(crNumber, null)
+        if (response.data?.duplicate && response.data?.existing_report?.id !== currentReportId) {
+          setCrDuplicateWarning(response.data.existing_report)
+        } else {
+          setCrDuplicateWarning(null)
+        }
+      } catch (error) {
+        setCrDuplicateWarning(null)
+      }
+    }
+
+    const debounceTimer = setTimeout(checkCrNumber, 500)
+    return () => clearTimeout(debounceTimer)
+  }, [getFieldValue('cr_number'), report?.report_id])
+
+  // Check for duplicate company name
+  useEffect(() => {
+    const checkCompanyName = async () => {
+      const companyName = getFieldValue('company_name')
+      const currentReportId = report?.report_id
+      
+      if (!companyName || !currentReportId) {
+        setCompanyDuplicateWarning(null)
+        return
+      }
+
+      try {
+        const response = await reportAPI.checkDuplicate(null, companyName)
+        if (response.data?.duplicate && response.data?.existing_report?.id !== currentReportId) {
+          setCompanyDuplicateWarning(response.data.existing_report)
+        } else {
+          setCompanyDuplicateWarning(null)
+        }
+      } catch (error) {
+        setCompanyDuplicateWarning(null)
+      }
+    }
+
+    const debounceTimer = setTimeout(checkCompanyName, 500)
+    return () => clearTimeout(debounceTimer)
+  }, [getFieldValue('company_name'), report?.report_id])
+
   const handleCountryChange = (val) => {
     updateField('country', val)
     updateField('show_egypt_fields',  val === 'Egypt')
@@ -67,7 +124,20 @@ export default function P05_CompanyProfile() {
           Company Identity
         </h3>
         <div className="grid grid-cols-2 gap-6">
-          <FieldInput label="Company Name"        fieldName="company_name" type="text" required />
+          <div>
+            <FieldInput label="Company Name"        fieldName="company_name" type="text" required />
+            {companyDuplicateWarning && (
+              <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-yellow-600 dark:text-yellow-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-semibold text-yellow-800 dark:text-yellow-200">Duplicate Company Name</p>
+                  <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-0.5">
+                    Already exists in report <span className="font-mono font-semibold">{companyDuplicateWarning.id}</span>
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
           <FieldInput label="Legal Name"          fieldName="legal_name"   type="text" />
           <FieldInput label="Trade / Brand Names" fieldName="trade_names"  type="text" placeholder="e.g. ACME, ACG" />
           <FieldInput 
@@ -220,7 +290,20 @@ export default function P05_CompanyProfile() {
           </div>
 
           <div className="space-y-4">
+          <div>
             <FieldInput label="Registration Number"  fieldName="cr_number" type="text" />
+            {crDuplicateWarning && (
+              <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-yellow-600 dark:text-yellow-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-semibold text-yellow-800 dark:text-yellow-200">Duplicate CR Number</p>
+                  <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-0.5">
+                    Already exists in report <span className="font-mono font-semibold">{crDuplicateWarning.id}</span>
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
             <FieldInput label="Comm. Reg. Date"      fieldName="issue_date"     type="date" />
           </div>
         </div>
