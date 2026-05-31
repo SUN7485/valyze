@@ -12,6 +12,7 @@ const EditorPage = lazy(() => import('./pages/EditorPage'))
 const GeneratingPage = lazy(() => import('./pages/GeneratingPage'))
 const DonePage = lazy(() => import('./pages/DonePage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
+const ExtractorPage = lazy(() => import('./pages/ExtractorPage'))
 
 // Loading fallback
 function PageLoader() {
@@ -45,6 +46,7 @@ function AppRoutes() {
         <Route path="/editor/:reportId" element={<ProtectedRoute><EditorPage /></ProtectedRoute>} />
         <Route path="/generating/:reportId" element={<ProtectedRoute><GeneratingPage /></ProtectedRoute>} />
         <Route path="/done/:reportId" element={<ProtectedRoute><DonePage /></ProtectedRoute>} />
+        <Route path="/extractor" element={<ProtectedRoute><ExtractorPage /></ProtectedRoute>} />
 
         {/* Catch-all */}
         <Route path="*" element={<Navigate to="/" />} />

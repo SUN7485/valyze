@@ -1,6 +1,41 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as mammoth from "mammoth";
 
+// Auth check — extractor requires a valid JWT token from the main app
+const AUTH_API = import.meta.env.VITE_AUTH_API || "https://valyze-backend.vercel.app/api/auth/verify";
+
+function useAuthCheck() {
+  const [authState, setAuthState] = useState("loading"); // loading | ok | denied
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token") || "";
+
+    if (!token) {
+      setAuthState("denied");
+      return;
+    }
+
+    // Store token so the rest of the app can use it if needed
+    localStorage.setItem("valyze_extractor_token", token);
+
+    fetch(AUTH_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((r) => {
+        if (r.ok) setAuthState("ok");
+        else setAuthState("denied");
+      })
+      .catch(() => setAuthState("denied"));
+  }, []);
+
+  return authState;
+}
+
 const COLORS = {
   dark: {
     bg: '#0f172a',
@@ -250,6 +285,24 @@ const ACCEPT = ".pdf,image/*,.xlsx,.csv,.txt,.docx,.doc,.png,.jpg,.jpeg,.webp,.g
 const fIcon = f => f.type === "application/pdf" ? "📄" : f.type?.startsWith("image/") ? "🖼️" : f.name.match(/\.docx?$/i) ? "📝" : "📊";
 
 export default function ValyzeExtractor() {
+  const authState = useAuthCheck();
+
+  // Block unauthenticated users
+  if (authState === "loading") {
+    return <div style={{ display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0f172a",color:"#94a3b8",fontFamily:"sans-serif" }}><div style={{ textAlign:"center" }}><div style={{ fontSize:40,marginBottom:16 }}>🔐</div><div style={{ fontWeight:700,fontSize:18,marginBottom:8,color:"#f1f5f9" }}>Verifying access...</div></div></div>;
+  }
+
+  if (authState === "denied") {
+    return <div style={{ display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0f172a",color:"#94a3b8",fontFamily:"sans-serif" }}>
+      <div style={{ textAlign:"center",maxWidth:400 }}>
+        <div style={{ fontSize:40,marginBottom:16 }}>🚫</div>
+        <div style={{ fontWeight:700,fontSize:20,marginBottom:12,color:"#ef4444" }}>Access Denied</div>
+        <div style={{ fontSize:14,lineHeight:1.7,marginBottom:20 }}>You must sign in to the Valyze system first.</div>
+        <a href="https://valyze-front.vercel.app" style={{ display:"inline-block",padding:"12px 24px",borderRadius:8,background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",cursor:"pointer" }}>Go to Login →</a>
+      </div>
+    </div>;
+  }
+
   const [files, setFiles]               = useState([]);
   const [status, setStatus]             = useState("idle");
   const [stage, setStage]               = useState(0);
@@ -344,7 +397,8 @@ export default function ValyzeExtractor() {
       const maxLoops = useWebSearch ? 8 : 1;
 
       for (let i = 0; i < maxLoops; i++) {
-        const res = await fetch("http://localhost:3001/proxy", {
+        const proxyUrl = import.meta.env.VITE_PROXY_URL || "http://localhost:3001/proxy";
+        const res = await fetch(proxyUrl, {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
@@ -423,11 +477,12 @@ export default function ValyzeExtractor() {
       return;
     }
     setPatchStatus("loading"); setPatchError("");
-    try {
-      let parsed;
-      try { parsed = JSON.parse(patchJSON); } catch { throw new Error("Invalid JSON — please check your pasted JSON."); }
-      const res = await fetch("http://localhost:3001/proxy", {
-        method: "POST",
+try {
+       let parsed;
+       try { parsed = JSON.parse(patchJSON); } catch { throw new Error("Invalid JSON — please check your pasted JSON."); }
+       const proxyUrl = import.meta.env.VITE_PROXY_URL || "http://localhost:3001/proxy";
+       const res = await fetch(proxyUrl, {
+         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           "x-api-key": apiKey,
@@ -624,13 +679,14 @@ export default function ValyzeExtractor() {
               <button onClick={downloadJSON} style={{ padding:"7px 12px",borderRadius:8,border:"none",background:C.success,color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13 }}>⬇ Download JSON</button>
               <button onClick={()=>{setStatus("idle");setFiles([]);setResult(null);setLogMsg("");}} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid "+C.border,background:C.surface,color:C.textSecondary,cursor:"pointer",fontSize:13 }}>New Report</button>
               <button 
-                onClick={() => {
-                  if (result) {
-                    setNavigating(true);
-                    localStorage.setItem("valyze_pending_import", JSON.stringify(result));
-                    window.location.href = "http://localhost:5174";
-                  }
-                }}
+onClick={() => {
+                   if (result) {
+                     setNavigating(true);
+                     localStorage.setItem("valyze_pending_import", JSON.stringify(result));
+                     const frontendUrl = import.meta.env.VITE_FRONTEND_URL || "http://localhost:1573";
+                     window.location.href = frontendUrl;
+                   }
+                 }}
                 disabled={navigating || !result}
                 style={{
                   padding: "12px 24px",
