@@ -61,47 +61,40 @@ def _verify(password: str, stored: str) -> bool:
 # ---------------------------------------------------------------------------
 
 USERS = {
-    "admin@valyze.com": {
+    "waleed@valyze.com": {
         "id": "usr_001",
-        "email": "admin@valyze.com",
-        "name": "Admin User",
+        "email": "waleed@valyze.com",
+        "name": "Waleed",
         "role": "admin",
-        "password_hash": _hash("Admin@123"),
+        "password_hash": _hash("Waleed@123"),
     },
-    "sarah@valyze.com": {
+    "mohamed@valyze.com": {
         "id": "usr_002",
-        "email": "sarah@valyze.com",
-        "name": "Sarah Al Mansoori",
+        "email": "mohamed@valyze.com",
+        "name": "Mohamed",
         "role": "analyst",
-        "password_hash": _hash("Sarah@123"),
+        "password_hash": _hash("Mohamed@123"),
     },
-    "ahmad@valyze.com": {
+    "mahmoud@valyze.com": {
         "id": "usr_003",
-        "email": "ahmad@valyze.com",
-        "name": "Ahmad Al Rashid",
+        "email": "mahmoud@valyze.com",
+        "name": "Mahmoud",
         "role": "analyst",
-        "password_hash": _hash("Ahmad@123"),
+        "password_hash": _hash("Mahmoud@123"),
     },
-    "omar@valyze.com": {
+    "amani@valyze.com": {
         "id": "usr_004",
-        "email": "omar@valyze.com",
-        "name": "Omar Khalil",
+        "email": "amani@valyze.com",
+        "name": "Amani",
         "role": "analyst",
-        "password_hash": _hash("Omar@123"),
+        "password_hash": _hash("Amani@123"),
     },
-    "fatima@valyze.com": {
+    "sally@valyze.com": {
         "id": "usr_005",
-        "email": "fatima@valyze.com",
-        "name": "Fatima Hassan",
+        "email": "sally@valyze.com",
+        "name": "Sally",
         "role": "reviewer",
-        "password_hash": _hash("Fatima@123"),
-    },
-    "yusuf@valyze.com": {
-        "id": "usr_006",
-        "email": "yusuf@valyze.com",
-        "name": "Yusuf Nasser",
-        "role": "viewer",
-        "password_hash": _hash("Yusuf@123"),
+        "password_hash": _hash("Sally@123"),
     },
 }
 
