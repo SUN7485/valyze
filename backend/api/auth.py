@@ -1,17 +1,18 @@
 """
 Authentication API — JWT-based login with hardcoded users.
+Uses SHA-256 (hashlib) instead of bcrypt to avoid C compilation on Vercel.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from passlib.context import CryptContext
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -24,17 +25,32 @@ JWT_SECRET = os.getenv("JWT_SECRET", "valyze-secret-change-in-production-2026")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer(auto_error=False)
 
 
 # ---------------------------------------------------------------------------
-# User Store  (hardcoded — add new users here or move to Supabase later)
+# Simple SHA-256 hashing (no bcrypt dependency)
 # ---------------------------------------------------------------------------
 
-def _hash(pw: str) -> str:
-    return pwd_context.hash(pw)
+def _hash(password: str) -> str:
+    """SHA-256 hash with a random salt for simple password storage."""
+    salt = os.urandom(16).hex()
+    h = hashlib.sha256((salt + password).encode()).hexdigest()
+    return f"{salt}:{h}"
 
+
+def _verify(password: str, stored: str) -> bool:
+    """Verify password against stored hash."""
+    try:
+        salt, h = stored.split(":", 1)
+        return hashlib.sha256((salt + password).encode()).hexdigest() == h
+    except (ValueError, AttributeError):
+        return False
+
+
+# ---------------------------------------------------------------------------
+# User Store  (hardcoded)
+# ---------------------------------------------------------------------------
 
 USERS = {
     "admin@valyze.com": {
@@ -131,10 +147,7 @@ class LoginRequest(BaseModel):
 async def login(body: LoginRequest):
     """Authenticate user and return JWT token."""
     user = USERS.get(body.email.lower().strip())
-    if not user:
-        raise HTTPException(401, "Invalid email or password")
-
-    if not pwd_context.verify(body.password, user["password_hash"]):
+    if not user or not _verify(body.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
 
     token = create_token(user)

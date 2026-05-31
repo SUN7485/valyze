@@ -10,4 +10,3 @@ python-docx
 lxml
 chevron
 PyJWT
-passlib[bcrypt]
