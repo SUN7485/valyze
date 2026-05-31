@@ -34,12 +34,14 @@ CORS_ALLOWED_ORIGINS = [
     "https://valyze-front.vercel.app",
     "https://valyze.vercel.app",
     "https://valyze-credit.vercel.app",
+    "https://valyze-extractor.vercel.app",
 ]
 
 # Regex patterns for dynamic origins (Vercel preview deployments)
 CORS_ALLOWED_ORIGIN_PATTERNS = [
     re.compile(r"^https://valyze-front-.*\.vercel\.app$"),
     re.compile(r"^https://valyze-.*\.vercel\.app$"),
+    re.compile(r"^https://valyze-extractor-.*\.vercel\.app$"),
 ]
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "")
