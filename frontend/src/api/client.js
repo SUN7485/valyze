@@ -1,17 +1,13 @@
 import axios from 'axios'
 
-// Determine API base URL - use env var, or auto-detect from window location
+// Determine API base URL — production backend is always on valyze-backend.vercel.app
 function getBaseUrl() {
-  // Explicit env var takes priority
-  if (import.meta.env.VITE_API_BASE_URL) {
-    return import.meta.env.VITE_API_BASE_URL
-  }
-  // Auto-detect: if running on Vercel (not localhost), use the deployed backend
-  if (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')) {
-    return 'https://valyze-backend.vercel.app'
-  }
   // Local development fallback
-  return 'http://localhost:8000'
+  if (typeof window !== 'undefined' && window.location.hostname.includes('localhost')) {
+    return 'http://localhost:8000'
+  }
+  // Production: always use the canonical backend URL
+  return 'https://valyze-backend.vercel.app'
 }
 
 const API_BASE = getBaseUrl() + '/api'

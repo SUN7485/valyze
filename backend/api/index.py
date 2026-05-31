@@ -29,6 +29,7 @@ CORS_ORIGINS = [
     "https://valyze-front.vercel.app",
     "https://valyze.vercel.app",
     "https://valyze-credit.vercel.app",
+    "https://valyze-front-*.vercel.app",  # Vercel preview deployments
 ]
 if FRONTEND_URL:
     CORS_ORIGINS.append(FRONTEND_URL)
