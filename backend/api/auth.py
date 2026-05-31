@@ -32,18 +32,26 @@ security = HTTPBearer(auto_error=False)
 # Simple SHA-256 hashing (no bcrypt dependency)
 # ---------------------------------------------------------------------------
 
+# Fixed salt for deterministic hashing across Vercel serverless cold starts
+_FIXED_SALT = "valyze_fixed_salt_2026"
+
+
 def _hash(password: str) -> str:
-    """SHA-256 hash with a random salt for simple password storage."""
-    salt = os.urandom(16).hex()
-    h = hashlib.sha256((salt + password).encode()).hexdigest()
-    return f"{salt}:{h}"
+    """SHA-256 hash with a fixed salt for simple password storage."""
+    h = hashlib.sha256((_FIXED_SALT + password).encode()).hexdigest()
+    return h
 
 
 def _verify(password: str, stored: str) -> bool:
     """Verify password against stored hash."""
     try:
-        salt, h = stored.split(":", 1)
-        return hashlib.sha256((salt + password).encode()).hexdigest() == h
+        # Support both new (plain hash) and old (salt:hash) formats
+        if ":" in stored:
+            salt, h = stored.split(":", 1)
+            if hashlib.sha256((salt + password).encode()).hexdigest() == h:
+                return True
+        # New format: just the hash
+        return hashlib.sha256((_FIXED_SALT + password).encode()).hexdigest() == stored
     except (ValueError, AttributeError):
         return False
 
