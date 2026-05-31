@@ -314,6 +314,8 @@ export default function ValyzeExtractor() {
   const fileRef  = useRef();
   const abortRef = useRef(null);
   const clockRef = useRef(null);
+  const addFiles = f => setFiles(p => [...p, ...[...f]].slice(0, 5));
+  const onDrop = useCallback(e => { e.preventDefault(); addFiles(e.dataTransfer.files); }, []);
 
   // Block unauthenticated users (AFTER all hooks are declared)
   if (authState === "loading") {
@@ -333,9 +335,6 @@ export default function ValyzeExtractor() {
 
   const toggleDarkMode = () => setDarkMode(d => !d);
   const C = COLORS[darkMode ? 'dark' : 'light'];
-
-  const addFiles = f => setFiles(p => [...p, ...[...f]].slice(0, 5));
-  const onDrop = useCallback(e => { e.preventDefault(); addFiles(e.dataTransfer.files); }, []);
   const toB64 = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(f); });
 
   const stopClock = () => { clearInterval(clockRef.current); clockRef.current = null; };
