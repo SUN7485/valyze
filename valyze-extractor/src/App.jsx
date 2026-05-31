@@ -287,22 +287,7 @@ const fIcon = f => f.type === "application/pdf" ? "📄" : f.type?.startsWith("i
 export default function ValyzeExtractor() {
   const authState = useAuthCheck();
 
-  // Block unauthenticated users
-  if (authState === "loading") {
-    return <div style={{ display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0f172a",color:"#94a3b8",fontFamily:"sans-serif" }}><div style={{ textAlign:"center" }}><div style={{ fontSize:40,marginBottom:16 }}>🔐</div><div style={{ fontWeight:700,fontSize:18,marginBottom:8,color:"#f1f5f9" }}>Verifying access...</div></div></div>;
-  }
-
-  if (authState === "denied") {
-    return <div style={{ display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0f172a",color:"#94a3b8",fontFamily:"sans-serif" }}>
-      <div style={{ textAlign:"center",maxWidth:400 }}>
-        <div style={{ fontSize:40,marginBottom:16 }}>🚫</div>
-        <div style={{ fontWeight:700,fontSize:20,marginBottom:12,color:"#ef4444" }}>Access Denied</div>
-        <div style={{ fontSize:14,lineHeight:1.7,marginBottom:20 }}>You must sign in to the Valyze system first.</div>
-        <a href="https://valyze-front.vercel.app" style={{ display:"inline-block",padding:"12px 24px",borderRadius:8,background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",cursor:"pointer" }}>Go to Login →</a>
-      </div>
-    </div>;
-  }
-
+  // ALL hooks must be declared before any conditional returns (React rules of hooks)
   const [files, setFiles]               = useState([]);
   const [status, setStatus]             = useState("idle");
   const [stage, setStage]               = useState(0);
@@ -323,14 +308,31 @@ export default function ValyzeExtractor() {
   const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem("valyze_api_key"));
   const [darkMode, setDarkMode]         = useState(true);
 
-  const toggleDarkMode = () => setDarkMode(d => !d);
-  const C = COLORS[darkMode ? 'dark' : 'light'];
-
+  // All hooks must be before any conditional returns
   useEffect(() => { if (apiKey) localStorage.setItem("valyze_api_key", apiKey); }, [apiKey]);
 
   const fileRef  = useRef();
   const abortRef = useRef(null);
   const clockRef = useRef(null);
+
+  // Block unauthenticated users (AFTER all hooks are declared)
+  if (authState === "loading") {
+    return <div style={{ display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0f172a",color:"#94a3b8",fontFamily:"sans-serif" }}><div style={{ textAlign:"center" }}><div style={{ fontSize:40,marginBottom:16 }}>🔐</div><div style={{ fontWeight:700,fontSize:18,marginBottom:8,color:"#f1f5f9" }}>Verifying access...</div></div></div>;
+  }
+
+  if (authState === "denied") {
+    return <div style={{ display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0f172a",color:"#94a3b8",fontFamily:"sans-serif" }}>
+      <div style={{ textAlign:"center",maxWidth:400 }}>
+        <div style={{ fontSize:40,marginBottom:16 }}>🚫</div>
+        <div style={{ fontWeight:700,fontSize:20,marginBottom:12,color:"#ef4444" }}>Access Denied</div>
+        <div style={{ fontSize:14,lineHeight:1.7,marginBottom:20 }}>You must sign in to the Valyze system first.</div>
+        <a href="https://valyze-front.vercel.app" style={{ display:"inline-block",padding:"12px 24px",borderRadius:8,background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",cursor:"pointer" }}>Go to Login →</a>
+      </div>
+    </div>;
+  }
+
+  const toggleDarkMode = () => setDarkMode(d => !d);
+  const C = COLORS[darkMode ? 'dark' : 'light'];
 
   const addFiles = f => setFiles(p => [...p, ...[...f]].slice(0, 5));
   const onDrop = useCallback(e => { e.preventDefault(); addFiles(e.dataTransfer.files); }, []);
