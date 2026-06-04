@@ -398,14 +398,14 @@ export default function ValyzeExtractor() {
       const maxLoops = useWebSearch ? 8 : 1;
 
       for (let i = 0; i < maxLoops; i++) {
-        const proxyUrl = import.meta.env.VITE_PROXY_URL || "http://localhost:3001/proxy";
-        const res = await fetch(proxyUrl, {
+        const proxyUrl = import.meta.env.VITE_PROXY_URL;
+        const useUrl = proxyUrl || "https://api.anthropic.com/v1/messages";
+        const isDirect = !proxyUrl;
+        const res = await fetch(useUrl, {
           method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01"
-          },
+          headers: isDirect
+            ? { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }
+            : { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
           signal: abortRef.current.signal,
           body: JSON.stringify(i === 0 ? apiBody : { ...apiBody, messages: msgs })
         });
@@ -481,14 +481,14 @@ export default function ValyzeExtractor() {
 try {
        let parsed;
        try { parsed = JSON.parse(patchJSON); } catch { throw new Error("Invalid JSON — please check your pasted JSON."); }
-       const proxyUrl = import.meta.env.VITE_PROXY_URL || "http://localhost:3001/proxy";
-       const res = await fetch(proxyUrl, {
+       const patchProxyUrl = import.meta.env.VITE_PROXY_URL;
+       const patchUseUrl = patchProxyUrl || "https://api.anthropic.com/v1/messages";
+       const patchIsDirect = !patchProxyUrl;
+       const res = await fetch(patchUseUrl, {
          method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01"
-        },
+        headers: patchIsDirect
+          ? { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }
+          : { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
         body: JSON.stringify({
           model: "claude-haiku-4-5-20251001",
           max_tokens: 16000,
