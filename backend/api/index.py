@@ -13,74 +13,23 @@ backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-import re
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
 
 # Create a clean FastAPI app (don't import main.py which triggers filesystem errors)
 app = FastAPI(title="ValyzeCredit", version="1.0.0")
 
 # ---------------------------------------------------------------------------
-# CORS — dynamic origin matching that supports Vercel preview deployments
+# CORS — allow all origins (safe because we use JWT tokens, not cookies)
 # ---------------------------------------------------------------------------
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:1573",
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "https://valyze-front.vercel.app",
-    "https://valyze.vercel.app",
-    "https://valyze-credit.vercel.app",
-    "https://valyze-extractor.vercel.app",
-]
-
-# Regex patterns for dynamic origins (Vercel preview deployments)
-CORS_ALLOWED_ORIGIN_PATTERNS = [
-    re.compile(r"^https://valyze-front-.*\.vercel\.app$"),
-    re.compile(r"^https://valyze-.*\.vercel\.app$"),
-    re.compile(r"^https://valyze-extractor-.*\.vercel\.app$"),
-]
-
-FRONTEND_URL = os.getenv("FRONTEND_URL", "")
-if FRONTEND_URL:
-    CORS_ALLOWED_ORIGINS.append(FRONTEND_URL)
-
-
-def _is_origin_allowed(origin: str) -> bool:
-    if origin in CORS_ALLOWED_ORIGINS:
-        return True
-    return any(p.match(origin) for p in CORS_ALLOWED_ORIGIN_PATTERNS)
-
-
-class DynamicCORSMiddleware(BaseHTTPMiddleware):
-    """Custom CORS middleware that supports regex origin matching."""
-
-    async def dispatch(self, request: Request, call_next):
-        origin = request.headers.get("origin", "")
-
-        # Handle preflight
-        if request.method == "OPTIONS":
-            headers = {}
-            if origin and _is_origin_allowed(origin):
-                headers["Access-Control-Allow-Origin"] = origin
-                headers["Access-Control-Allow-Methods"] = "*"
-                headers["Access-Control-Allow-Headers"] = "*"
-                headers["Access-Control-Allow-Credentials"] = "true"
-                headers["Access-Control-Max-Age"] = "600"
-            return Response(status_code=204, headers=headers)
-
-        # Handle actual requests
-        response = await call_next(request)
-        if origin and _is_origin_allowed(origin):
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-        return response
-
-
-app.add_middleware(DynamicCORSMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Health check
 @app.get("/health")
