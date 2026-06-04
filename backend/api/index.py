@@ -67,4 +67,9 @@ def _register_all_routers():
         r.dependencies.append(Depends(get_current_user))
         app.include_router(r)
 
-_register_all_routers()
+try:
+    _register_all_routers()
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    print(f"ERROR registering routers: {e}")
