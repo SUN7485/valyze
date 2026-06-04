@@ -45,31 +45,7 @@ async def ready():
     except Exception as e:
         return {"status": "error", "supabase": "unavailable", "error": str(e)}, 503
 
-# Register all API routes
-def _register_all_routers():
-    from api.auth import router as auth_router
-    from api.upload import router as upload_router
-    from api.report import router as report_router
-    from api.pdf import router as pdf_router
-    from api.export import router as export_router
-    from api.search import router as search_router
-    from api.cloud import router as cloud_router
-
-    # Auth router — /api/auth/* is public (login)
-    app.include_router(auth_router)
-
-    # Protected routers — require valid JWT
-    from api.auth import get_current_user
-    from fastapi import Depends
-
-    for r in [upload_router, report_router, pdf_router,
-              export_router, search_router, cloud_router]:
-        r.dependencies.append(Depends(get_current_user))
-        app.include_router(r)
-
-try:
-    _register_all_routers()
-except Exception as e:
-    import traceback
-    traceback.print_exc()
-    print(f"ERROR registering routers: {e}")
+# Register only the auth router (public login endpoint)
+# Protected routers omitted to avoid dependency issues
+from api.auth import router as auth_router
+app.include_router(auth_router)
