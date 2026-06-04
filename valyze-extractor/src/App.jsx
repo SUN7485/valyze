@@ -4,6 +4,20 @@ import * as mammoth from "mammoth";
 // Auth check — extractor requires a valid JWT token from the main app
 const AUTH_API = import.meta.env.VITE_AUTH_API || "https://valyze-backend.vercel.app/api/auth/verify";
 
+// Proxy URL for Anthropic API calls (server-to-server, avoids CORS issues).
+// 1. VITE_PROXY_URL env var (set in Vercel dashboard) takes precedence.
+// 2. Otherwise, derive from VITE_AUTH_API — e.g. https://valyze-backend.vercel.app/api/proxy
+//    This works automatically in both production and local dev (FastAPI on port 8000).
+// 3. For local Vite dev (port 5173) without FastAPI running, leave empty for direct calls.
+let _proxyUrl = import.meta.env.VITE_PROXY_URL;
+if (!_proxyUrl) {
+  const derived = (import.meta.env.VITE_AUTH_API || "https://valyze-backend.vercel.app/api/auth/verify")
+    .replace(/\/api\/auth\/verify$/, "")
+    .replace(/\/api\/auth$/, "");
+  _proxyUrl = derived + "/api/proxy";
+}
+const PROXY_URL = _proxyUrl;
+
 function useAuthCheck() {
   const [authState, setAuthState] = useState("loading"); // loading | ok | denied
 
@@ -398,9 +412,8 @@ export default function ValyzeExtractor() {
       const maxLoops = useWebSearch ? 8 : 1;
 
       for (let i = 0; i < maxLoops; i++) {
-        const proxyUrl = import.meta.env.VITE_PROXY_URL;
-        const useUrl = proxyUrl || "https://api.anthropic.com/v1/messages";
-        const isDirect = !proxyUrl;
+        const useUrl = PROXY_URL || "https://api.anthropic.com/v1/messages";
+        const isDirect = !PROXY_URL;
         const res = await fetch(useUrl, {
           method: "POST",
           headers: isDirect
@@ -409,7 +422,11 @@ export default function ValyzeExtractor() {
           signal: abortRef.current.signal,
           body: JSON.stringify(i === 0 ? apiBody : { ...apiBody, messages: msgs })
         });
-        if (!res.ok) { const e = await res.json(); throw new Error(e?.error?.message || `HTTP ${res.status}`); }
+        if (!res.ok) {
+          let errMsg;
+          try { const e = await res.json(); errMsg = e?.error?.message || JSON.stringify(e); } catch { errMsg = `HTTP ${res.status}`; }
+          throw new Error(errMsg);
+        }
         const data = await res.json();
         const txt = data.content.filter(b => b.type === "text").map(b => b.text).join("");
         if (txt) finalText = txt;
@@ -481,9 +498,8 @@ export default function ValyzeExtractor() {
 try {
        let parsed;
        try { parsed = JSON.parse(patchJSON); } catch { throw new Error("Invalid JSON — please check your pasted JSON."); }
-       const patchProxyUrl = import.meta.env.VITE_PROXY_URL;
-       const patchUseUrl = patchProxyUrl || "https://api.anthropic.com/v1/messages";
-       const patchIsDirect = !patchProxyUrl;
+       const patchUseUrl = PROXY_URL || "https://api.anthropic.com/v1/messages";
+       const patchIsDirect = !PROXY_URL;
        const res = await fetch(patchUseUrl, {
          method: "POST",
         headers: patchIsDirect

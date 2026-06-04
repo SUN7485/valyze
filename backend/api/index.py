@@ -45,7 +45,10 @@ async def ready():
     except Exception as e:
         return {"status": "error", "supabase": "unavailable", "error": str(e)}, 503
 
-# Register only the auth router (public login endpoint)
-# Protected routers omitted to avoid dependency issues
+# Register auth router for login/verify
 from api.auth import router as auth_router
 app.include_router(auth_router)
+
+# Register Anthropic API proxy (used by valyze-extractor for CORS-safe Claude calls)
+from api.proxy import router as proxy_router
+app.include_router(proxy_router)
