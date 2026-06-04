@@ -432,7 +432,7 @@ export default function ValyzeExtractor() {
       if (e.name === "AbortError") {
         msg = "Timed out after 6 minutes.\n\n• Make sure Web Search is OFF\n• Try splitting large PDFs\n• Try again";
       } else if (e.message?.includes("Failed to fetch") || e.message?.includes("network")) {
-        msg = "Network error.\n\nPossible causes:\n1. No internet connection\n2. Proxy server not running\n3. API key invalid\n\nStart proxy: npm run server";
+        msg = "Network error.\n\nPossible causes:\n1. No internet connection\n2. API key invalid\n3. API key quota exceeded\n\nPlease check your internet connection and API key, then try again.";
       } else if (e.message?.includes("401") || e.message?.includes("403")) {
         msg = "API key rejected.\n\n• Verify your key is correct\n• Make sure key starts with sk-ant-";
       } else {
