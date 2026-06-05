@@ -441,7 +441,7 @@ export default function ValyzeExtractor() {
           } catch { errMsg = `HTTP ${res.status}`; }
           throw new Error(`[${res.status}] ${errMsg}`);
         }
-        const data = await res.json();
+        let data = await res.json();
         if (Array.isArray(data)) data = data[0];
         if (!data || typeof data !== "object") {
           throw new Error(`Invalid API response: ${JSON.stringify(data)}`);
