@@ -345,7 +345,7 @@ export default function HomePage() {
             <div className="grid md:grid-cols-2 gap-8 mb-20">
                 {/* Extract Your Data Card */}
                 <button
-                    onClick={() => navigate("/extractor")}
+                    onClick={() => navigate('/extractor')}
                     className="group glass-card p-10 text-left relative overflow-hidden"
                 >
                     <div className="absolute -right-8 -top-8 w-32 h-32 bg-primary/10 rounded-full blur-2xl group-hover:bg-primary/20 transition-all duration-500" />

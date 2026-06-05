@@ -4,7 +4,6 @@ python-multipart
 pydantic
 python-dotenv
 httpx
-requests
 supabase
 openpyxl
 python-docx
