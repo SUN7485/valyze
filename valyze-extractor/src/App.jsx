@@ -1,9 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as mammoth from "mammoth";
-import mockData from "../mock-data.json";
-
-// Mock mode: add ?mock=true to the URL to test the UI without calling any API
-const USE_MOCK = new URLSearchParams(window.location.search).get("mock") === "true";
 
 // Auth check — extractor requires a valid JWT token from the main app
 const AUTH_API = import.meta.env.VITE_AUTH_API || "https://valyze-backend.vercel.app/api/auth/verify";
@@ -23,10 +19,9 @@ if (!_proxyUrl) {
 const PROXY_URL = _proxyUrl;
 
 function useAuthCheck() {
-  const [authState, setAuthState] = useState(() => USE_MOCK ? "ok" : "loading");
+  const [authState, setAuthState] = useState("loading");
 
   useEffect(() => {
-    if (USE_MOCK) { setAuthState("ok"); return; }
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token") || "";
 
@@ -336,14 +331,6 @@ export default function ValyzeExtractor() {
   const [apiKey, setApiKey]             = useState(() => localStorage.getItem("valyze_api_key") || "");
   const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem("valyze_api_key"));
   const [darkMode, setDarkMode]         = useState(true);
-
-  // Auto-load mock data if ?mock=true (for UI testing without API)
-  useEffect(() => {
-    if (USE_MOCK) {
-      setResult(mockData);
-      setStatus("done");
-    }
-  }, []);
 
   // All hooks must be before any conditional returns
   useEffect(() => { if (apiKey) localStorage.setItem("valyze_api_key", apiKey); }, [apiKey]);
