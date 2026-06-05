@@ -3,11 +3,18 @@ import axios from 'axios'
 // Determine API base URL from env, with localhost fallback
 function getBaseUrl() {
   const envUrl = import.meta.env.VITE_API_BASE_URL
-  if (envUrl) return envUrl.replace(/\/$/, '')
+  if (envUrl) {
+    return envUrl.replace(/\/$/, '')
+  }
   if (typeof window !== 'undefined' && window.location.hostname.includes('localhost')) {
     return 'http://localhost:8000'
   }
-  return ''
+  const msg = '[API] VITE_API_BASE_URL is not set. API calls will fail. Set it in your .env or Vercel environment variables.'
+  if (import.meta.env.DEV) {
+    console.warn(msg, '\nFalling back to http://localhost:8000 for local dev only.')
+    return 'http://localhost:8000'
+  }
+  throw new Error(msg)
 }
 
 const API_BASE = getBaseUrl() + '/api'

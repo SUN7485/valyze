@@ -10,10 +10,17 @@ export function AuthProvider({ children }) {
     // On mount, check if token exists and verify it
     useEffect(() => {
         const token = localStorage.getItem('valyze_token')
-        if (token) {
+        const isValid = token && token !== 'null' && token !== 'undefined'
+        if (isValid) {
             authAPI.me()
                 .then(res => {
-                    setUser(res.data)
+                    const data = res.data
+                    if (data && typeof data === 'object' && data.id) {
+                        setUser(data)
+                    } else {
+                        localStorage.removeItem('valyze_token')
+                        setUser(null)
+                    }
                 })
                 .catch(() => {
                     localStorage.removeItem('valyze_token')
@@ -21,13 +28,19 @@ export function AuthProvider({ children }) {
                 })
                 .finally(() => setLoading(false))
         } else {
+            localStorage.removeItem('valyze_token')
+            setUser(null)
             setLoading(false)
         }
     }, [])
 
     const login = async (email, password) => {
         const res = await authAPI.login(email, password)
-        const { token, user: userData } = res.data
+        const data = res.data
+        if (!data || typeof data !== 'object' || !data.token || !data.user) {
+            throw new Error('Invalid server response — please try again')
+        }
+        const { token, user: userData } = data
         localStorage.setItem('valyze_token', token)
         setUser(userData)
         return userData

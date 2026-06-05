@@ -40,9 +40,19 @@ function useAuthCheck() {
         Authorization: `Bearer ${token}`,
       },
     })
-      .then((r) => {
-        if (r.ok) setAuthState("ok");
-        else setAuthState("denied");
+      .then(async (r) => {
+        const contentType = r.headers.get("content-type") || ""
+        const isJSON = contentType.includes("application/json")
+        if (!r.ok || !isJSON) {
+          setAuthState("denied");
+          return;
+        }
+        const data = await r.json()
+        if (data && data.valid === true) {
+          setAuthState("ok")
+        } else {
+          setAuthState("denied")
+        }
       })
       .catch(() => setAuthState("denied"));
   }, []);
