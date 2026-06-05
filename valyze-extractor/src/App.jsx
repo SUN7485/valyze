@@ -442,8 +442,12 @@ export default function ValyzeExtractor() {
           throw new Error(`[${res.status}] ${errMsg}`);
         }
         const data = await res.json();
+        if (Array.isArray(data)) data = data[0];
+        if (!data || typeof data !== "object") {
+          throw new Error(`Invalid API response: ${JSON.stringify(data)}`);
+        }
         // Validate response structure
-        if (!data || !data.content || !Array.isArray(data.content)) {
+        if (!data.content || !Array.isArray(data.content)) {
           const errMsg = data?.error?.message || data?.detail || JSON.stringify(data);
           throw new Error(`Invalid API response: ${errMsg}`);
         }
@@ -536,7 +540,9 @@ try {
         })
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e?.error?.message || "API error"); }
-      const data = await res.json();
+      let data = await res.json();
+      if (Array.isArray(data)) data = data[0];
+      if (!data || typeof data !== "object" || !data.content) throw new Error("Invalid patch API response");
       const raw = data.content.filter(b => b.type === "text").map(b => b.text).join("");
       const m = raw.match(/\{[\s\S]*\}/);
       if (!m) throw new Error("No valid JSON returned.");
