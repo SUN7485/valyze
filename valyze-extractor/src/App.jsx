@@ -442,6 +442,11 @@ export default function ValyzeExtractor() {
           throw new Error(`[${res.status}] ${errMsg}`);
         }
         const data = await res.json();
+        // Validate response structure
+        if (!data || !data.content || !Array.isArray(data.content)) {
+          const errMsg = data?.error?.message || data?.detail || JSON.stringify(data);
+          throw new Error(`Invalid API response: ${errMsg}`);
+        }
         const txt = data.content.filter(b => b.type === "text").map(b => b.text).join("");
         if (txt) finalText = txt;
         if (data.stop_reason === "end_turn") break;
