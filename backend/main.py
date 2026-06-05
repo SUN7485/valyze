@@ -173,11 +173,10 @@ async def readiness_check():
             "db_status": f"connected ({count} reports)",
         }
     except Exception as e:
-        return {
-            "status": "error",
-            "supabase": "unavailable",
-            "error": str(e),
-        }, 503
+        return JSONResponse(
+            content={"status": "error", "supabase": "unavailable", "error": str(e)},
+            status_code=503,
+        )
 
 
 
