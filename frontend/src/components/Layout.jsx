@@ -1,10 +1,12 @@
 import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useDarkMode } from '../hooks/useDarkMode'
-import { Sun, Moon, Info, Shield, FileText } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
+import { Sun, Moon, Info, Shield, FileText, LogOut } from 'lucide-react'
 
 export default function Layout({ children }) {
     const { darkMode, toggleDarkMode } = useDarkMode()
+    const { user, logout } = useAuth()
     const location = useLocation()
 
     return (
@@ -41,6 +43,25 @@ export default function Layout({ children }) {
                             <FileText size={14} />
                             Reports
                         </Link>
+
+                        {/* User info + logout */}
+                        {user && (
+                            <div className="flex items-center gap-2">
+                                <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-white/5 rounded-full border border-slate-200 dark:border-white/5">
+                                    <Shield size={12} className="text-primary" />
+                                    <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">
+                                        {user.name || user.email}
+                                    </span>
+                                </div>
+                                <button
+                                    onClick={logout}
+                                    title="Log out"
+                                    className="p-2 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:border-rose-400 dark:hover:border-rose-400 transition-all duration-300 shadow-sm cursor-pointer group"
+                                >
+                                    <LogOut size={18} className="text-slate-600 dark:text-slate-400 group-hover:text-rose-500" />
+                                </button>
+                            </div>
+                        )}
 
                         {/* Theme Toggle */}
                         <button
