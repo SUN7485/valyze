@@ -11,10 +11,12 @@ Endpoint: POST /api/proxy
 from __future__ import annotations
 
 import os
+import traceback
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/api", tags=["proxy"])
 
@@ -51,7 +53,9 @@ async def proxy_anthropic(request: Request):
 
     # Forward the request using httpx (async-compatible HTTP client)
     try:
-        async with httpx.AsyncClient(timeout=MAX_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(MAX_TIMEOUT_SECONDS, connect=30.0)
+        ) as client:
             response = await client.post(
                 ANTHROPIC_API_URL,
                 headers=forward_headers,
@@ -59,9 +63,41 @@ async def proxy_anthropic(request: Request):
             )
 
         # Return Anthropic's response back to the client (status + body)
-        return response.json(), response.status_code
+        try:
+            data = response.json()
+        except Exception:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Anthropic returned non-JSON response (HTTP {response.status_code})",
+            )
 
+        return JSONResponse(content=data, status_code=response.status_code)
+
+    except HTTPException:
+        raise
     except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Anthropic API request timed out")
+        print("[proxy] ERROR: Anthropic API request timed out")
+        raise HTTPException(
+            status_code=504,
+            detail="Anthropic API request timed out after 5 minutes. Try smaller documents or turn off web search.",
+        )
+    except httpx.ConnectError as e:
+        print(f"[proxy] ERROR: Cannot connect to Anthropic API: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Cannot connect to Anthropic API. The server may be unreachable: {str(e)}",
+        )
     except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Anthropic API connection failed: {str(e)}")
+        print(f"[proxy] ERROR: Anthropic API request failed: {e}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=502,
+            detail=f"Anthropic API connection failed: {str(e)}",
+        )
+    except Exception as e:
+        print(f"[proxy] ERROR: Unexpected error: {e}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Proxy error: {str(e)}",
+        )

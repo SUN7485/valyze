@@ -31,8 +31,8 @@ echo    Frontend starting in background...
 cd /d "%~dp0frontend"
 start /B npm run dev
 
-:: Start Standalone Valyze Extractor in background (port 5174)
-echo [3/3] Starting Valyze Extractor (port 5174)...
+:: Start Standalone Valyze Extractor in background (port 5173)
+echo [3/3] Starting Valyze Extractor (port 5173)...
 echo    Valyze Extractor starting in background...
 cd /d "%~dp0valyze-extractor"
 start /B npm run dev
@@ -47,7 +47,7 @@ echo ============================================
 echo.
 echo   Backend:  http://localhost:8000
 echo   Frontend: http://localhost:1573 
-echo   Valyze Extractor: http://localhost:5174
+echo   Valyze Extractor: http://localhost:5173
 echo.
 echo   ALL logs will appear in this console
 echo.

@@ -342,7 +342,7 @@ export default function ValyzeExtractor() {
         <div style={{ fontSize:40,marginBottom:16 }}>🚫</div>
         <div style={{ fontWeight:700,fontSize:20,marginBottom:12,color:"#ef4444" }}>Access Denied</div>
         <div style={{ fontSize:14,lineHeight:1.7,marginBottom:20 }}>You must sign in to the Valyze system first.</div>
-        <a href="https://valyze-front.vercel.app" style={{ display:"inline-block",padding:"12px 24px",borderRadius:8,background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",cursor:"pointer" }}>Go to Login →</a>
+        <a href={import.meta.env.VITE_FRONTEND_URL || window.location.origin} style={{ display:"inline-block",padding:"12px 24px",borderRadius:8,background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",cursor:"pointer" }}>Go to Login →</a>
       </div>
     </div>;
   }
@@ -424,8 +424,12 @@ export default function ValyzeExtractor() {
         });
         if (!res.ok) {
           let errMsg;
-          try { const e = await res.json(); errMsg = e?.error?.message || JSON.stringify(e); } catch { errMsg = `HTTP ${res.status}`; }
-          throw new Error(errMsg);
+          try {
+            const e = await res.json();
+            // Handle both Anthropic format (error.message) and FastAPI format (detail)
+            errMsg = e?.error?.message || e?.detail || JSON.stringify(e);
+          } catch { errMsg = `HTTP ${res.status}`; }
+          throw new Error(`[${res.status}] ${errMsg}`);
         }
         const data = await res.json();
         const txt = data.content.filter(b => b.type === "text").map(b => b.text).join("");
@@ -444,16 +448,20 @@ export default function ValyzeExtractor() {
       setResult(JSON.parse(m[0]));
       setStage(3); setLogMsg("Done!"); setStatus("done");
 
-    } catch (e) {
+      } catch (e) {
       let msg;
       if (e.name === "AbortError") {
         msg = "Timed out after 6 minutes.\n\n• Make sure Web Search is OFF\n• Try splitting large PDFs\n• Try again";
-      } else if (e.message?.includes("Failed to fetch") || e.message?.includes("network")) {
-        msg = "Network error.\n\nPossible causes:\n1. No internet connection\n2. API key invalid\n3. API key quota exceeded\n\nPlease check your internet connection and API key, then try again.";
-      } else if (e.message?.includes("401") || e.message?.includes("403")) {
-        msg = "API key rejected.\n\n• Verify your key is correct\n• Make sure key starts with sk-ant-";
+      } else if (e.message?.includes("Failed to fetch") || e.message?.toLowerCase()?.includes("network")) {
+        msg = "Network error — could not reach the proxy server.\n\nPossible causes:\n1. Backend proxy is not deployed or is down\n2. No internet connection\n3. CORS issue\n\nPlease check:\n• Backend is running: valyze-backend.vercel.app/health\n• VITE_PROXY_URL is set in Vercel dashboard\n• Your API key is valid (starts with sk-ant-)";
+      } else if (e.message?.includes("[401]") || e.message?.includes("[403]")) {
+        msg = "API key rejected by proxy.\n\n• Verify your key is correct\n• Make sure key starts with sk-ant-\n• Check API key quota at console.anthropic.com";
+      } else if (e.message?.includes("[502]")) {
+        msg = "Backend proxy connection failed.\n\nThe proxy could not reach the Anthropic API. This usually means:\n• Backend proxy is not properly configured\n• Backend needs redeployment\n\nTry again in a few moments.";
+      } else if (e.message?.includes("[504]") || e.message?.includes("timed out")) {
+        msg = "Request timed out.\n\n• Try smaller documents\n• Turn OFF web search\n• Split large PDFs into parts";
       } else {
-        msg = e.message;
+        msg = e.message || "Unknown error occurred.";
       }
       setError(msg); setStatus("error");
     } finally {
