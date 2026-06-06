@@ -1,26 +1,22 @@
 """
 Vercel Serverless Entry Point — Valyze Credit Report Backend
-
-This is the ONLY file Vercel should use as entry point.
-It creates a minimal FastAPI app that proxies to Supabase.
 """
-
 import os
 import sys
+import traceback
 
-# Add backend directory to Python path
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
+# Always import these - they're core requirements
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-# Create a clean FastAPI app (don't import main.py which triggers filesystem errors)
 app = FastAPI(title="ValyzeCredit", version="1.0.0")
 
-# CORS — allow production + local origins
+# CORS
 FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 CORS_ORIGINS = [
     "http://localhost:1573",
@@ -34,7 +30,6 @@ CORS_ORIGINS = [
 if FRONTEND_URL:
     CORS_ORIGINS.append(FRONTEND_URL)
 
-# Allow additional origins via env var (comma-separated)
 CORS_EXTRA_ORIGINS = os.getenv("CORS_EXTRA_ORIGINS", "")
 if CORS_EXTRA_ORIGINS:
     for origin in CORS_EXTRA_ORIGINS.split(","):
@@ -42,11 +37,7 @@ if CORS_EXTRA_ORIGINS:
         if origin:
             CORS_ORIGINS.append(origin)
 
-cors_kwargs = dict(
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+cors_kwargs = dict(allow_methods=["*"], allow_headers=["*"])
 if "*" in CORS_ORIGINS:
     cors_kwargs["allow_origins"] = ["*"]
     cors_kwargs["allow_credentials"] = False
@@ -54,61 +45,44 @@ else:
     cors_kwargs["allow_origins"] = CORS_ORIGINS
     cors_kwargs["allow_credentials"] = True
 
-app.add_middleware(
-    CORSMiddleware,
-    **cors_kwargs,
-)
+app.add_middleware(CORSMiddleware, **cors_kwargs)
 
-# ----------------------------------------------------------------------------
-# Auth middleware — protect all /api/* except /api/auth/* and /health
-# ----------------------------------------------------------------------------
-from api.auth import decode_token
+# Auth middleware
+try:
+    from api.auth import decode_token
+    PUBLIC_PATHS = {"/health", "/ready", "/"}
 
-PUBLIC_PATHS = {"/health", "/ready", "/"}
-
-
-@app.middleware("http")
-async def auth_middleware(request: Request, call_next):
-    path = request.url.path
-
-    # CORS preflight — let through
-    if request.method == "OPTIONS":
+    @app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        path = request.url.path
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        if path in PUBLIC_PATHS or path.startswith("/api/auth/") or path == "/api/proxy" or path == "/docs" or path == "/openapi.json":
+            return await call_next(request)
+        if path.startswith("/api/"):
+            origin = request.headers.get("origin", "")
+            auth_header = request.headers.get("Authorization", "")
+            token = request.query_params.get("token", "") or ""
+            if auth_header.startswith("Bearer "):
+                token = auth_header.split(" ", 1)[1]
+            if not token:
+                resp = JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+                resp.headers["Access-Control-Allow-Origin"] = origin or "*"
+                resp.headers["Access-Control-Allow-Credentials"] = "true"
+                return resp
+            try:
+                decode_token(token)
+            except Exception:
+                resp = JSONResponse(status_code=401, content={"detail": "Invalid or expired token"})
+                resp.headers["Access-Control-Allow-Origin"] = origin or "*"
+                resp.headers["Access-Control-Allow-Credentials"] = "true"
+                return resp
         return await call_next(request)
-
-    # Allow public paths, auth routes, and proxy route (has its own API key check)
-    if path in PUBLIC_PATHS or path.startswith("/api/auth/") or path == "/api/proxy" or path == "/docs" or path == "/openapi.json":
-        return await call_next(request)
-
-    # All other /api/* paths require JWT
-    if path.startswith("/api/"):
-        origin = request.headers.get("origin", "")
-        auth_header = request.headers.get("Authorization", "")
-
-        # Also check for token in query parameter (for window.open downloads)
-        token = request.query_params.get("token", "") or ""
-
-        if auth_header.startswith("Bearer "):
-            token = auth_header.split(" ", 1)[1]
-
-        if not token:
-            resp = JSONResponse(status_code=401, content={"detail": "Not authenticated"})
-            if origin in CORS_ORIGINS or CORS_ORIGINS == ["*"]:
-                resp.headers["Access-Control-Allow-Origin"] = origin
-            resp.headers["Access-Control-Allow-Credentials"] = "true"
-            return resp
-        try:
-            decode_token(token)
-        except Exception:
-            resp = JSONResponse(status_code=401, content={"detail": "Invalid or expired token"})
-            if origin in CORS_ORIGINS or CORS_ORIGINS == ["*"]:
-                resp.headers["Access-Control-Allow-Origin"] = origin
-            resp.headers["Access-Control-Allow-Credentials"] = "true"
-            return resp
-
-    return await call_next(request)
+except Exception as e:
+    print(f"[WARN] Auth middleware setup failed: {e}")
+    traceback.print_exc()
 
 
-# Health check
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "1.0.0"}
@@ -124,8 +98,7 @@ async def ready():
         return JSONResponse(content={"status": "error", "supabase": "unavailable", "error": str(e)}, status_code=503)
 
 
-# Register all API routes
-def _register_all_routers():
+try:
     from api.auth import router as auth_router
     from api.upload import router as upload_router
     from api.report import router as report_router
@@ -143,6 +116,6 @@ def _register_all_routers():
     app.include_router(search_router)
     app.include_router(cloud_router)
     app.include_router(proxy_router)
-
-
-_register_all_routers()
+except Exception as e:
+    print(f"[WARN] Router registration failed: {e}")
+    traceback.print_exc()
