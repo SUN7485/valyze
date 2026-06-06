@@ -10,6 +10,7 @@ Endpoint: POST /api/proxy
 
 from __future__ import annotations
 
+import gzip
 import os
 import traceback
 from typing import Any
@@ -28,6 +29,8 @@ MAX_TIMEOUT_SECONDS = 300  # 5 minutes
 async def proxy_anthropic(request: Request):
     """
     Forward a request to the Anthropic Messages API.
+    Supports gzip-compressed request bodies (Content-Encoding: gzip)
+    to work around Vercel's request size limits.
     The client sends the same body + x-api-key header that would normally
     go directly to api.anthropic.com. This endpoint strips out
     dangerous-direct-browser-access headers and forwards cleanly.
@@ -38,11 +41,22 @@ async def proxy_anthropic(request: Request):
     if not api_key.startswith("sk-ant-"):
         raise HTTPException(status_code=401, detail="Missing or invalid Anthropic API key")
 
-    # Read the request body
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    # Read and optionally decompress the request body
+    raw_body = await request.body()
+    content_encoding = request.headers.get("content-encoding", "").lower()
+
+    if content_encoding == "gzip":
+        try:
+            body = gzip.decompress(raw_body).decode("utf-8")
+            import json as _json
+            body = _json.loads(body)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid gzip-compressed JSON body")
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     # Build forward headers (strip browser-specific ones Anthropic doesn't expect)
     forward_headers = {

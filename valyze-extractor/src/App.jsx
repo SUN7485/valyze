@@ -369,6 +369,26 @@ export default function ValyzeExtractor() {
     setStatus("idle"); setStage(0); setElapsed(0); setLogMsg(""); setError("");
   };
 
+  const compressBody = async (obj) => {
+    const json = JSON.stringify(obj);
+    const cs = new CompressionStream("gzip");
+    const w = cs.writable.getWriter();
+    w.write(new TextEncoder().encode(json));
+    w.close();
+    const reader = cs.readable.getReader();
+    const parts = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value);
+    }
+    const total = parts.reduce((a, c) => a + c.length, 0);
+    const merged = new Uint8Array(total);
+    let off = 0;
+    for (const p of parts) { merged.set(p, off); off += p.length; }
+    return merged;
+  };
+
   const extract = async () => {
     if (!files.length) return;
     if (!apiKey || !apiKey.startsWith("sk-ant-")) {
@@ -424,13 +444,20 @@ export default function ValyzeExtractor() {
       for (let i = 0; i < maxLoops; i++) {
         const useUrl = PROXY_URL || "https://api.anthropic.com/v1/messages";
         const isDirect = !PROXY_URL;
+        const payload = i === 0 ? apiBody : { ...apiBody, messages: msgs };
+        let fetchBody = JSON.stringify(payload);
+        const headers = isDirect
+          ? { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }
+          : { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Encoding": "gzip" };
+        if (!isDirect) {
+          const compressed = await compressBody(payload);
+          fetchBody = compressed;
+        }
         const res = await fetch(useUrl, {
           method: "POST",
-          headers: isDirect
-            ? { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }
-            : { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+          headers,
           signal: abortRef.current.signal,
-          body: JSON.stringify(i === 0 ? apiBody : { ...apiBody, messages: msgs })
+          body: fetchBody,
         });
         if (!res.ok) {
           let errMsg;
@@ -522,23 +549,27 @@ export default function ValyzeExtractor() {
       return;
     }
     setPatchStatus("loading"); setPatchError("");
-try {
+    try {
        let parsed;
        try { parsed = JSON.parse(patchJSON); } catch { throw new Error("Invalid JSON — please check your pasted JSON."); }
        const patchUseUrl = PROXY_URL || "https://api.anthropic.com/v1/messages";
        const patchIsDirect = !PROXY_URL;
+       const patchPayload = {
+         model: "claude-haiku-4-5-20251001",
+         max_tokens: 16000,
+         system: "You are a JSON patch engine. Apply ONLY the listed changes. DO NOT rename fields, reorder, or add fields unless explicitly told. Return ONLY the complete updated JSON. Start with { end with }. No markdown.",
+         messages: [{ role: "user", content: `Here is the full JSON:\n${JSON.stringify(parsed, null, 2)}\n\n## CHANGES TO APPLY:\n${patchInstructions}\n\nReturn only the complete patched JSON.` }]
+       };
+       const bodyStr = JSON.stringify(patchPayload);
+       const headers = patchIsDirect
+         ? { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }
+         : { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Encoding": "gzip" };
+       const fetchBody = patchIsDirect ? bodyStr : await compressBody(patchPayload);
        const res = await fetch(patchUseUrl, {
          method: "POST",
-        headers: patchIsDirect
-          ? { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }
-          : { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 16000,
-          system: "You are a JSON patch engine. Apply ONLY the listed changes. DO NOT rename fields, reorder, or add fields unless explicitly told. Return ONLY the complete updated JSON. Start with { end with }. No markdown.",
-          messages: [{ role: "user", content: `Here is the full JSON:\n${JSON.stringify(parsed, null, 2)}\n\n## CHANGES TO APPLY:\n${patchInstructions}\n\nReturn only the complete patched JSON.` }]
-        })
-      });
+         headers,
+         body: fetchBody,
+       });
       if (!res.ok) { const e = await res.json(); throw new Error(e?.error?.message || "API error"); }
       let data = await res.json();
       if (Array.isArray(data)) data = data[0];
