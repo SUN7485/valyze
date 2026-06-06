@@ -34,6 +34,14 @@ CORS_ORIGINS = [
 if FRONTEND_URL:
     CORS_ORIGINS.append(FRONTEND_URL)
 
+# Allow additional origins via env var (comma-separated)
+CORS_EXTRA_ORIGINS = os.getenv("CORS_EXTRA_ORIGINS", "")
+if CORS_EXTRA_ORIGINS:
+    for origin in CORS_EXTRA_ORIGINS.split(","):
+        origin = origin.strip()
+        if origin:
+            CORS_ORIGINS.append(origin)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
