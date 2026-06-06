@@ -4,6 +4,8 @@ Minimal version: lazy-load everything to avoid cold-start crashes.
 """
 import os
 import sys
+import traceback
+import importlib
 
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
@@ -40,27 +42,39 @@ async def ready():
         return JSONResponse(content={"status": "error", "supabase": "unavailable", "error": str(e)}, status_code=503)
 
 
-# Lazy-load routers to avoid import-time crashes
-def _register_routers():
-    from api.auth import router as auth_router
-    from api.upload import router as upload_router
-    from api.report import router as report_router
-    from api.pdf import router as pdf_router
-    from api.export import router as export_router
-    from api.search import router as search_router
-    from api.cloud import router as cloud_router
-    from api.proxy import router as proxy_router
+# Debug — shows which routers loaded and all routes
+@app.get("/routes")
+async def list_routes():
+    routes = []
+    for r in app.routes:
+        if hasattr(r, "path") and hasattr(r, "methods"):
+            routes.append({"path": r.path, "methods": list(r.methods)})
+        elif hasattr(r, "path"):
+            routes.append({"path": r.path, "methods": ["*"]})
+    return {"routes": routes, "registered": _registered}
 
-    app.include_router(auth_router)
-    app.include_router(upload_router)
-    app.include_router(report_router)
-    app.include_router(pdf_router)
-    app.include_router(export_router)
-    app.include_router(search_router)
-    app.include_router(cloud_router)
-    app.include_router(proxy_router)
 
-try:
-    _register_routers()
-except Exception as e:
-    print(f"[WARN] Router registration failed on cold start: {e}")
+# Register routers one-by-one so one failure doesn't block all
+_registered = {}
+
+def _safe_register(name, module_path):
+    try:
+        mod = importlib.import_module(module_path)
+        router = getattr(mod, "router")
+        app.include_router(router)
+        _registered[name] = "OK"
+        print(f"[OK] {name}")
+    except Exception as e:
+        _registered[name] = f"FAIL: {e}"
+        print(f"[FAIL] {name}: {e}")
+        traceback.print_exc()
+
+# Auth first (critical), then everything else
+_safe_register("auth", "api.auth")
+_safe_register("upload", "api.upload")
+_safe_register("report", "api.report")
+_safe_register("pdf", "api.pdf")
+_safe_register("export", "api.export")
+_safe_register("search", "api.search")
+_safe_register("cloud", "api.cloud")
+_safe_register("proxy", "api.proxy")
