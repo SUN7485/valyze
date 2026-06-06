@@ -6,11 +6,16 @@ Used by the valyze-extractor (browser-based SPA) to make Anthropic API calls
 without exposing the API key in the Network tab and without CORS issues.
 
 Endpoint: POST /api/proxy
+
+IMPORTANT: Vercel serverless functions have a ~4.5 MB request body limit.
+The client MUST gzip-compress large payloads before sending them here.
+The Content-Encoding: gzip header tells us to decompress before forwarding.
 """
 
 from __future__ import annotations
 
 import gzip
+import json as _json
 import os
 import traceback
 from typing import Any
@@ -23,6 +28,10 @@ router = APIRouter(prefix="/api", tags=["proxy"])
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 MAX_TIMEOUT_SECONDS = 300  # 5 minutes
+# Vercel body limit is ~4.5 MB.  Reject requests that look too large
+# *before* reading the full body so we can return a helpful JSON error
+# with CORS headers instead of a bare 413 from the platform.
+MAX_BODY_BYTES = 4 * 1024 * 1024  # 4 MB (safe margin under 4.5 MB)
 
 
 @router.post("/proxy")
@@ -41,20 +50,48 @@ async def proxy_anthropic(request: Request):
     if not api_key.startswith("sk-ant-"):
         raise HTTPException(status_code=401, detail="Missing or invalid Anthropic API key")
 
+    # --- Pre-flight size check (Content-Length header) --------------------
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > MAX_BODY_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Request body ({int(content_length) / 1024 / 1024:.1f} MB) exceeds "
+                f"the server limit ({MAX_BODY_BYTES / 1024 / 1024:.0f} MB). "
+                "Please reduce your document size:\n"
+                "• Use fewer/smaller PDFs\n"
+                "• Switch OCR mode from 'vision' to 'smart' or 'text'\n"
+                "• Split large PDFs into smaller parts\n"
+                "• The server cannot process payloads larger than ~4 MB."
+            ),
+        )
+
     # Read and optionally decompress the request body
     raw_body = await request.body()
+
+    # Post-read size check (the actual bytes received)
+    if len(raw_body) > MAX_BODY_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Request body ({len(raw_body) / 1024 / 1024:.1f} MB) exceeds "
+                f"the server limit ({MAX_BODY_BYTES / 1024 / 1024:.0f} MB). "
+                "Reduce your document size or use a different OCR mode."
+            ),
+        )
+
     content_encoding = request.headers.get("content-encoding", "").lower()
 
     if content_encoding == "gzip":
         try:
-            body = gzip.decompress(raw_body).decode("utf-8")
-            import json as _json
-            body = _json.loads(body)
+            decompressed = gzip.decompress(raw_body)
+            print(f"[proxy] Decompressed: {len(raw_body)} -> {len(decompressed)} bytes")
+            body = _json.loads(decompressed.decode("utf-8"))
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid gzip-compressed JSON body")
     else:
         try:
-            body = await request.json()
+            body = _json.loads(raw_body)
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid JSON body")
 
@@ -85,6 +122,7 @@ async def proxy_anthropic(request: Request):
                 detail=f"Anthropic returned non-JSON response (HTTP {response.status_code})",
             )
 
+        print(f"[proxy] OK — {response.status_code} — {len(raw_body)} bytes in")
         return JSONResponse(content=data, status_code=response.status_code)
 
     except HTTPException:

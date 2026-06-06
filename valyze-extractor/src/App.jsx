@@ -110,13 +110,15 @@ const loadPdfJs = () => new Promise((resolve, reject) => {
   document.head.appendChild(s);
 });
 
-const extractPdf = async (file, mode) => {
+const extractPdf = async (file, mode, opts = {}) => {
   const pdfjs = await loadPdfJs();
   const ab = await file.arrayBuffer();
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(ab) }).promise;
   if (pdf.numPages > 100)
     throw new Error(`"${file.name}" has ${pdf.numPages} pages. API limit is 100.\n\nSplit into two PDFs and upload both.`);
 
+  const quality = opts.quality ?? 0.85;
+  const scale   = opts.scale   ?? 1.5;
   const blocks = [];
   let textPages = 0;
   let imagePages = 0;
@@ -128,12 +130,12 @@ const extractPdf = async (file, mode) => {
 
     if (mode === "vision" || (mode === "smart" && pageText.length <= 30)) {
       imagePages++;
-      const viewport = page.getViewport({ scale: 1.5 });
+      const viewport = page.getViewport({ scale });
       const canvas = document.createElement("canvas");
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-      const b64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+      const b64 = canvas.toDataURL("image/jpeg", quality).split(",")[1];
       blocks.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } });
     } else {
       textPages++;
@@ -375,6 +377,19 @@ export default function ValyzeExtractor() {
     return pako.gzip(json);
   };
 
+  // Estimate JSON payload size in bytes (rough but fast)
+  const estimateJsonSize = (obj) => {
+    try { return new Blob([JSON.stringify(obj)]).size; }
+    catch { return 0; }
+  };
+
+  // Compressed size estimate — gzip typically achieves 3-5x on JSON
+  const estimateCompressedSize = (obj) => Math.ceil(estimateJsonSize(obj) * 0.3);
+
+  // Vercel's safe body limit (compressed). We use 3.5 MB as the ceiling
+  // because the 4.5 MB limit includes multipart overhead, headers, etc.
+  const MAX_SAFE_COMPRESSED_BYTES = 3.5 * 1024 * 1024;
+
   const extract = async () => {
     if (!files.length) return;
     if (!apiKey || !apiKey.startsWith("sk-ant-")) {
@@ -390,11 +405,17 @@ export default function ValyzeExtractor() {
     try {
       const blocks = [];
 
+      // Detect large payloads upfront and degrade image quality/scale
+      const totalFileSize = files.reduce((s, f) => s + f.size, 0);
+      const largePayload = totalFileSize > 5 * 1024 * 1024; // > 5 MB source
+      const pdfQuality = largePayload ? 0.55 : 0.85;
+      const pdfScale   = largePayload ? 1.0  : 1.5;
+
       for (const f of files) {
         setLogMsg(`Reading ${f.name}…`);
 
         if (f.type === "application/pdf") {
-          const { blocks: pdfBlocks, textPages, imagePages } = await extractPdf(f, extractMode);
+          const { blocks: pdfBlocks, textPages, imagePages } = await extractPdf(f, extractMode, { quality: pdfQuality, scale: pdfScale });
           setLogMsg(`✓ ${f.name} — ${textPages} text, ${imagePages} image${extractMode !== "smart" ? ` (${extractMode})` : ""}`);
           blocks.push(...pdfBlocks);
         } else if (f.type?.startsWith("image/") || f.name.match(/\.(png|jpg|jpeg|webp|gif)$/i)) {
@@ -412,7 +433,7 @@ export default function ValyzeExtractor() {
 
       blocks.push({ type: "text", text: `Analyse all the above documents and return the complete Valyze credit intelligence JSON. ${useWebSearch ? "Use web_search AT MOST 3 times for critical missing data." : "Do NOT use web search — extract from documents only."}` });
 
-      setStage(1); setLogMsg("Sending to Claude…");
+      setStage(1); setLogMsg("Preparing payload…");
 
       const msgs = [{ role: "user", content: blocks }];
       let finalText = "";
@@ -424,6 +445,20 @@ export default function ValyzeExtractor() {
         messages: msgs,
       };
       if (useWebSearch) apiBody.tools = [{ type: "web_search_20250305", name: "web_search" }];
+
+      // Pre-flight size check — warn before sending
+      const compressedEstimate = estimateCompressedSize(apiBody);
+      if (compressedEstimate > MAX_SAFE_COMPRESSED_BYTES) {
+        const sizeMB = (compressedEstimate / 1024 / 1024).toFixed(1);
+        throw new Error(
+          `Documents too large (~${sizeMB} MB compressed, limit ~3.5 MB).\n\n` +
+          `To fix this:\n` +
+          `• Switch OCR mode from "vision" to "smart" or "text"\n` +
+          `• Split large PDFs into smaller parts and extract separately\n` +
+          `• Use fewer files at once\n\n` +
+          `The server cannot process payloads this large — Vercel has a 4.5 MB body limit.`
+        );
+      }
 
       const maxLoops = useWebSearch ? 8 : 1;
 
@@ -484,8 +519,25 @@ export default function ValyzeExtractor() {
       let msg;
       if (e.name === "AbortError") {
         msg = "Timed out after 6 minutes.\n\n• Make sure Web Search is OFF\n• Try splitting large PDFs\n• Try again";
-      } else if (e.message?.includes("Failed to fetch") || e.message?.toLowerCase()?.includes("network")) {
-        msg = "Network error — could not reach the proxy server.\n\nPossible causes:\n1. Backend proxy is not deployed or is down\n2. No internet connection\n3. CORS issue\n\nPlease check:\n• Backend is running: valyze-backend.vercel.app/health\n• VITE_PROXY_URL is set in Vercel dashboard\n• Your API key is valid (starts with sk-ant-)";
+      } else if (e.message?.includes("too large") || e.message?.includes("limit") || e.message?.includes("4.5 MB") || e.message?.includes("3.5 MB")) {
+        // Pre-flight size check or server-side 413
+        msg = e.message;
+      } else if (e.message?.includes("[413]") || e.message?.includes("Content Too Large")) {
+        msg = "Documents too large for the server (exceeded 4.5 MB limit).\n\n" +
+              "To fix this:\n" +
+              "• Switch OCR mode from \"vision\" to \"smart\" or \"text\"\n" +
+              "• Split large PDFs into smaller parts\n" +
+              "• Use fewer files at once";
+      } else if (e.message?.includes("Failed to fetch") || e.message?.toLowerCase()?.includes("network") || e.message?.includes("CORS")) {
+        msg = "Network error — could not reach the proxy server.\n\n" +
+              "This often happens when the request is too large for the server (Vercel 4.5 MB limit).\n\n" +
+              "Try:\n" +
+              "• Switch OCR mode from \"vision\" to \"smart\" or \"text\"\n" +
+              "• Split large PDFs into smaller parts\n" +
+              "• Use fewer files at once\n\n" +
+              "If the problem persists, check:\n" +
+              "• Backend: valyze-backend.vercel.app/health\n" +
+              "• Your API key is valid (starts with sk-ant-)";
       } else if (e.message?.includes("[401]") || e.message?.includes("[403]")) {
         msg = "API key rejected by proxy.\n\n• Verify your key is correct\n• Make sure key starts with sk-ant-\n• Check API key quota at console.anthropic.com";
       } else if (e.message?.includes("[502]")) {

@@ -7,6 +7,9 @@ import sys
 import traceback
 import importlib
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
@@ -26,10 +29,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Safety-net middleware: ensures CORS headers are present on EVERY response,
+# even ones that bypass FastAPI (e.g. Starlette errors, 413 from body parser).
+class CORSSafetyMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            body = getattr(exc, "body", b"")
+            status = getattr(exc, "status_code", 500)
+            response = Response(
+                content=body or b'{"detail":"Request too large or server error"}',
+                status_code=status,
+                media_type="application/json",
+            )
+        # Ensure Access-Control-Allow-Origin is always present
+        origin = request.headers.get("origin", "*")
+        if "access-control-allow-origin" not in response.headers:
+            response.headers["access-control-allow-origin"] = origin
+            response.headers["access-control-allow-methods"] = "*"
+            response.headers["access-control-allow-headers"] = "*"
+        return response
+
+app.add_middleware(CORSSafetyMiddleware)
+
 # Public routes — no auth needed
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "1.0.0"}
+    return {"status": "ok", "version": "1.0.0", "max_body_mb": 4}
 
 
 @app.get("/ready")
