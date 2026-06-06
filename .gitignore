@@ -66,3 +66,6 @@ build/
 *.swp
 *.swo
 *~
+
+# Root package-lock (causes Vercel build confusion)
+package-lock.json
