@@ -37,10 +37,15 @@ node_modules/
 .kilocode/
 .agent/
 
+# Frontend dependencies
+frontend/node_modules/
+frontend/package-lock.json
+
 # Environment variables
 .env
 .env.local
 .env.*.local
+valyze-extractor/.env
 
 # Uploaded files and outputs (local dev)
 uploads/
