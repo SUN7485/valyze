@@ -42,12 +42,21 @@ if CORS_EXTRA_ORIGINS:
         if origin:
             CORS_ORIGINS.append(origin)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
+cors_kwargs = dict(
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+if "*" in CORS_ORIGINS:
+    cors_kwargs["allow_origins"] = ["*"]
+    cors_kwargs["allow_credentials"] = False
+else:
+    cors_kwargs["allow_origins"] = CORS_ORIGINS
+    cors_kwargs["allow_credentials"] = True
+
+app.add_middleware(
+    CORSMiddleware,
+    **cors_kwargs,
 )
 
 # ----------------------------------------------------------------------------
