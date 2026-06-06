@@ -1,88 +1,30 @@
 """
 Vercel Serverless Entry Point — Valyze Credit Report Backend
+Minimal version: lazy-load everything to avoid cold-start crashes.
 """
 import os
 import sys
-import traceback
 
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-# Always import these - they're core requirements
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 app = FastAPI(title="ValyzeCredit", version="1.0.0")
 
-# CORS
-FRONTEND_URL = os.getenv("FRONTEND_URL", "")
-CORS_ORIGINS = [
-    "http://localhost:1573",
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "https://valyze-front.vercel.app",
-    "https://valyze.vercel.app",
-    "https://valyze-credit.vercel.app",
-]
-if FRONTEND_URL:
-    CORS_ORIGINS.append(FRONTEND_URL)
+# CORS — open to all
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-CORS_EXTRA_ORIGINS = os.getenv("CORS_EXTRA_ORIGINS", "")
-if CORS_EXTRA_ORIGINS:
-    for origin in CORS_EXTRA_ORIGINS.split(","):
-        origin = origin.strip()
-        if origin:
-            CORS_ORIGINS.append(origin)
-
-cors_kwargs = dict(allow_methods=["*"], allow_headers=["*"])
-if "*" in CORS_ORIGINS:
-    cors_kwargs["allow_origins"] = ["*"]
-    cors_kwargs["allow_credentials"] = False
-else:
-    cors_kwargs["allow_origins"] = CORS_ORIGINS
-    cors_kwargs["allow_credentials"] = True
-
-app.add_middleware(CORSMiddleware, **cors_kwargs)
-
-# Auth middleware
-try:
-    from api.auth import decode_token
-    PUBLIC_PATHS = {"/health", "/ready", "/"}
-
-    @app.middleware("http")
-    async def auth_middleware(request: Request, call_next):
-        path = request.url.path
-        if request.method == "OPTIONS":
-            return await call_next(request)
-        if path in PUBLIC_PATHS or path.startswith("/api/auth/") or path == "/api/proxy" or path == "/docs" or path == "/openapi.json":
-            return await call_next(request)
-        if path.startswith("/api/"):
-            origin = request.headers.get("origin", "")
-            auth_header = request.headers.get("Authorization", "")
-            token = request.query_params.get("token", "") or ""
-            if auth_header.startswith("Bearer "):
-                token = auth_header.split(" ", 1)[1]
-            if not token:
-                resp = JSONResponse(status_code=401, content={"detail": "Not authenticated"})
-                resp.headers["Access-Control-Allow-Origin"] = origin or "*"
-                resp.headers["Access-Control-Allow-Credentials"] = "true"
-                return resp
-            try:
-                decode_token(token)
-            except Exception:
-                resp = JSONResponse(status_code=401, content={"detail": "Invalid or expired token"})
-                resp.headers["Access-Control-Allow-Origin"] = origin or "*"
-                resp.headers["Access-Control-Allow-Credentials"] = "true"
-                return resp
-        return await call_next(request)
-except Exception as e:
-    print(f"[WARN] Auth middleware setup failed: {e}")
-    traceback.print_exc()
-
-
+# Public routes — no auth needed
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "1.0.0"}
@@ -98,7 +40,8 @@ async def ready():
         return JSONResponse(content={"status": "error", "supabase": "unavailable", "error": str(e)}, status_code=503)
 
 
-try:
+# Lazy-load routers to avoid import-time crashes
+def _register_routers():
     from api.auth import router as auth_router
     from api.upload import router as upload_router
     from api.report import router as report_router
@@ -116,6 +59,8 @@ try:
     app.include_router(search_router)
     app.include_router(cloud_router)
     app.include_router(proxy_router)
+
+try:
+    _register_routers()
 except Exception as e:
-    print(f"[WARN] Router registration failed: {e}")
-    traceback.print_exc()
+    print(f"[WARN] Router registration failed on cold start: {e}")
