@@ -371,22 +371,8 @@ export default function ValyzeExtractor() {
 
   const compressBody = async (obj) => {
     const json = JSON.stringify(obj);
-    const cs = new CompressionStream("gzip");
-    const w = cs.writable.getWriter();
-    w.write(new TextEncoder().encode(json));
-    w.close();
-    const reader = cs.readable.getReader();
-    const parts = [];
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      parts.push(value);
-    }
-    const total = parts.reduce((a, c) => a + c.length, 0);
-    const merged = new Uint8Array(total);
-    let off = 0;
-    for (const p of parts) { merged.set(p, off); off += p.length; }
-    return merged;
+    const pako = (await import("pako")).default;
+    return pako.gzip(json);
   };
 
   const extract = async () => {
