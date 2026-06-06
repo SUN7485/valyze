@@ -52,19 +52,24 @@ async def proxy_anthropic(request: Request):
 
     # --- Pre-flight size check (Content-Length header) --------------------
     content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > MAX_BODY_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=(
-                f"Request body ({int(content_length) / 1024 / 1024:.1f} MB) exceeds "
-                f"the server limit ({MAX_BODY_BYTES / 1024 / 1024:.0f} MB). "
-                "Please reduce your document size:\n"
-                "• Use fewer/smaller PDFs\n"
-                "• Switch OCR mode from 'vision' to 'smart' or 'text'\n"
-                "• Split large PDFs into smaller parts\n"
-                "• The server cannot process payloads larger than ~4 MB."
-            ),
-        )
+    if content_length:
+        try:
+            cl_int = int(content_length)
+        except (ValueError, TypeError):
+            cl_int = 0
+        if cl_int > MAX_BODY_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Request body ({cl_int / 1024 / 1024:.1f} MB) exceeds "
+                    f"the server limit ({MAX_BODY_BYTES / 1024 / 1024:.0f} MB). "
+                    "Please reduce your document size:\n"
+                    "• Use fewer/smaller PDFs\n"
+                    "• Switch OCR mode from 'vision' to 'smart' or 'text'\n"
+                    "• Split large PDFs into smaller parts\n"
+                    "• The server cannot process payloads larger than ~4 MB."
+                ),
+            )
 
     # Read and optionally decompress the request body
     raw_body = await request.body()
@@ -85,10 +90,22 @@ async def proxy_anthropic(request: Request):
     if content_encoding == "gzip":
         try:
             decompressed = gzip.decompress(raw_body)
-            print(f"[proxy] Decompressed: {len(raw_body)} -> {len(decompressed)} bytes")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid gzip-compressed data")
+        # Check decompressed size — a gzip bomb or oversized payload must be caught here
+        if len(decompressed) > MAX_BODY_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Decompressed request body ({len(decompressed) / 1024 / 1024:.1f} MB) exceeds "
+                    f"the server limit ({MAX_BODY_BYTES / 1024 / 1024:.0f} MB). "
+                    "Reduce your document size or use a different OCR mode."
+                ),
+            )
+        try:
             body = _json.loads(decompressed.decode("utf-8"))
         except Exception:
-            raise HTTPException(status_code=400, detail="Invalid gzip-compressed JSON body")
+            raise HTTPException(status_code=400, detail="Decompressed data is not valid JSON")
     else:
         try:
             body = _json.loads(raw_body)

@@ -4,7 +4,7 @@
       "src": "api/index.py",
       "use": "@vercel/python",
       "config": {
-        "maxLambdaSize": "50mb",
+        "maxLambdaSize": 50,
         "maxDuration": 300
       }
     }
