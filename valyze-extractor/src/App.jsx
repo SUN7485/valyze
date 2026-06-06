@@ -510,9 +510,35 @@ export default function ValyzeExtractor() {
       }
 
       setStage(2); setLogMsg("Parsing JSON…");
-      const m = finalText.match(/\{[\s\S]*\}/);
-      if (!m) throw new Error("No valid JSON returned. Try again — if it persists, try splitting large PDFs.");
-      setResult(JSON.parse(m[0]));
+
+      // Robust JSON extraction: find the first { then count brackets to find matching }
+      // (The old greedy regex /\{[\s\S]*\}/ captured trailing text, breaking JSON.parse)
+      const extractJsonObject = (text) => {
+        const start = text.indexOf("{");
+        if (start === -1) return null;
+        let depth = 0;
+        let inString = false;
+        let escape = false;
+        for (let i = start; i < text.length; i++) {
+          const ch = text[i];
+          if (escape) { escape = false; continue; }
+          if (ch === "\\") { escape = true; continue; }
+          if (ch === '"') { inString = !inString; continue; }
+          if (inString) continue;
+          if (ch === "{") depth++;
+          else if (ch === "}") {
+            depth--;
+            if (depth === 0) return text.slice(start, i + 1);
+          }
+        }
+        // Fallback: if bracket matching failed, try greedy match
+        const greedy = text.match(/\{[\s\S]*\}/);
+        return greedy ? greedy[0] : null;
+      };
+
+      const jsonStr = extractJsonObject(finalText);
+      if (!jsonStr) throw new Error("No valid JSON returned. Try again — if it persists, try splitting large PDFs.");
+      setResult(JSON.parse(jsonStr));
       setStage(3); setLogMsg("Done!"); setStatus("done");
 
       } catch (e) {
@@ -613,9 +639,23 @@ export default function ValyzeExtractor() {
       if (Array.isArray(data)) data = data[0];
       if (!data || typeof data !== "object" || !data.content) throw new Error("Invalid patch API response");
       const raw = data.content.filter(b => b.type === "text").map(b => b.text).join("");
-      const m = raw.match(/\{[\s\S]*\}/);
-      if (!m) throw new Error("No valid JSON returned.");
-      setResult(JSON.parse(m[0])); setStatus("done"); setTab("json");
+      // Use same bracket-counting extraction as main extract()
+      const patchStart = raw.indexOf("{");
+      if (patchStart === -1) throw new Error("No valid JSON returned.");
+      let pDepth = 0, pInStr = false, pEsc = false;
+      let patchJson = null;
+      for (let pi = patchStart; pi < raw.length; pi++) {
+        const ch = raw[pi];
+        if (pEsc) { pEsc = false; continue; }
+        if (ch === "\\") { pEsc = true; continue; }
+        if (ch === '"') { pInStr = !pInStr; continue; }
+        if (pInStr) continue;
+        if (ch === "{") pDepth++;
+        else if (ch === "}") { pDepth--; if (pDepth === 0) { patchJson = raw.slice(patchStart, pi + 1); break; } }
+      }
+      if (!patchJson) { const gm = raw.match(/\{[\s\S]*\}/); patchJson = gm?.[0]; }
+      if (!patchJson) throw new Error("No valid JSON returned.");
+      setResult(JSON.parse(patchJson)); setStatus("done"); setTab("json");
       setPatchStatus("done");
     } catch (e) { setPatchError(e.message); setPatchStatus("error"); }
   };
