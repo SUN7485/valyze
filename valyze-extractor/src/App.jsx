@@ -160,6 +160,8 @@ RULE 4 — EBITDA: Net profit before tax + Finance costs + ALL depreciation/amor
 
 RULE 5 — CONFLICTS: Audited statements > Notes > Schedules > Questionnaire > Management. Log in data_limitations.
 
+RULE 5B — ORDER SUMMARY DISCREPANCIES: Before finalizing order_comment, compare every order-summary/order_comment item against the uploaded files. If the order summary contains information that is missing from the uploaded files or conflicts with them, preserve the original order_comment and append a clear comment in the same order_comment field. Format: "Comment: Order summary discrepancy — [field/value from order summary] differs from uploaded files: [value/source found]. Verify before report generation." If multiple discrepancies exist, list them as numbered comments under the same order_comment field.
+
 RULE 6 — CONSISTENCY: credit_rating=final_credit_rating, recommended_limit=recommended_credit_limit, max_exposure=maximum_exposure.
 
 RULE 11 — CURRENCY DISPLAY:
@@ -173,6 +175,7 @@ RULE 12 — COUNTRY REGISTRATION FIELDS:
 - show_uae_fields: true ONLY if country is UAE. Populate: trade_license_number, trn_vat, ded_number, freezone_license
 - For ANY OTHER country: set all three flags to false. Use extra_reg_fields:[{extra_reg_label, extra_reg_value}] for ALL country-specific registrations (tax ID, VAT, trade license, chamber of commerce, etc.)
 - extra_reg_fields is also used for additional fields beyond the standard set for Egypt/Saudi/UAE
+- other_registration_id: use this field for any other registration ID, certificate number, authority number, or miscellaneous registration reference that does not fit the standard fields. If multiple values exist, combine them with " / " or use extra_reg_fields for labeled pairs.
 
 RULE 14 — REPORT ID FORMAT:
 Generate report_id as VCR-[COUNTRY_CODE]-[4-DIGIT-NUMBER]
@@ -245,6 +248,7 @@ company_name, legal_name, trade_names, cr_number, unified_number, investment_lic
 show_egypt_fields (bool), tax_registration_number, tax_card_number, trade_license_number, social_insurance_number, gafi_registration, industrial_license_number, import_license_number, export_license_number, lei_number,
 show_saudi_fields (bool), zakat_certificate, zakat_number, zakat_status, zakat_alert, vat_registration_number, gosi_registration, nitaqat_band, municipality_license,
 show_uae_fields (bool), trn_vat, ded_number, freezone_license,
+other_registration_id,
 extra_reg_fields:[{extra_reg_label, extra_reg_value}],
 executive_summary_text (max 120 words), company_history_text (max 80 words), exec_current_ratio, exec_equity_ratio, exec_ebit_margin, exec_debt_equity, exec_profitability,
 parent_company, subsidiaries, affiliates, ultimate_beneficial_owner,

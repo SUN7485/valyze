@@ -74,3 +74,12 @@ build/
 
 # Root package-lock (causes Vercel build confusion)
 package-lock.json
+# Explicit project env files
+backend/.env
+backend/services/.env
+frontend/.env
+valyze-portal/.env
+# Built Vercel outputs
+frontend/dist/
+valyze-portal/dist/
+valyze-extractor/dist/

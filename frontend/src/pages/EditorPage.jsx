@@ -164,21 +164,26 @@ export default function EditorPage() {
             const html = res.data?.html
 
             if (html) {
-                // Open HTML in a new window and trigger browser Print → Save as PDF
-                const win = window.open('', '_blank')
-                if (win) {
-                    win.document.write(html)
-                    win.document.close()
-                    win.focus()
-                    // Give the window time to render, then trigger print dialog
-                    setTimeout(() => {
-                        win.print()
-                        setPdfSuccess(true)
-                        setTimeout(() => setPdfSuccess(false), 3000)
-                    }, 1000)
-                } else {
-                    setPdfError('Pop-up blocked. Please allow pop-ups for this site.')
-                }
+                // Create iframe to avoid about:blank and browser header issues
+                const iframe = document.createElement('iframe')
+                iframe.style.position = 'fixed'
+                iframe.style.left = '-9999px'
+                document.body.appendChild(iframe)
+
+                const doc = iframe.contentDocument || iframe.contentWindow.document
+                doc.open()
+                doc.write(html)
+                doc.close()
+
+                // Wait for content to load, then trigger print
+                setTimeout(() => {
+                    iframe.contentWindow.focus()
+                    iframe.contentWindow.print()
+                    setPdfSuccess(true)
+                    setTimeout(() => setPdfSuccess(false), 3000)
+                    // Clean up iframe after print dialog
+                    setTimeout(() => document.body.removeChild(iframe), 1000)
+                }, 1000)
             } else {
                 setPdfError('Failed to generate PDF — no HTML returned.')
             }

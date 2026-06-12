@@ -122,6 +122,7 @@ class PatternEngine:
             "license_expiry": self.extract_license_expiry,
             "registration_number": self.extract_registration_number,
             "investment_license_no": self.extract_investment_license_no,
+            "other_registration_id": self.extract_other_registration_id,
         }
 
         results: dict = {}
@@ -130,7 +131,7 @@ class PatternEngine:
                 # Use western-normalised text for number fields
                 if field_name in (
                     "cr_number", "unified_number", "phone", "fax",
-                    "registration_number", "investment_license_no",
+                    "registration_number", "investment_license_no", "other_registration_id",
                 ):
                     value = extractor_fn(text_w)
                 else:
@@ -338,6 +339,16 @@ class PatternEngine:
             r"(?:(?:Investment\s*)?License\s*(?:No|Number)?[.:\s]*)\s*"
             r"([A-Za-z0-9\-/]+\d+[A-Za-z0-9\-/]*)",
             r"(?:ترخيص\s*استثمار|رقم\s*الترخيص)[:\s]*([A-Za-z0-9\-/]+)",
+        ]
+        return self._first_match(text, patterns)
+
+    def extract_other_registration_id(self, text: str) -> Optional[str]:
+        """Extract any additional registration ID not covered by standard fields."""
+        patterns = [
+            r"(?:Other\s*(?:Registration|Reg(?:istration)?)\s*(?:No|Number|ID)?[.:\s-]*)\s*([A-Za-z0-9][A-Za-z0-9\-/]{3,40})",
+            r"(?:Additional\s*(?:Registration|Reg(?:istration)?)\s*(?:No|Number|ID)?[.:\s-]*)\s*([A-Za-z0-9][A-Za-z0-9\-/]{3,40})",
+            r"(?:Extra\s*(?:Registration|Reg(?:istration)?)\s*(?:No|Number|ID)?[.:\s-]*)\s*([A-Za-z0-9][A-Za-z0-9\-/]{3,40})",
+            r"(?:رقم\s*(?:تسجيل\s*آخر|تسجيل\s*إضافي)|تسجيل\s*آخر|تسجيل\s*إضافي)[:\s]*([A-Za-z0-9][A-Za-z0-9\-/]{3,40})",
         ]
         return self._first_match(text, patterns)
 

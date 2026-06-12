@@ -64,6 +64,7 @@ _register(
         "license_expiry",
         "registration_number",
         "investment_license_no",
+        "other_registration_id",
         # Egypt-specific registration fields
         "tax_registration_number",
         "tax_card_number",

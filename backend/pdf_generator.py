@@ -712,6 +712,7 @@ class PDFGenerator:
             "registration_number": gf("cr_number"),
             "unified_number": gf("unified_number"),
             "investment_license_no": gf("investment_license_no"),
+            "other_registration_id": gf("other_registration_id"),
             "license_type": gf("license_type"),
             "issue_date": gf("issue_date"),
             "expiry_date": gf("expiry_date"),

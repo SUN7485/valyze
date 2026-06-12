@@ -94,6 +94,9 @@ def parse_questionnaire_into_fields(
         'activities': 'core_activities_description',
         'capital': 'capital',
         'license': 'license_type',
+        'other registration': 'other_registration_id',
+        'additional registration': 'other_registration_id',
+        'extra registration': 'other_registration_id',
         'banks': 'banking_raw',
         'suppliers': 'suppliers_raw',
         'customers': 'customers_raw',
@@ -201,6 +204,7 @@ def apply_questionnaire_fields(
         'website': 'website',
         'employee_count': 'employee_count',
         'capital': 'capital',
+        'other_registration_id': 'other_registration_id',
         'facility_size': 'facility_size',
         'facility_type': 'facility_type',
         'core_activities_description': 

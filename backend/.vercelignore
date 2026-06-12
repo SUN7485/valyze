@@ -1,0 +1,29 @@
+# Local env and generated files
+.env
+.env.*
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local artifacts
+uploads/
+outputs/
+*.pdf
+*.log
+
+# Tests and local scripts
+tests/
+patch_report.py
+patch_report.cjs
+fix_install.cjs
+fix_layout.cjs
+# Heavy optional AI/extraction modules not registered by the Vercel entrypoint
+ai/
+calculations/
+engines/
+api/extract.py
+api/extract_backup.py
+api/extract_clean.py
+api/generate.py

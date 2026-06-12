@@ -20,18 +20,40 @@ from fastapi.responses import JSONResponse
 
 app = FastAPI(title="ValyzeCredit", version="1.0.0")
 
-# CORS — open to all
+# CORS — allow configured Vercel/frontend origins.
+CORS_ORIGINS = [
+    "http://localhost:1573",
+    "http://localhost:1574",
+    "http://localhost:1575",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "http://localhost:3000",
+    "http://localhost:3001",
+]
+FRONTEND_URL = os.getenv("FRONTEND_URL", "").strip()
+PORTAL_URL = os.getenv("PORTAL_URL", "").strip()
+if FRONTEND_URL:
+    CORS_ORIGINS.append(FRONTEND_URL)
+if PORTAL_URL:
+    CORS_ORIGINS.append(PORTAL_URL)
+for origin in os.getenv("CORS_EXTRA_ORIGINS", "").split(","):
+    origin = origin.strip()
+    if origin:
+        CORS_ORIGINS.append(origin)
+CORS_ALLOW_ALL = "*" in CORS_ORIGINS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=not CORS_ALLOW_ALL,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# Safety-net middleware: ensures CORS headers are present on EVERY response,
-# even ones that bypass FastAPI (e.g. Starlette errors, 413 from body parser).
+# Safety-net middleware: ensures CORS headers are present on allowed origins,
+# even on errors that bypass FastAPI (e.g. Starlette errors, 413 from body parser).
 class CORSSafetyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         try:
@@ -44,10 +66,12 @@ class CORSSafetyMiddleware(BaseHTTPMiddleware):
                 status_code=status,
                 media_type="application/json",
             )
-        # Ensure Access-Control-Allow-Origin is always present
-        origin = request.headers.get("origin", "*")
+        origin = request.headers.get("origin", "")
         if "access-control-allow-origin" not in response.headers:
-            response.headers["access-control-allow-origin"] = origin
+            if CORS_ALLOW_ALL:
+                response.headers["access-control-allow-origin"] = "*"
+            elif origin and origin in CORS_ORIGINS:
+                response.headers["access-control-allow-origin"] = origin
             response.headers["access-control-allow-methods"] = "*"
             response.headers["access-control-allow-headers"] = "*"
         return response
@@ -85,11 +109,14 @@ async def list_routes():
 # Register routers one-by-one so one failure doesn't block all
 _registered = {}
 
-def _safe_register(name, module_path):
+def _safe_register(name, module_path, prefix=None, tags=None):
     try:
         mod = importlib.import_module(module_path)
         router = getattr(mod, "router")
-        app.include_router(router)
+        if prefix:
+            app.include_router(router, prefix=prefix, tags=tags or [])
+        else:
+            app.include_router(router)
         _registered[name] = "OK"
         print(f"[OK] {name}")
     except Exception as e:
@@ -97,12 +124,17 @@ def _safe_register(name, module_path):
         print(f"[FAIL] {name}: {e}")
         traceback.print_exc()
 
-# Auth first (critical), then everything else
+# Auth first (critical), then everything else.
+# Routers with their own /api/* prefix are registered without an extra prefix.
 _safe_register("auth", "api.auth")
+_safe_register("portal", "api.portal", prefix="/api/portal", tags=["portal"])
 _safe_register("upload", "api.upload")
 _safe_register("report", "api.report")
 _safe_register("pdf", "api.pdf")
 _safe_register("export", "api.export")
+_safe_register("invoices", "api.invoices", prefix="/api/invoices", tags=["invoices"])
 _safe_register("search", "api.search")
 _safe_register("cloud", "api.cloud")
+_safe_register("clients", "api.clients", prefix="/api/clients", tags=["clients"])
+_safe_register("orders", "api.orders", prefix="/api/orders", tags=["orders"])
 _safe_register("proxy", "api.proxy")

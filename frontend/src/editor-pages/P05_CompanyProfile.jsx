@@ -312,6 +312,7 @@ export default function P05_CompanyProfile() {
           <FieldInput label="Unified Number"           fieldName="unified_number" type="text" />
           <FieldInput label="License Type"             fieldName="license_type" type="text" />
           <FieldInput label="Investment License No."   fieldName="investment_license_no" type="text" />
+          <FieldInput label="Other Registration ID"    fieldName="other_registration_id" type="text" placeholder="Any other registration/license/certificate ID" />
         </div>
 
         {/* Dynamic Country Specifics */}

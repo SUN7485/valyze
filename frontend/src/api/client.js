@@ -28,7 +28,7 @@ const api = axios.create({
     }
 })
 
-// Request interceptor — attach JWT token + logging
+// Request interceptor - attach JWT token + logging
 api.interceptors.request.use(config => {
     const token = localStorage.getItem('valyze_token')
     if (token) {
@@ -64,6 +64,87 @@ export const authAPI = {
     verify: () =>
         api.post('/auth/verify'),
 }
+
+// ---------------------------------------------------------------------------
+// Users API
+// ---------------------------------------------------------------------------
+
+export const usersAPI = {
+    getAll: () =>
+        api.get('/auth/users'),
+
+    create: (data) =>
+        api.post('/auth/users', data),
+
+    update: (id, data) =>
+        api.patch(`/auth/users/${id}`, data),
+
+    delete: (id) =>
+        api.delete(`/auth/users/${id}`),
+}
+
+// ---------------------------------------------------------------------------
+// Clients API
+// ---------------------------------------------------------------------------
+
+
+export const clientsAPI = {
+    getAll: (search = '') =>
+        api.get('/clients/', { params: { search } }),
+
+    getOne: (id) =>
+        api.get(`/clients/${id}`),
+
+    create: (data) =>
+        api.post('/clients/', data),
+
+    update: (id, data) =>
+        api.patch(`/clients/${id}`, data),
+
+    delete: (id) =>
+        api.delete(`/clients/${id}`),
+
+    generatePortalLink: (id, opts = {}) =>
+        api.post(`/clients/${id}/generate-portal-link`, opts),
+
+    getSessions: (id) =>
+        api.get(`/clients/${id}/sessions`),
+
+    revokeSession: (sessionId) =>
+        api.delete(`/clients/sessions/${sessionId}`),
+}
+
+// ---------------------------------------------------------------------------
+// Orders API
+// ---------------------------------------------------------------------------
+
+export const ordersAPI = {
+    getAll: (filters = {}) => {
+        const params = new URLSearchParams()
+        if (filters.status && filters.status !== 'all') params.set('status', filters.status)
+        if (filters.analyst && filters.analyst !== 'all') params.set('analyst', filters.analyst)
+        return api.get('/orders/', { params })
+    },
+
+    getOne: (id) =>
+        api.get(`/orders/${id}`),
+
+    update: (id, data) =>
+        api.patch(`/orders/${id}`, data),
+
+    updateCompany: (orderId, companyId, data) =>
+        api.patch(`/orders/${orderId}/companies/${companyId}`, data),
+
+    startCompany: (orderId, companyId) =>
+        api.post(`/orders/${orderId}/companies/${companyId}/start`),
+
+    completeCompany: (orderId, companyId) =>
+        api.post(`/orders/${orderId}/companies/${companyId}/complete`),
+}
+
+// ---------------------------------------------------------------------------
+// Reports API
+// ---------------------------------------------------------------------------
 
 export const reportAPI = {
 
@@ -242,6 +323,29 @@ export const reportAPI = {
         api.post('/upload/check-duplicate', {
             cr_number: crNumber,
             company_name: companyName
+        }),
+}
+
+export const invoicesAPI = {
+    generate: (orderId) =>
+        api.post(`/invoices/generate/${orderId}`),
+
+    getAll: (filters = {}) => {
+        const params = new URLSearchParams()
+        if (filters.status) params.append('status', filters.status)
+        if (filters.client_id) params.append('client_id', filters.client_id)
+        return api.get('/invoices/', { params })
+    },
+
+    getOne: (id) =>
+        api.get(`/invoices/${id}`),
+
+    updateStatus: (id, status) =>
+        api.patch(`/invoices/${id}/status`, { status }),
+
+    getHtml: (id) =>
+        api.get(`/invoices/${id}/html`, {
+            responseType: 'text'
         }),
 }
 

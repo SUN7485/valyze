@@ -44,6 +44,7 @@ const PAGE_FIELDS = {
          'tax_registration_number', 'trade_license_number', 'tax_card_number',
          'social_insurance_number', 'gafi_registration', 'industrial_license_number',
          'import_license_number', 'export_license_number', 'lei_number',
+         'other_registration_id',
          'trn_vat', 'ded_number', 'freezone_license',
          'gosi_registration', 'nitaqat_band', 'municipality_license',
          'zakat_certificate', 'zakat_number', 'zakat_status', 'zakat_alert',

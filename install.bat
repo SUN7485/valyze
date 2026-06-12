@@ -78,6 +78,17 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 echo       Valyze Extractor OK
+
+:: Install Valyze Portal Dependencies
+echo [5.5/8] Installing Valyze Portal Node packages...
+cd /d "%~dp0valyze-portal"
+call npm install
+if %errorlevel% neq 0 (
+    echo ERROR: npm install failed for Portal!
+    pause
+    exit /b 1
+)
+echo       Valyze Portal OK
 echo.
 
 :: Install Frontend Dependencies

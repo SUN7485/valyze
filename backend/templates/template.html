@@ -12,6 +12,16 @@
       margin: 10mm;
     }
 
+    @media print {
+      html, body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        padding: 10mm;
+      }
+    }
+
     * {
       margin: 0;
       padding: 0;
@@ -1228,6 +1238,9 @@
 
           <div class="reg-label">Investment License No.</div>
           <div class="reg-value">{{investment_license_no}}</div>
+
+          <div class="reg-label">Other Registration ID</div>
+          <div class="reg-value">{{other_registration_id}}</div>
 
           <div class="reg-label">Issue Date</div>
           <div class="reg-value">{{issue_date}}</div>

@@ -98,6 +98,11 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 if FRONTEND_URL:
     CORS_ORIGINS.append(FRONTEND_URL)
 
+# Add portal frontend origin from environment variable when it differs from the main app
+PORTAL_URL = os.getenv("PORTAL_URL", "")
+if PORTAL_URL:
+    CORS_ORIGINS.append(PORTAL_URL)
+
 # Also allow any Vercel preview deployments (*.vercel.app)
 ALLOWED_EXTRA_ORIGINS = os.getenv("CORS_EXTRA_ORIGINS", "")
 if ALLOWED_EXTRA_ORIGINS:
@@ -105,11 +110,12 @@ if ALLOWED_EXTRA_ORIGINS:
         origin = origin.strip()
         if origin:
             CORS_ORIGINS.append(origin)
+CORS_ALLOW_ALL = "*" in CORS_ORIGINS
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=not CORS_ALLOW_ALL,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -127,22 +133,30 @@ if not IS_VERCEL:
 # Keep: upload (optional), report (edit + import), pdf (generate)
 
 from api.auth import router as auth_router
+from api.portal import router as portal_router
 from api.upload import router as upload_router
 from api.report import router as report_router
 from api.pdf import router as pdf_router
 from api.export import router as export_router
+from api.invoices import router as invoices_router
 from api.search import router as search_router
 from api.cloud import router as cloud_router
+from api.clients import router as clients_router
+from api.orders import router as orders_router
 from api.proxy import router as proxy_router
 
 app.include_router(auth_router)
+app.include_router(portal_router, prefix="/api/portal", tags=["portal"])
 app.include_router(upload_router)
 app.include_router(report_router)
 app.include_router(pdf_router)
 app.include_router(export_router)
+app.include_router(invoices_router, prefix="/api/invoices", tags=["invoices"])
 app.include_router(search_router)
 app.include_router(cloud_router)
+app.include_router(clients_router, prefix="/api/clients", tags=["clients"])
 app.include_router(proxy_router)
+app.include_router(orders_router, prefix="/api/orders", tags=["orders"])
 
 
 # ---------------------------------------------------------------------------

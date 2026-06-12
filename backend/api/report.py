@@ -9,6 +9,7 @@ SINGLE SOURCE OF TRUTH. NO AUTO-RECALCULATION. EVER.
 from __future__ import annotations
 
 import shutil
+from services.supabase_client import get_order_companies as sb_get_order_companies_for_report
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -686,6 +687,10 @@ async def easy_way_import(
         "cr_number": "cr_number",
         "unified_number": "unified_number",
         "investment_license_no": "investment_license_no",
+        "other_registration_id": "other_registration_id",
+        "other_registration_number": "other_registration_id",
+        "other_reg_id": "other_registration_id",
+        "additional_registration_id": "other_registration_id",
         "license_type": "license_type",
         "issue_date": "issue_date",
         "expiry_date": "expiry_date",
@@ -1130,6 +1135,18 @@ async def easy_way_import(
     report.updated_at = now_ts
     await save_report_json(None, report_id, report)
     await update_report_status(None, report_id, "ready")
+    # -- Check linked order_companies --
+    try:
+        order_companies = sb_get_order_companies_for_report(report_id)
+        if order_companies:
+            linked = [oc for oc in order_companies if oc.get("report_id") == report_id]
+            if linked:
+                statuses = [oc.get("status", "") for oc in linked]
+                if "completed" not in statuses:
+                    print("[EASY WAY] Linked order_companies not completed - keeping in_progress")
+                    await update_report_status(None, report_id, "in_progress")
+    except Exception as exc:
+        print("[EASY WAY] order_companies check failed: " + exc)
     print(f"[DEBUG] Report saved successfully")
 
     return {

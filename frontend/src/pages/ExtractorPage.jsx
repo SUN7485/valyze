@@ -1,19 +1,19 @@
-import React from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Zap, ArrowRight, ExternalLink, Shield } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Zap, ArrowRight, ExternalLink, Shield, Loader2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export default function ExtractorPage() {
     const navigate = useNavigate()
+    const { reportId } = useParams()
     const { user, loading } = useAuth()
     const token = localStorage.getItem('valyze_token') || ''
 
-    // Redirect to login if not authenticated
     if (loading) {
         return (
             <div className="min-h-[calc(100vh-120px)] flex items-center justify-center">
                 <div className="text-center">
-                    <div className="w-12 h-12 border-3 border-primary/20 border-t-primary rounded-full animate-spin mx-auto mb-4" />
+                    <Loader2 size={32} className="text-primary animate-spin mx-auto mb-4" />
                     <p className="text-slate-500">Checking authentication...</p>
                 </div>
             </div>
@@ -25,9 +25,14 @@ export default function ExtractorPage() {
         return null
     }
 
-    // Pass the JWT token to the extractor so it can verify the user
-    const baseUrl = import.meta.env.VITE_EXTRACTOR_URL || 'https://valyze-extractor.vercel.app'
-    const extractorUrl = `${baseUrl}?token=${encodeURIComponent(token)}`
+    const extractorBase = import.meta.env.VITE_EXTRACTOR_URL || 'https://valyze-extractor.vercel.app'
+
+    useEffect(() => {
+        if (reportId) {
+            const url = `${extractorBase}/reports/${reportId}?token=${encodeURIComponent(token)}`
+            window.open(url, '_blank')
+        }
+    }, [reportId, token])
 
     return (
         <div className="min-h-[calc(100vh-120px)] flex items-center justify-center">
@@ -46,17 +51,26 @@ export default function ExtractorPage() {
                         <span className="text-xs uppercase tracking-wider">Authenticated Access</span>
                     </div>
                     <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-6">
-                        The extractor opens in a new tab. You're already authenticated — 
-                        no need to log in again. 
+                        The extractor opens in a new tab. You're already authenticated — no need to log in again.
                         It requires an Anthropic API key to process documents.
                     </p>
                     <button
-                        onClick={() => window.open(extractorUrl, '_blank')}
+                        onClick={() => {
+                            const url = reportId
+                                ? `${extractorBase}/reports/${reportId}?token=${encodeURIComponent(token)}`
+                                : extractorBase
+                            window.open(url, '_blank')
+                        }}
                         className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold rounded-xl hover:from-amber-600 hover:to-orange-700 transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 text-sm"
                     >
                         <ExternalLink size={18} />
                         Open Extractor
                     </button>
+                    {reportId && (
+                        <p className="text-xs text-slate-400 mt-3 text-center">
+                            Report: <span className="font-mono font-bold text-slate-600 dark:text-slate-300">{reportId}</span>
+                        </p>
+                    )}
                 </div>
 
                 <button

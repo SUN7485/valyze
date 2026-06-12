@@ -2,7 +2,7 @@ import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useDarkMode } from '../hooks/useDarkMode'
 import { useAuth } from '../context/AuthContext'
-import { Sun, Moon, Info, Shield, FileText, LogOut } from 'lucide-react'
+import { Sun, Moon, Info, Shield, FileText, ClipboardList, Receipt, LogOut, Building2, Users } from 'lucide-react'
 
 export default function Layout({ children }) {
     const { darkMode, toggleDarkMode } = useDarkMode()
@@ -32,11 +32,11 @@ export default function Layout({ children }) {
                             System Active • v2.0
                         </div>
 
-                        <Link 
-                            to="/reports" 
+                        <Link
+                            to="/reports"
                             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${
-                                location.pathname === '/reports' 
-                                    ? 'bg-primary text-white shadow-md shadow-primary/20' 
+                                location.pathname === '/reports'
+                                    ? 'bg-primary text-white shadow-md shadow-primary/20'
                                     : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary'
                             }`}
                         >
@@ -44,13 +44,67 @@ export default function Layout({ children }) {
                             Reports
                         </Link>
 
+                        <Link
+                            to="/clients"
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${
+                                location.pathname.startsWith('/clients')
+                                    ? 'bg-primary text-white shadow-md shadow-primary/20'
+                                    : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary'
+                            }`}
+                        >
+                            <Building2 size={14} />
+                            Clients
+                        </Link>
+
+                        <Link
+                            to="/orders"
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${
+                                location.pathname.startsWith('/orders')
+                                    ? 'bg-primary text-white shadow-md shadow-primary/20'
+                                    : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary'
+                            }`}
+                        >
+                            <ClipboardList size={14} />
+                            Orders
+                        </Link>
+
+                        <Link
+                            to="/invoices"
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${
+                                location.pathname.startsWith('/invoices')
+                                    ? 'bg-primary text-white shadow-md shadow-primary/20'
+                                    : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary'
+                            }`}
+                        >
+                            <Receipt size={14} />
+                            Invoices
+                        </Link>
+
+                        {user?.role === 'super_admin' && (
+                            <Link
+                                to="/users"
+                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${
+                                    location.pathname.startsWith('/users')
+                                        ? 'bg-primary text-white shadow-md shadow-primary/20'
+                                        : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary'
+                                }`}
+                            >
+                                <Users size={14} />
+                                Users
+                            </Link>
+                        )}
+
                         {/* User info + logout */}
+
                         {user && (
                             <div className="flex items-center gap-2">
                                 <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-white/5 rounded-full border border-slate-200 dark:border-white/5">
                                     <Shield size={12} className="text-primary" />
                                     <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">
                                         {user.name || user.email}
+                                    </span>
+                                    <span className="text-[8px] font-black uppercase tracking-wider text-primary">
+                                        {user.role}
                                     </span>
                                 </div>
                                 <button

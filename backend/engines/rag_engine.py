@@ -218,7 +218,8 @@ class RAGEngine:
             "phone": ["phone", "telephone", "contact", "هاتف", "اتصال"],
             "email": ["email", "e-mail", "@", "بريد", "إلكتروني"],
             "financial": ["revenue", "profit", "income", "balance", "مبيعات", "أرباح"],
-            "legal": ["license", "registration", "legal", "قانوني", "ترخيص"]
+            "legal": ["license", "registration", "legal", "قانوني", "ترخيص"],
+            "other_registration_id": ["other registration", "additional registration", "extra registration", "other reg", "رقم تسجيل آخر", "تسجيل إضافي"]
         }
         
         # Check if chunk contains field-specific keywords

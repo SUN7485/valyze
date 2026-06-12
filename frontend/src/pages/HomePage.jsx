@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { PlayCircle, History, FileText, ArrowRight, Upload, Database, Info, PlusCircle, Zap, ArrowLeft } from 'lucide-react'
+import { PlayCircle, History, FileText, ArrowRight, Upload, Database, Info, PlusCircle, Zap, ArrowLeft, AlertCircle, ClipboardCheck } from 'lucide-react'
 import { useReport } from '../context/ReportContext'
-import { reportAPI } from '../api/client'
+import { reportAPI, ordersAPI } from '../api/client'
 
 // Order Summary Modal - appears before starting new report
 function OrderSummaryModal({ isOpen, onClose, onSubmit, savedOrder }) {
@@ -232,6 +232,7 @@ export default function HomePage() {
     const [showOrderSummary, setShowOrderSummary] = useState(false)
     const [pendingAction, setPendingAction] = useState(null) // 'new' or 'easy'
     const [savedOrder, setSavedOrder] = useState(null)
+    const [orderStats, setOrderStats] = useState({ pending: 0, inProgress: 0, hasUnreadPending: false, loading: true })
 
     // Load saved order from localStorage on mount
     useEffect(() => {
@@ -241,6 +242,26 @@ export default function HomePage() {
                 setSavedOrder(JSON.parse(saved))
             } catch (e) {}
         }
+    }, [])
+
+    useEffect(() => {
+        let mounted = true
+
+        ordersAPI.getAll()
+            .then((response) => {
+                if (!mounted) return
+                const data = Array.isArray(response.data) ? response.data : response.data.orders || []
+                const pending = data.filter(order => order.status === 'pending').length
+                const inProgress = data.filter(order => order.status === 'in_progress').length
+                const hasUnreadPending = data.some(order => order.status === 'pending' && (order.unread || order.is_unread || order.read === false))
+
+                setOrderStats({ pending, inProgress, hasUnreadPending, loading: false })
+            })
+            .catch(() => {
+                if (mounted) setOrderStats({ pending: 0, inProgress: 0, hasUnreadPending: false, loading: false })
+            })
+
+        return () => { mounted = false }
     }, [])
 
     // Easy Way Import state
@@ -431,6 +452,51 @@ export default function HomePage() {
                             <ArrowRight size={20} /> Fetch Instance
                         </button>
                     </div>
+                </div>
+            </div>
+
+            <div className="glass-card p-8 mb-20 relative overflow-hidden">
+                <div className="absolute -right-16 -top-16 w-64 h-64 bg-primary/10 rounded-full blur-3xl" />
+                <div className="relative z-10">
+                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+                        <div>
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full border border-primary/20 text-[10px] font-black uppercase tracking-widest mb-4">
+                                <ClipboardCheck size={14} /> Orders Dashboard
+                            </div>
+                            <h3 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">Order Pipeline</h3>
+                            <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">
+                                Keep pending and in-progress orders moving without losing track of deadlines.
+                            </p>
+                        </div>
+
+                        <div className="grid sm:grid-cols-2 gap-3 w-full lg:w-auto">
+                            <div className="rounded-2xl bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800/40 p-5">
+                                <div className="text-[9px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-300">Pending Orders</div>
+                                <div className="text-3xl font-black text-amber-700 dark:text-amber-300 mt-2">{orderStats.loading ? '...' : orderStats.pending}</div>
+                            </div>
+                            <div className="rounded-2xl bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/40 p-5">
+                                <div className="text-[9px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-300">In Progress</div>
+                                <div className="text-3xl font-black text-blue-700 dark:text-blue-300 mt-2">{orderStats.loading ? '...' : orderStats.inProgress}</div>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={() => navigate('/orders')}
+                            className="lg:self-end py-3 px-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-95 transition-all shadow-lg shadow-slate-900/10"
+                        >
+                            Open Orders <ArrowRight size={14} />
+                        </button>
+                    </div>
+
+                    {orderStats.hasUnreadPending && (
+                        <div className="mt-6 p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-start gap-3 text-rose-600 dark:text-rose-300">
+                            <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
+                            <div>
+                                <div className="font-black uppercase tracking-widest text-xs">New Orders</div>
+                                <p className="text-sm mt-1">Pending orders are waiting for review. Open the Orders dashboard to triage them.</p>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
