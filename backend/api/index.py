@@ -97,12 +97,7 @@ async def health():
 
 @app.get("/ready")
 async def ready():
-    missing_env = []
-    if not os.getenv("SUPABASE_URL"):
-        missing_env.append("SUPABASE_URL")
-    if not os.getenv("SUPABASE_SERVICE_KEY") and not os.getenv("SUPABASE_ANON_KEY"):
-        missing_env.append("SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY")
-
+    missing_env = _missing_supabase_env()
     if missing_env:
         return JSONResponse(
             content={
@@ -120,6 +115,43 @@ async def ready():
     except Exception as e:
         traceback.print_exc()
         return JSONResponse(content={"status": "error", "supabase": "unavailable", "error": str(e)}, status_code=503)
+
+
+def _missing_supabase_env() -> list[str]:
+    missing_env = []
+    if not os.getenv("SUPABASE_URL"):
+        missing_env.append("SUPABASE_URL")
+    if not os.getenv("SUPABASE_SERVICE_KEY") and not os.getenv("SUPABASE_ANON_KEY"):
+        missing_env.append("SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY")
+    return missing_env
+
+
+@app.get("/ready/tables")
+async def ready_tables():
+    missing_env = _missing_supabase_env()
+    if missing_env:
+        return JSONResponse(
+            content={"status": "error", "missing_env": missing_env},
+            status_code=503,
+        )
+
+    try:
+        from services.supabase_client import (
+            get_all_clients,
+            get_all_invoices,
+            get_all_orders,
+            get_all_reports,
+        )
+        counts = {
+            "reports": len(get_all_reports()),
+            "clients": len(get_all_clients()),
+            "orders": len(get_all_orders()),
+            "invoices": len(get_all_invoices()),
+        }
+        return {"status": "ok", "tables": counts}
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(content={"status": "error", "error": str(e)}, status_code=503)
 
 
 # Debug — shows which routers loaded and all routes
