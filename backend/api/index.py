@@ -8,7 +8,6 @@ import traceback
 import importlib
 
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
 
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
@@ -59,13 +58,13 @@ class CORSSafetyMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
         except Exception as exc:
-            body = getattr(exc, "body", b"")
+            traceback.print_exc()
             status = getattr(exc, "status_code", 500)
-            response = Response(
-                content=body or b'{"detail":"Request too large or server error"}',
-                status_code=status,
-                media_type="application/json",
-            )
+            if status == 413:
+                detail = "Request body too large for serverless"
+            else:
+                detail = getattr(exc, "detail", None) or str(exc) or "Server error"
+            response = JSONResponse(status_code=status, content={"detail": detail})
         origin = request.headers.get("origin", "")
         if "access-control-allow-origin" not in response.headers:
             if CORS_ALLOW_ALL:
@@ -81,16 +80,45 @@ app.add_middleware(CORSSafetyMiddleware)
 # Public routes — no auth needed
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "1.0.0", "max_body_mb": 4}
+    supabase_key = bool(os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY"))
+    return {
+        "status": "ok",
+        "version": "1.0.0",
+        "max_body_mb": 4.5,
+        "env": {
+            "supabase_url": bool(os.getenv("SUPABASE_URL")),
+            "supabase_key": supabase_key,
+            "frontend_url": bool(FRONTEND_URL),
+            "portal_url": bool(PORTAL_URL),
+            "cors_origins_count": len(CORS_ORIGINS),
+        },
+    }
 
 
 @app.get("/ready")
 async def ready():
+    missing_env = []
+    if not os.getenv("SUPABASE_URL"):
+        missing_env.append("SUPABASE_URL")
+    if not os.getenv("SUPABASE_SERVICE_KEY") and not os.getenv("SUPABASE_ANON_KEY"):
+        missing_env.append("SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY")
+
+    if missing_env:
+        return JSONResponse(
+            content={
+                "status": "error",
+                "supabase": "missing_env",
+                "missing_env": missing_env,
+            },
+            status_code=503,
+        )
+
     try:
         from services.supabase_client import get_reports_count
         count = get_reports_count()
         return {"status": "ok", "supabase": "connected", "db_status": f"connected ({count} reports)"}
     except Exception as e:
+        traceback.print_exc()
         return JSONResponse(content={"status": "error", "supabase": "unavailable", "error": str(e)}, status_code=503)
 
 
