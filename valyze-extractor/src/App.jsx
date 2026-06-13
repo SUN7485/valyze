@@ -838,14 +838,20 @@ export default function ValyzeExtractor() {
               <button onClick={downloadJSON} style={{ padding:"7px 12px",borderRadius:8,border:"none",background:C.success,color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13 }}>⬇ Download JSON</button>
               <button onClick={()=>{setStatus("idle");setFiles([]);setResult(null);setLogMsg("");}} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid "+C.border,background:C.surface,color:C.textSecondary,cursor:"pointer",fontSize:13 }}>New Report</button>
               <button 
-onClick={() => {
-                   if (result) {
-                     setNavigating(true);
-                     localStorage.setItem("valyze_pending_import", JSON.stringify(result));
-                     const frontendUrl = import.meta.env.VITE_FRONTEND_URL || "http://localhost:1573";
-                     window.location.href = frontendUrl;
-                   }
-                 }}
+                onClick={() => {
+                    if (result) {
+                        const params = new URLSearchParams(window.location.search);
+                        const reportId = params.get("reportId");
+                        if (reportId) {
+                            localStorage.setItem("valyze_import_" + reportId, JSON.stringify(result));
+                            const frontendUrl = import.meta.env.VITE_FRONTEND_URL || window.location.origin;
+                            window.location.href = frontendUrl + "/editor/" + reportId + "?autoImport=1";
+                        } else {
+                            const frontendUrl = import.meta.env.VITE_FRONTEND_URL || window.location.origin;
+                            window.location.href = frontendUrl;
+                        }
+                    }
+                }}
                 disabled={navigating || !result}
                 style={{
                   padding: "12px 24px",

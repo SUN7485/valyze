@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Download, Loader2, RefreshCw, Shield, X } from 'lucide-react'
 import { invoicesAPI } from '../api/client'
+import html2pdf from 'html2pdf.js'
 
 const STATUS_STYLES = {
     draft: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
@@ -215,27 +216,62 @@ export default function InvoiceDetailPage() {
 
     const handleDownloadPdf = async () => {
         const filename = `Valyze-Invoice-${String(invoiceNumber).replace(/[^\w.-]+/g, '_')}.pdf`
-        const popup = openHtmlWindow('Preparing invoice PDF...')
 
         try {
             setDownloading(true)
             setError('')
             const response = await invoicesAPI.getHtml(invoiceId)
-            const html = extractHtml(response)
+            const rawHtml = extractHtml(response)
 
-            if (!html) {
+            if (!rawHtml) {
                 throw new Error('Invoice HTML was empty')
             }
 
-            if (popup) {
-                writeHtmlWindow(popup, html)
-            } else {
-                downloadHtmlFallback(html, filename)
+            const container = document.createElement('div')
+            container.innerHTML = rawHtml
+            container.style.position = 'fixed'
+            container.style.left = '-9999px'
+            container.style.top = '0'
+            container.style.width = '794px'
+            container.style.background = '#ffffff'
+            container.style.padding = '24px'
+            document.body.appendChild(container)
+
+            const styleTag = container.querySelector('style')
+            if (styleTag) {
+                styleTag.textContent = styleTag.textContent.replace(/background:\s*#0f172a/g, 'background: #ffffff')
+                styleTag.textContent = styleTag.textContent.replace(/background:\s*#111827/g, 'background: #ffffff')
+                styleTag.textContent = styleTag.textContent.replace(/color:\s*#e5e7eb/g, 'color: #1f2937')
+                styleTag.textContent = styleTag.textContent.replace(/color:\s*#cbd5e1/g, 'color: #374151')
+                styleTag.textContent = styleTag.textContent.replace(/color:\s*#94a3b8/g, 'color: #6b7280')
+                styleTag.textContent = styleTag.textContent.replace(/border-color:\s*#334155/g, 'border-color: #e5e7eb')
+                styleTag.textContent = styleTag.textContent.replace(/border-color:\s*#475569/g, 'border-color: #e5e7eb')
+                styleTag.textContent = styleTag.textContent.replace(/border-bottom:\s*1px solid\s*#334155/g, 'border-bottom: 1px solid #e5e7eb')
+                styleTag.textContent = styleTag.textContent.replace(/color:\s*#93c5fd/g, 'color: #111827')
+                styleTag.textContent = styleTag.textContent.replace(/color:\s*#60a5fa/g, 'color: #111827')
+                styleTag.textContent = styleTag.textContent.replace(/color:\s*#ffffff/g, 'color: #111827')
+                styleTag.textContent = styleTag.textContent.replace(/background:\s*#020617/g, 'background: #f9fafb')
+                styleTag.textContent = styleTag.textContent.replace(/border-left:\s*4px solid\s*#60a5fa/g, 'border-left: 4px solid #2563eb')
+                styleTag.textContent += `
+                    .page { background: #ffffff !important; color: #1f2937 !important; }
+                    body { background: #ffffff !important; color: #1f2937 !important; }
+                    tr { background: #ffffff !important; }
+                    [style*="background"] { background-color: #ffffff !important; }
+                `
             }
+
+            const opt = {
+                filename,
+                margin: [8, 8, 8, 8],
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+            }
+
+            await html2pdf().set(opt).from(container).toPdf().output('blob')
+            document.body.removeChild(container)
         } catch (e) {
-            if (popup) {
-                writeErrorWindow(popup, `Failed to download PDF: ${e.message}`)
-            }
             setError(`Failed to download PDF: ${e.message}`)
         } finally {
             setDownloading(false)

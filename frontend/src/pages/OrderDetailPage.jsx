@@ -247,6 +247,12 @@ function OrderHeaderCard({ order, onEditNotes, savingNotes }) {
                             {savingNotes ? <Loader2 size={14} className="animate-spin" /> : <Edit3 size={14} />}
                             Edit Notes
                         </button>
+                        {order.notes && (
+                            <div className="mt-4 p-3 bg-white/50 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10">
+                                <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Notes</div>
+                                <p className="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{order.notes}</p>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

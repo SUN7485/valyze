@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
