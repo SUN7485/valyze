@@ -189,13 +189,16 @@ export default function InvoiceDetailPage() {
             const rawHtml = extractHtml(response)
             if (!rawHtml) throw new Error('Invoice HTML was empty')
 
-            // Open in new window for print/save
-            const win = window.open('', '_blank')
-            if (win) {
-                win.document.write(rawHtml)
-                win.document.close()
-                win.focus()
-            }
+            const filename = `Valyze-Invoice-${String(invoiceNumber).replace(/[^\w.-]+/g, '_')}.html`
+            const blob = new Blob([rawHtml], { type: 'text/html;charset=utf-8' })
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = url
+            link.download = filename
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            setTimeout(() => URL.revokeObjectURL(url), 1000)
         } catch (e) {
             setError(`Failed to download: ${e.message}`)
         } finally {

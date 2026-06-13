@@ -12,7 +12,6 @@ const STATUS_STYLES = {
 function StatusBadge({ status }) {
     const normalized = String(status || '').toLowerCase()
     const className = STATUS_STYLES[normalized] || 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-white/5 dark:text-slate-400 dark:border-white/10'
-
     return (
         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${className}`}>
             {normalized || 'Unknown'}
@@ -23,23 +22,14 @@ function StatusBadge({ status }) {
 function formatCurrency(value) {
     const number = Number(value)
     if (!Number.isFinite(number)) return '-'
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    }).format(number)
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(number)
 }
 
 function formatDate(value) {
     if (!value) return '-'
     const date = new Date(value)
     if (Number.isNaN(date.getTime())) return value
-    return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-    })
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 function getInvoiceNumber(invoice) {
@@ -47,54 +37,31 @@ function getInvoiceNumber(invoice) {
 }
 
 function getClientName(invoice) {
-    return invoice.client_name
-        || invoice.client?.client_name
-        || invoice.client?.name
-        || invoice.client_id
-        || '-'
+    return invoice.client_name || invoice.client?.client_name || invoice.client?.name || invoice.client_id || '-'
 }
 
 function getOrderNumber(invoice) {
-    return invoice.order_number
-        || invoice.order?.order_number
-        || invoice.order_id
-        || '-'
+    return invoice.order_number || invoice.order?.order_number || invoice.order_id || '-'
 }
 
 function getInvoiceDate(invoice) {
-    return invoice.invoice_date
-        || invoice.date
-        || invoice.created_at
-        || invoice.updated_at
-        || '-'
+    return invoice.invoice_date || invoice.date || invoice.created_at || invoice.updated_at || '-'
 }
 
 function getCompanies(invoice) {
-    return invoice.company_count
-        ?? invoice.companies_count
-        ?? invoice.companies?.length
-        ?? '-'
+    return invoice.company_count ?? invoice.companies_count ?? invoice.companies?.length ?? '-'
 }
 
 function getUnitPrice(invoice) {
-    return invoice.unit_price
-        ?? invoice.price_per_company
-        ?? invoice.unit_price_usd
-        ?? ''
+    return invoice.unit_price ?? invoice.price_per_company ?? invoice.unit_price_usd ?? ''
 }
 
 function getDiscount(invoice) {
-    return invoice.discount_amount
-        ?? invoice.volume_discount_amount
-        ?? invoice.discount
-        ?? ''
+    return invoice.discount_amount ?? invoice.volume_discount_amount ?? invoice.discount ?? ''
 }
 
 function getTotal(invoice) {
-    return invoice.total_amount
-        ?? invoice.total
-        ?? invoice.grand_total
-        ?? ''
+    return invoice.total_amount ?? invoice.total ?? invoice.grand_total ?? ''
 }
 
 function extractHtml(response) {
@@ -104,12 +71,27 @@ function extractHtml(response) {
     return ''
 }
 
-function openInvoiceHtml(html) {
-    const win = window.open('', '_blank')
-    if (win) {
-        win.document.write(html)
-        win.document.close()
-        win.focus()
+function downloadHtmlFile(html, filename) {
+    try {
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = filename
+        link.style.display = 'none'
+        document.body.appendChild(link)
+        link.click()
+        setTimeout(() => {
+            document.body.removeChild(link)
+            URL.revokeObjectURL(url)
+        }, 200)
+    } catch (e) {
+        console.error('[InvoiceDownload] Blob download failed:', e)
+        const win = window.open('', '_blank')
+        if (win) {
+            win.document.write(html)
+            win.document.close()
+        }
     }
 }
 
@@ -152,12 +134,12 @@ export default function InvoicesPage() {
             setError('')
             const response = await invoicesAPI.getHtml(invoice.id)
             const html = extractHtml(response)
-
             if (!html) {
                 throw new Error('Invoice HTML was empty')
             }
-
-            openInvoiceHtml(html)
+            const num = getInvoiceNumber(invoice)
+            const filename = `Valyze-Invoice-${String(num).replace(/[^\w.-]+/g, '_')}.html`
+            downloadHtmlFile(html, filename)
         } catch (e) {
             setError(`Failed to download: ${e.message}`)
         } finally {
@@ -242,76 +224,33 @@ export default function InvoicesPage() {
                                     const invoiceNumber = getInvoiceNumber(invoice)
                                     const status = String(invoice.status || '').toLowerCase()
                                     const busy = downloading[invoice.id] || updating[invoice.id]
-
                                     return (
                                         <tr key={invoice.id} className="group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all duration-200">
                                             <td className="px-4 py-4">
-                                                <button
-                                                    onClick={() => navigate(`/invoices/${invoice.id}`)}
-                                                    className="font-bold text-slate-700 dark:text-slate-200 hover:text-primary transition-colors text-left text-sm"
-                                                >
+                                                <button onClick={() => navigate(`/invoices/${invoice.id}`)} className="font-bold text-slate-700 dark:text-slate-200 hover:text-primary transition-colors text-left text-sm">
                                                     {invoiceNumber}
                                                 </button>
                                             </td>
-                                            <td className="px-4 py-4 text-sm font-semibold text-slate-600 dark:text-slate-300">
-                                                {getClientName(invoice)}
-                                            </td>
-                                            <td className="px-4 py-4 text-sm font-mono text-slate-500 dark:text-slate-400">
-                                                {getOrderNumber(invoice)}
-                                            </td>
-                                            <td className="px-4 py-4 text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                                                {formatDate(getInvoiceDate(invoice))}
-                                            </td>
-                                            <td className="px-4 py-4 text-sm text-slate-500 dark:text-slate-400">
-                                                {getCompanies(invoice)}
-                                            </td>
-                                            <td className="px-4 py-4 text-sm text-right text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                                                {formatCurrency(getUnitPrice(invoice))}
-                                            </td>
-                                            <td className="px-4 py-4 text-sm text-right text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                                                {formatCurrency(getDiscount(invoice))}
-                                            </td>
-                                            <td className="px-4 py-4 text-sm text-right font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap">
-                                                {formatCurrency(getTotal(invoice))}
-                                            </td>
-                                            <td className="px-4 py-4">
-                                                <StatusBadge status={status} />
-                                            </td>
+                                            <td className="px-4 py-4 text-sm font-semibold text-slate-600 dark:text-slate-300">{getClientName(invoice)}</td>
+                                            <td className="px-4 py-4 text-sm font-mono text-slate-500 dark:text-slate-400">{getOrderNumber(invoice)}</td>
+                                            <td className="px-4 py-4 text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatDate(getInvoiceDate(invoice))}</td>
+                                            <td className="px-4 py-4 text-sm text-slate-500 dark:text-slate-400">{getCompanies(invoice)}</td>
+                                            <td className="px-4 py-4 text-sm text-right text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatCurrency(getUnitPrice(invoice))}</td>
+                                            <td className="px-4 py-4 text-sm text-right text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatCurrency(getDiscount(invoice))}</td>
+                                            <td className="px-4 py-4 text-sm text-right font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap">{formatCurrency(getTotal(invoice))}</td>
+                                            <td className="px-4 py-4"><StatusBadge status={status} /></td>
                                             <td className="px-4 py-4">
                                                 <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button
-                                                        onClick={() => navigate(`/invoices/${invoice.id}`)}
-                                                        className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-50"
-                                                        aria-label={`View invoice ${invoiceNumber}`}
-                                                        title="View"
-                                                    >
+                                                    <button onClick={() => navigate(`/invoices/${invoice.id}`)} className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-50" title="View">
                                                         {busy ? <Loader2 size={18} className="animate-spin" /> : <Eye size={18} />}
                                                     </button>
-                                                    <button
-                                                        onClick={() => handleDownload(invoice)}
-                                                        disabled={downloading[invoice.id]}
-                                                        className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-50"
-                                                        aria-label={`Download invoice ${invoiceNumber}`}
-                                                        title="Download HTML"
-                                                    >
+                                                    <button onClick={() => handleDownload(invoice)} disabled={downloading[invoice.id]} className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-50" title="Download Invoice">
                                                         {downloading[invoice.id] ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
                                                     </button>
-                                                    <button
-                                                        onClick={() => handleUpdateStatus(invoice, 'sent')}
-                                                        disabled={status !== 'draft' || updating[invoice.id]}
-                                                        className="px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 hover:bg-blue-100 hover:text-blue-700 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-blue-900/30 dark:hover:text-blue-300 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                                                        aria-label={`Mark invoice ${invoiceNumber} as sent`}
-                                                        title="Mark as Sent"
-                                                    >
+                                                    <button onClick={() => handleUpdateStatus(invoice, 'sent')} disabled={status !== 'draft' || updating[invoice.id]} className="px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 hover:bg-blue-100 hover:text-blue-700 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-blue-900/30 dark:hover:text-blue-300 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
                                                         {updating[invoice.id] ? 'Updating' : 'Mark Sent'}
                                                     </button>
-                                                    <button
-                                                        onClick={() => handleUpdateStatus(invoice, 'paid')}
-                                                        disabled={status !== 'sent' || updating[invoice.id]}
-                                                        className="px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 hover:bg-emerald-100 hover:text-emerald-700 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-emerald-900/30 dark:hover:text-emerald-300 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                                                        aria-label={`Mark invoice ${invoiceNumber} as paid`}
-                                                        title="Mark as Paid"
-                                                    >
+                                                    <button onClick={() => handleUpdateStatus(invoice, 'paid')} disabled={status !== 'sent' || updating[invoice.id]} className="px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 hover:bg-emerald-100 hover:text-emerald-700 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-emerald-900/30 dark:hover:text-emerald-300 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
                                                         {updating[invoice.id] ? 'Updating' : 'Mark Paid'}
                                                     </button>
                                                 </div>
