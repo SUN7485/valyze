@@ -121,6 +121,7 @@ input,
 select,
 textarea {
   width: 100%;
+  min-width: 0;
   border: 1px solid var(--border-soft);
   border-radius: 14px;
   background: rgba(13, 27, 42, 0.72);
@@ -269,6 +270,7 @@ select option {
 .form-section {
   display: grid;
   gap: 20px;
+  min-width: 0;
   padding: 24px;
   border: 1px solid var(--border-soft);
   border-radius: 22px;
@@ -300,6 +302,7 @@ select option {
 .form-grid {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .form-grid.two-columns {
@@ -353,6 +356,7 @@ select option {
 .company-card {
   display: grid;
   gap: 16px;
+  min-width: 0;
   padding: 22px;
   border: 1px solid var(--border-soft);
   border-radius: 20px;

@@ -54,7 +54,7 @@ ACTIVE_SESSION_FIELDS = (
     "portal_url",
 )
 
-PORTAL_URL = (os.getenv("PORTAL_URL") or "http://localhost:3000").rstrip("/")
+PORTAL_URL = (os.getenv("PORTAL_URL") or os.getenv("FRONTEND_URL") or "http://localhost:1573").rstrip("/")
 PASSWORD_CHARS = string.ascii_letters + string.digits
 
 
@@ -270,7 +270,7 @@ async def generate_portal_link(
     token = secrets.token_hex(16)
     password_plain = _generate_password_plain()
     expires_at = datetime.now(timezone.utc) + timedelta(days=request.expiry_days)
-    portal_url = f"{PORTAL_URL}?token={token}"
+    portal_url = f"{PORTAL_URL}/portal?token={token}"
 
     session = create_client_session_record(
         {

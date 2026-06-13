@@ -20,6 +20,7 @@ const ClientsPage = lazy(() => import('./pages/ClientsPage'))
 const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage'))
 const ExtractorPage = lazy(() => import('./pages/ExtractorPage'))
 const UsersPage = lazy(() => import('./pages/UsersPage'))
+const PortalPage = lazy(() => import('./pages/PortalPage'))
 
 // Loading fallback
 function PageLoader() {
@@ -44,6 +45,8 @@ function AppRoutes() {
       <Routes>
         {/* Public routes */}
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/portal" element={<PortalPage />} />
+        <Route path="/portal/*" element={<PortalPage />} />
 
         {/* Protected routes (require login) */}
         <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
