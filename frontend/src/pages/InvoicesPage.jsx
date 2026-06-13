@@ -104,22 +104,13 @@ function extractHtml(response) {
     return ''
 }
 
-function printHtml(html) {
-    const iframe = document.createElement('iframe')
-    iframe.style.position = 'fixed'
-    iframe.style.left = '-9999px'
-    document.body.appendChild(iframe)
-
-    const doc = iframe.contentDocument || iframe.contentWindow.document
-    doc.open()
-    doc.write(html)
-    doc.close()
-
-    setTimeout(() => {
-        iframe.contentWindow.focus()
-        iframe.contentWindow.print()
-        setTimeout(() => document.body.removeChild(iframe), 1000)
-    }, 800)
+function openInvoiceHtml(html) {
+    const win = window.open('', '_blank')
+    if (win) {
+        win.document.write(html)
+        win.document.close()
+        win.focus()
+    }
 }
 
 export default function InvoicesPage() {
@@ -166,7 +157,7 @@ export default function InvoicesPage() {
                 throw new Error('Invoice HTML was empty')
             }
 
-            printHtml(html)
+            openInvoiceHtml(html)
         } catch (e) {
             setError(`Failed to download: ${e.message}`)
         } finally {

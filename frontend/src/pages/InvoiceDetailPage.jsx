@@ -189,22 +189,13 @@ export default function InvoiceDetailPage() {
             const rawHtml = extractHtml(response)
             if (!rawHtml) throw new Error('Invoice HTML was empty')
 
-            // Print via hidden iframe (same pattern as report generation)
-            const iframe = document.createElement('iframe')
-            iframe.style.position = 'fixed'
-            iframe.style.left = '-9999px'
-            document.body.appendChild(iframe)
-
-            const doc = iframe.contentDocument || iframe.contentWindow.document
-            doc.open()
-            doc.write(rawHtml)
-            doc.close()
-
-            setTimeout(() => {
-                iframe.contentWindow.focus()
-                iframe.contentWindow.print()
-                setTimeout(() => document.body.removeChild(iframe), 1000)
-            }, 800)
+            // Open in new window for print/save
+            const win = window.open('', '_blank')
+            if (win) {
+                win.document.write(rawHtml)
+                win.document.close()
+                win.focus()
+            }
         } catch (e) {
             setError(`Failed to download: ${e.message}`)
         } finally {
