@@ -340,6 +340,9 @@ export const invoicesAPI = {
     getOne: (id) =>
         api.get(`/invoices/${id}`),
 
+    update: (id, data) =>
+        api.patch(`/invoices/${id}`, data),
+
     updateStatus: (id, status) =>
         api.patch(`/invoices/${id}/status`, { status }),
 

@@ -8,8 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Path as PathParam
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from api.auth import get_current_user
-from services.pricing_engine import calculate_invoice, generate_invoice_number
 from services.supabase_client import (
     create_invoice as sb_create_invoice,
     get_all_invoices as sb_get_all_invoices,
@@ -30,6 +28,19 @@ VALID_INVOICE_STATUSES = {"draft", "sent", "paid"}
 
 class UpdateInvoiceStatusRequest(BaseModel):
     status: Literal["draft", "sent", "paid"]
+
+
+class UpdateInvoiceRequest(BaseModel):
+    status: Optional[Literal["draft", "sent", "paid"]] = None
+    notes: Optional[str] = None
+    line_items: Optional[List[Dict[str, Any]]] = None
+    subtotal: Optional[float] = None
+    discount_amount: Optional[float] = None
+    total: Optional[float] = None
+    unit_price: Optional[float] = None
+    company_count: Optional[int] = None
+    service_level: Optional[str] = None
+    report_type: Optional[str] = None
 
 
 def _money(value: Any) -> str:
@@ -333,6 +344,45 @@ async def update_invoice_status(
             "updated_at": datetime.now(timezone.utc).isoformat(),
         },
     )
+    if not updated:
+        raise HTTPException(status_code=500, detail="Failed to update invoice")
+    return _enrich_invoice_detail(updated)
+
+
+@router.patch("/{invoice_id}")
+async def update_invoice(
+    invoice_id: str,
+    body: UpdateInvoiceRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    invoice = sb_get_invoice(invoice_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    updates: Dict[str, Any] = {}
+    if body.status is not None:
+        updates["status"] = body.status
+    if body.notes is not None:
+        updates["notes"] = body.notes
+    if body.line_items is not None:
+        updates["line_items"] = body.line_items
+    if body.subtotal is not None:
+        updates["subtotal"] = body.subtotal
+    if body.discount_amount is not None:
+        updates["discount_amount"] = body.discount_amount
+    if body.total is not None:
+        updates["total"] = body.total
+    if body.unit_price is not None:
+        updates["unit_price"] = body.unit_price
+    if body.company_count is not None:
+        updates["company_count"] = body.company_count
+    if body.service_level is not None:
+        updates["service_level"] = body.service_level
+    if body.report_type is not None:
+        updates["report_type"] = body.report_type
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    updated = sb_update_invoice(invoice_id, updates)
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update invoice")
     return _enrich_invoice_detail(updated)

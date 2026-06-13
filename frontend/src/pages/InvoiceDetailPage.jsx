@@ -159,7 +159,19 @@ export default function InvoiceDetailPage() {
         try {
             setUpdating(true)
             setError('')
-            await invoicesAPI.updateStatus(invoice.id, status)
+            await invoicesAPI.update(invoice.id, {
+                line_items: editDraft.line_items,
+                subtotal: editDraft.subtotal,
+                discount_amount: editDraft.discount_amount,
+                total: editDraft.total,
+                notes: editDraft.notes,
+                service_level: editDraft.service_level,
+                report_type: editDraft.report_type,
+                company_count: editDraft.company_count,
+                unit_price: editDraft.unit_price,
+                currency: editDraft.currency,
+                status: status,
+            })
             await fetchInvoice()
             setEditing(false)
             setEditDraft(null)

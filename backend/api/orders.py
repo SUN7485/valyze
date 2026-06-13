@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_current_user, get_order_assignable_users
 from database.crud import create_report, update_report_field, update_report_status
+from services.pricing_engine import calculate_invoice, generate_invoice_number
 from services.supabase_client import (
     create_invoice as sb_create_invoice,
     create_order as sb_create_order,
@@ -23,7 +24,7 @@ from services.supabase_client import (
     get_all_orders as sb_get_all_orders,
     get_analyst_workload as sb_get_analyst_workload,
     get_active_order_assignments as sb_get_active_order_assignments,
-    get_max_invoice_number,
+    get_client,
     get_max_order_number,
     get_order as sb_get_order,
     get_order_company as sb_get_order_company,
@@ -123,12 +124,11 @@ def assign_analyst(order: Optional[Dict[str, Any]] = None) -> str:
     """
     Auto-assign an analyst based on lowest active workload.
 
-    Ties rotate through eligible admins/analysts based on the oldest
-    active assignment among tied analysts.
+    Round-robin through assignable users: waleed -> mohamed -> mahmoud -> amani -> sally.
+    Tie on workload -> rotate forward from the most recently assigned analyst.
+    Uses all existing orders (not just active) to find rotation anchor.
     """
     workload_rows = sb_get_analyst_workload()
-    active_rows = sb_get_active_order_assignments()
-
     assignable_users = get_order_assignable_users()
     if not assignable_users:
         raise HTTPException(status_code=503, detail="No analyst or admin users are available for assignment")
@@ -149,41 +149,44 @@ def assign_analyst(order: Optional[Dict[str, Any]] = None) -> str:
     if len(tied) == 1:
         return tied[0]
 
-    latest_by_analyst: Dict[str, datetime] = {}
-    for row in active_rows:
-        email = row.get("auto_assigned_analyst")
-        if email not in tied:
-            continue
-        created_at = _parse_datetime(row.get("created_at"))
-        if created_at is None:
-            continue
-        current = latest_by_analyst.get(email)
-        if current is None or created_at > current:
-            latest_by_analyst[email] = created_at
-
-    if latest_by_analyst:
-        last_email = min(latest_by_analyst, key=latest_by_analyst.get)
-        last_index = assignable_users.index(last_email)
+    # Use most recent order (any status) as rotation anchor
+    anchor = _get_rotation_anchor(assignable_users)
+    if anchor:
+        anchor_idx = assignable_users.index(anchor)
         for offset in range(1, len(assignable_users) + 1):
-            candidate = assignable_users[(last_index + offset) % len(assignable_users)]
+            candidate = assignable_users[(anchor_idx + offset) % len(assignable_users)]
             if candidate in tied:
                 return candidate
 
+    # No anchor yet (first orders) -> round-robin from first user
     return tied[0]
 
 
-def generate_order_number() -> str:
-    now = datetime.now(timezone.utc)
-    year = now.year
-    max_seq = get_max_order_number(year) or 0
-    return f"ORD-{year}-{max_seq + 1:04d}"
+def _get_rotation_anchor(assignable_users: List[str]) -> Optional[str]:
+    """Return the most recently assigned analyst to use as rotation anchor."""
+    from services.supabase_client import _handle_response, get_base_url, get_headers
 
+    import requests
 
-def generate_invoice_number() -> str:
-    now = datetime.now(timezone.utc)
-    year = now.year
-    max_seq = get_max_invoice_number(year) or 0
-    return f"INV-{year}-{max_seq + 1:04d}"
+    url = (
+        f"{get_base_url()}/orders"
+        f"?select=auto_assigned_analyst,created_at"
+        f"&auto_assigned_analyst=not.is.null"
+        f"&order=created_at.desc.nullslast"
+        f"&limit=1"
+    )
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=15)
+        results = _handle_response(response)
+        if not results:
+            return None
+        latest = results[0]
+        email = latest.get("auto_assigned_analyst")
+        if email in assignable_users:
+            return email
+        return None
+    except requests.exceptions.RequestException:
+        return None
 
 
 def _client_name_from_order(order: Dict[str, Any]) -> Optional[str]:
@@ -296,6 +299,55 @@ def _trigger_invoice_creation(order: Dict[str, Any], companies: List[Dict[str, A
     if existing:
         return existing
 
+    # Get the client to pass into pricing engine
+    client = get_client(order.get("client_id", "")) or {}
+    existing_invoices = []
+    try:
+        from services.supabase_client import get_all_invoices as sb_get_all_invoices
+        existing_invoices = sb_get_all_invoices({"client_id": client.get("id")})
+    except Exception:
+        pass
+
+    # Build pricing inputs
+    pricing_order = dict(order)
+    pricing_order["companies"] = companies or []
+    pricing_client = dict(client)
+    pricing_client["invoice_count"] = len(existing_invoices)
+
+    # Use the pricing engine to calculate proper values
+    try:
+        pricing = calculate_invoice(pricing_order, pricing_client)
+    except Exception as exc:
+        print(f"[ORDERS] Pricing calculation failed for order {order.get('id')}: {exc}")
+        # Fallback to a basic invoice without pricing
+        payload = {
+            "id": str(uuid.uuid4()),
+            "invoice_number": generate_invoice_number(),
+            "order_id": order.get("id"),
+            "client_id": order.get("client_id"),
+            "service_level": order.get("service_level"),
+            "report_type": order.get("report_type"),
+            "company_count": order.get("company_count") or len(companies),
+            "unit_price": 0,
+            "subtotal": 0,
+            "is_pilot": False,
+            "volume_discount_pct": 0,
+            "discount_amount": 0,
+            "total": 0,
+            "currency": "USD",
+            "line_items": [],
+            "status": "draft",
+            "notes": "Auto-generated when order was marked completed.",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            return sb_create_invoice(payload)
+        except Exception as exc2:
+            print(f"[ORDERS] Fallback invoice creation failed for order {order.get('id')}: {exc2}")
+            return None
+
+    # Build properly priced invoice payload
     payload = {
         "id": str(uuid.uuid4()),
         "invoice_number": generate_invoice_number(),
@@ -303,11 +355,16 @@ def _trigger_invoice_creation(order: Dict[str, Any], companies: List[Dict[str, A
         "client_id": order.get("client_id"),
         "service_level": order.get("service_level"),
         "report_type": order.get("report_type"),
-        "company_count": order.get("company_count") or len(companies),
+        "company_count": pricing.get("company_count"),
+        "unit_price": pricing.get("unit_price"),
+        "subtotal": pricing.get("subtotal"),
+        "is_pilot": pricing.get("is_pilot", False),
+        "volume_discount_pct": pricing.get("volume_discount_pct", 0),
+        "discount_amount": pricing.get("discount_amount"),
+        "total": pricing.get("total"),
+        "currency": pricing.get("currency", "USD"),
+        "line_items": pricing.get("line_items", []),
         "status": "draft",
-        "currency": "USD",
-        "is_pilot": False,
-        "line_items": [],
         "notes": "Auto-generated when order was marked completed.",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
