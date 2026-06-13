@@ -2,28 +2,27 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import * as mammoth from "mammoth";
 
 // Auth check — extractor requires a valid JWT token from the main app
-const AUTH_API = import.meta.env.VITE_AUTH_API || "https://valyze-backend.vercel.app/api/auth/verify";
+const AUTH_API_DEFAULT = import.meta.env.VITE_AUTH_API || "https://valyze-backend.vercel.app/api/auth/verify";
 
-// Proxy URL for Anthropic API calls (server-to-server, avoids CORS issues).
-// 1. VITE_PROXY_URL env var (set in Vercel dashboard) takes precedence.
-// 2. Otherwise, derive from VITE_AUTH_API — e.g. https://valyze-backend.vercel.app/api/proxy
-//    This works automatically in both production and local dev (FastAPI on port 8000).
-// 3. For local Vite dev (port 5173) without FastAPI running, leave empty for direct calls.
-let _proxyUrl = import.meta.env.VITE_PROXY_URL;
-if (!_proxyUrl) {
-  const derived = (import.meta.env.VITE_AUTH_API || "https://valyze-backend.vercel.app/api/auth/verify")
+function deriveProxyUrl(authApi) {
+  return String(authApi || AUTH_API_DEFAULT)
     .replace(/\/api\/auth\/verify$/, "")
-    .replace(/\/api\/auth$/, "");
-  _proxyUrl = derived + "/api/proxy";
+    .replace(/\/api\/auth$/, "")
+    .replace(/\/$/, "") + "/api/proxy";
 }
-const PROXY_URL = _proxyUrl;
 
 function useAuthCheck() {
   const [authState, setAuthState] = useState("loading");
+  const [authApi, setAuthApi] = useState(AUTH_API_DEFAULT);
+  const [proxyUrl, setProxyUrl] = useState(import.meta.env.VITE_PROXY_URL || deriveProxyUrl(AUTH_API_DEFAULT));
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token") || "";
+    const authApiFromParams = params.get("authApi") || AUTH_API_DEFAULT;
+    const proxyUrlFromParams = import.meta.env.VITE_PROXY_URL || deriveProxyUrl(authApiFromParams);
+    setAuthApi(authApiFromParams);
+    setProxyUrl(proxyUrlFromParams);
 
     if (!token) {
       setAuthState("denied");
@@ -33,7 +32,7 @@ function useAuthCheck() {
     // Store token so the rest of the app can use it if needed
     localStorage.setItem("valyze_extractor_token", token);
 
-    fetch(AUTH_API, {
+    fetch(authApi, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -57,7 +56,7 @@ function useAuthCheck() {
       .catch(() => setAuthState("denied"));
   }, []);
 
-  return authState;
+  return { authState, authApi, proxyUrl };
 }
 
 const COLORS = {
@@ -315,7 +314,7 @@ const ACCEPT = ".pdf,image/*,.xlsx,.csv,.txt,.docx,.doc,.png,.jpg,.jpeg,.webp,.g
 const fIcon = f => f.type === "application/pdf" ? "📄" : f.type?.startsWith("image/") ? "🖼️" : f.name.match(/\.docx?$/i) ? "📝" : "📊";
 
 export default function ValyzeExtractor() {
-  const authState = useAuthCheck();
+  const { authState, proxyUrl } = useAuthCheck();
 
   // ALL hooks must be declared before any conditional returns (React rules of hooks)
   const [files, setFiles]               = useState([]);
@@ -357,7 +356,7 @@ export default function ValyzeExtractor() {
       <div style={{ textAlign:"center",maxWidth:400 }}>
         <div style={{ fontSize:40,marginBottom:16 }}>🚫</div>
         <div style={{ fontWeight:700,fontSize:20,marginBottom:12,color:"#ef4444" }}>Access Denied</div>
-        <div style={{ fontSize:14,lineHeight:1.7,marginBottom:20 }}>You must sign in to the Valyze system first.</div>
+        <div style={{ fontSize:14,lineHeight:1.7,marginBottom:20 }}>Your Valyze session is missing, expired, or not trusted by this extractor. Sign in again, then reopen the extractor.</div>
         <a href={import.meta.env.VITE_FRONTEND_URL || window.location.origin} style={{ display:"inline-block",padding:"12px 24px",borderRadius:8,background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",cursor:"pointer" }}>Go to Login →</a>
       </div>
     </div>;
@@ -467,8 +466,8 @@ export default function ValyzeExtractor() {
       const maxLoops = useWebSearch ? 8 : 1;
 
       for (let i = 0; i < maxLoops; i++) {
-        const useUrl = PROXY_URL || "https://api.anthropic.com/v1/messages";
-        const isDirect = !PROXY_URL;
+        const useUrl = proxyUrl || "https://api.anthropic.com/v1/messages";
+        const isDirect = !proxyUrl;
         const payload = i === 0 ? apiBody : { ...apiBody, messages: msgs };
         let fetchBody = JSON.stringify(payload);
         const headers = isDirect
@@ -620,8 +619,8 @@ export default function ValyzeExtractor() {
     try {
        let parsed;
        try { parsed = JSON.parse(patchJSON); } catch { throw new Error("Invalid JSON — please check your pasted JSON."); }
-       const patchUseUrl = PROXY_URL || "https://api.anthropic.com/v1/messages";
-       const patchIsDirect = !PROXY_URL;
+       const patchUseUrl = proxyUrl || "https://api.anthropic.com/v1/messages";
+       const patchIsDirect = !proxyUrl;
        const patchPayload = {
          model: "claude-haiku-4-5-20251001",
          max_tokens: 16000,
