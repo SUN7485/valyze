@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Loader2, ArrowLeft, X, Plus, Trash2, CheckCircle } from 'lucide-react'
-import { api } from '../api/client'
+import { Loader2, X, Plus, Trash2, CheckCircle } from 'lucide-react'
 
 const API_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000')
 
