@@ -6,14 +6,18 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
+import re
 import urllib.parse
+import uuid
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 import jwt
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Path as PathParam
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path as PathParam, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -21,8 +25,10 @@ from api.auth import JWT_ALGORITHM, JWT_SECRET
 from api.orders import assign_analyst, generate_order_number
 from services.supabase_client import (
     create_order as sb_create_order,
+    create_order_file,
     get_base_url,
     get_headers,
+    get_order_files,
 )
 
 router = APIRouter(tags=["portal"])
@@ -32,6 +38,37 @@ security = HTTPBearer(auto_error=False)
 
 SERVICE_LEVELS = {"basic", "standard", "express", "urgent"}
 REPORT_TYPES = {"standard", "full"}
+PORTAL_UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads")) / "portal"
+MAX_PORTAL_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "100"))
+MAX_PORTAL_FILE_SIZE_BYTES = MAX_PORTAL_FILE_SIZE_MB * 1024 * 1024
+MAX_PORTAL_FILES_PER_ORDER = int(os.getenv("MAX_PORTAL_FILES_PER_ORDER", "20"))
+MAX_PORTAL_FILES_PER_COMPANY = int(os.getenv("MAX_PORTAL_FILES_PER_COMPANY", "5"))
+ALLOWED_PORTAL_EXTENSIONS = {
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".tiff",
+    ".xlsx",
+    ".xls",
+    ".csv",
+    ".txt",
+}
+FILE_TYPE_MAP = {
+    ".pdf": "pdf",
+    ".docx": "word",
+    ".doc": "word",
+    ".png": "image",
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".tiff": "image",
+    ".xlsx": "spreadsheet",
+    ".xls": "spreadsheet",
+    ".csv": "spreadsheet",
+    ".txt": "text",
+}
 
 
 class PortalAuthRequest(BaseModel):
@@ -104,8 +141,8 @@ def _supabase_request(
     return response.json()
 
 
-def _quote(value: str) -> str:
-    return urllib.parse.quote(value)
+def _quote(value: str, safe: str = "") -> str:
+    return urllib.parse.quote(str(value), safe=safe)
 
 
 def _first_result(result: Any) -> Optional[Dict[str, Any]]:
@@ -235,7 +272,7 @@ def _next_order_number() -> str:
     return generate_order_number()
 
 
-async def _create_order_company(order_id: str, company: OrderCompanyRequest, index: int) -> None:
+async def _create_order_company(order_id: str, company: OrderCompanyRequest, index: int) -> Dict[str, Any]:
     payload = {
         "order_id": order_id,
         "company_name": company.company_name,
@@ -250,12 +287,13 @@ async def _create_order_company(order_id: str, company: OrderCompanyRequest, ind
         "status": "pending",
         "sort_order": index,
     }
-    await asyncio.to_thread(
+    result = await asyncio.to_thread(
         _supabase_request,
         "POST",
         "/order_companies",
         json_body=payload,
     )
+    return _first_result(result) or {**payload, "id": None}
 
 
 async def _get_order_by_number_for_client(
@@ -283,7 +321,198 @@ async def _get_order_companies(order_id: str) -> List[Dict[str, Any]]:
     )
 
 
-@router.post("/auth")
+def _sanitize_portal_filename(filename: str) -> str:
+    if not filename:
+        return "unnamed_file"
+
+    filename = Path(filename).name
+    filename = re.sub(r"[^\w\-\.\s]", "_", filename)
+    filename = filename.strip(". ")
+
+    if not filename:
+        return "unnamed_file"
+
+    if len(filename) > 255:
+        name, ext = Path(filename).stem, Path(filename).suffix
+        filename = name[: 255 - len(ext)] + ext
+
+    return filename
+
+
+def _unique_portal_filename(directory: Path, filename: str) -> str:
+    if not (directory / filename).exists():
+        return filename
+
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix
+    for _ in range(100):
+        candidate = f"{stem}-{uuid.uuid4().hex[:8]}{suffix}"
+        if not (directory / candidate).exists():
+            return candidate
+
+    return f"{stem}-{datetime.now(timezone.utc).timestamp()}{suffix}"
+
+
+def _public_order_file(file: Dict[str, Any]) -> Dict[str, Any]:
+    order_id = file.get("order_id")
+    filename = file.get("filename")
+    return {
+        "id": file.get("id"),
+        "order_id": order_id,
+        "order_company_id": file.get("order_company_id"),
+        "filename": filename,
+        "file_type": file.get("file_type"),
+        "file_size": file.get("file_size", 0),
+        "file_url": f"/uploads/portal/{_quote(order_id)}/{_quote(filename)}" if order_id and filename else None,
+        "created_at": file.get("created_at"),
+    }
+
+
+async def _save_portal_files(
+    order_id: str,
+    files: Optional[List[UploadFile]],
+    file_company_indexes: Optional[List[int]],
+    company_ids_by_index: Dict[int, str],
+) -> List[Dict[str, Any]]:
+    uploads = files or []
+    if not uploads:
+        return []
+
+    if len(uploads) > MAX_PORTAL_FILES_PER_ORDER:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {MAX_PORTAL_FILES_PER_ORDER} files per order allowed",
+        )
+
+    indexes = file_company_indexes or []
+    if indexes and len(indexes) != len(uploads):
+        raise HTTPException(status_code=400, detail="File company indexes do not match uploaded files")
+
+    counts: Dict[int, int] = {}
+    for index in indexes:
+        if index < 0 or index >= len(company_ids_by_index):
+            raise HTTPException(status_code=400, detail="Invalid file company index")
+        counts[index] = counts.get(index, 0) + 1
+        if counts[index] > MAX_PORTAL_FILES_PER_COMPANY:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Maximum {MAX_PORTAL_FILES_PER_COMPANY} files per company allowed",
+            )
+
+    PORTAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    order_dir = PORTAL_UPLOAD_DIR / order_id
+    order_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_rows: List[Dict[str, Any]] = []
+    for index, upload in enumerate(uploads):
+        original_name = upload.filename or "unnamed_file"
+        ext = Path(original_name).suffix.lower()
+        if ext not in ALLOWED_PORTAL_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File type '{ext}' not allowed. Allowed: {', '.join(sorted(ALLOWED_PORTAL_EXTENSIONS))}",
+            )
+
+        content = await upload.read()
+        if len(content) > MAX_PORTAL_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File '{original_name}' exceeds maximum size of {MAX_PORTAL_FILE_SIZE_MB}MB",
+            )
+
+        safe_name = _unique_portal_filename(order_dir, _sanitize_portal_filename(original_name))
+        file_path = order_dir / safe_name
+        file_path.write_bytes(content)
+
+        relative_path = f"uploads/portal/{order_id}/{safe_name}"
+        row = create_order_file(
+            {
+                "order_id": order_id,
+                "order_company_id": company_ids_by_index.get(indexes[index]) if indexes else None,
+                "filename": safe_name,
+                "file_path": relative_path,
+                "file_type": FILE_TYPE_MAP.get(ext, "unknown"),
+                "file_size": len(content),
+                "processed": False,
+            }
+        )
+        saved_rows.append(row)
+
+    return saved_rows
+
+
+async def _submit_order_payload(
+    body: SubmitOrderRequest,
+    portal_client: Dict[str, str],
+    files: Optional[List[UploadFile]] = None,
+    file_company_indexes: Optional[List[int]] = None,
+) -> Dict[str, Any]:
+    if not body.companies:
+        raise HTTPException(status_code=400, detail="At least one company is required")
+    if body.service_level not in SERVICE_LEVELS:
+        raise HTTPException(status_code=400, detail="Invalid service_level")
+    if body.report_type not in REPORT_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid report_type")
+
+    session = await _load_portal_session(portal_client)
+    max_uses = session.get("max_uses")
+    used_count = int(session.get("used_count") or 0)
+    if max_uses is not None and used_count >= int(max_uses):
+        raise HTTPException(status_code=401, detail="Portal session has reached its usage limit")
+
+    order_number = _next_order_number()
+    now = datetime.now(timezone.utc).isoformat()
+    analyst = await asyncio.to_thread(assign_analyst)
+    order_payload = {
+        "order_number": order_number,
+        "client_id": portal_client["client_id"],
+        "client_ref": body.client_ref,
+        "date_received": now,
+        "service_level": body.service_level,
+        "due_date": f"{body.due_date.isoformat()}T00:00:00Z",
+        "report_type": body.report_type,
+        "status": "pending",
+        "company_count": len(body.companies),
+        "completed_count": 0,
+        "auto_assigned_analyst": analyst,
+        "submitted_via_portal": True,
+        "notes": body.notes,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    order_result = await asyncio.to_thread(sb_create_order, order_payload)
+    order = _first_result(order_result)
+    if not order:
+        raise HTTPException(status_code=500, detail="Failed to create order")
+
+    company_ids_by_index: Dict[int, str] = {}
+    try:
+        for index, company in enumerate(body.companies):
+            created_company = await _create_order_company(order["id"], company, index)
+            if created_company and created_company.get("id"):
+                company_ids_by_index[index] = created_company["id"]
+
+        uploaded_files = await _save_portal_files(
+            order["id"],
+            files,
+            file_company_indexes,
+            company_ids_by_index,
+        )
+        await _increment_session_used_count(portal_client["session_id"])
+    except Exception:
+        raise
+
+    return {
+        "order_id": order.get("id"),
+        "order_number": order.get("order_number", order_number),
+        "company_count": len(body.companies),
+        "due_date": body.due_date.isoformat(),
+        "files": [_public_order_file(file) for file in uploaded_files],
+        "message": "Order submitted successfully",
+    }
+
+
 async def portal_auth(body: PortalAuthRequest):
     token = body.token.strip()
     password = body.password
@@ -339,59 +568,23 @@ async def submit_order(
     body: SubmitOrderRequest,
     portal_client: Dict[str, str] = Depends(get_portal_current_client),
 ):
-    if not body.companies:
-        raise HTTPException(status_code=400, detail="At least one company is required")
-    if body.service_level not in SERVICE_LEVELS:
-        raise HTTPException(status_code=400, detail="Invalid service_level")
-    if body.report_type not in REPORT_TYPES:
-        raise HTTPException(status_code=400, detail="Invalid report_type")
+    return await _submit_order_payload(body, portal_client)
 
-    session = await _load_portal_session(portal_client)
-    max_uses = session.get("max_uses")
-    used_count = int(session.get("used_count") or 0)
-    if max_uses is not None and used_count >= int(max_uses):
-        raise HTTPException(status_code=401, detail="Portal session has reached its usage limit")
 
-    order_number = _next_order_number()
-    now = datetime.now(timezone.utc).isoformat()
-    analyst = await asyncio.to_thread(assign_analyst)
-    order_payload = {
-        "order_number": order_number,
-        "client_id": portal_client["client_id"],
-        "client_ref": body.client_ref,
-        "date_received": now,
-        "service_level": body.service_level,
-        "due_date": f"{body.due_date.isoformat()}T00:00:00Z",
-        "report_type": body.report_type,
-        "status": "pending",
-        "company_count": len(body.companies),
-        "completed_count": 0,
-        "auto_assigned_analyst": analyst,
-        "submitted_via_portal": True,
-        "notes": body.notes,
-        "created_at": now,
-        "updated_at": now,
-    }
-
-    order_result = await asyncio.to_thread(sb_create_order, order_payload)
-    order = _first_result(order_result)
-    if not order:
-        raise HTTPException(status_code=500, detail="Failed to create order")
-
+@router.post("/submit-order-with-files")
+async def submit_order_with_files(
+    portal_client: Dict[str, str] = Depends(get_portal_current_client),
+    order_data: str = Form(...),
+    files: Optional[List[UploadFile]] = File(default=None),
+    file_company_indexes: Optional[List[int]] = File(default=None),
+):
     try:
-        for index, company in enumerate(body.companies):
-            await _create_order_company(order["id"], company, index)
-        await _increment_session_used_count(portal_client["session_id"])
-    except Exception:
-        raise
+        payload = json.loads(order_data)
+        body = SubmitOrderRequest(**payload)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid order payload: {exc}") from exc
 
-    return {
-        "order_id": order.get("id"),
-        "order_number": order.get("order_number", order_number),
-        "company_count": len(body.companies),
-        "due_date": body.due_date.isoformat(),
-        "message": "Order submitted successfully",
-    }
+    return await _submit_order_payload(body, portal_client, files, file_company_indexes)
 
 
 @router.get("/order-status/{order_number}")
@@ -404,6 +597,7 @@ async def get_order_status(
         raise HTTPException(status_code=404, detail="Order not found")
 
     companies = await _get_order_companies(order["id"])
+    files = await asyncio.to_thread(get_order_files, order["id"])
     return {
         "order": {
             "id": order.get("id"),
@@ -426,4 +620,5 @@ async def get_order_status(
             }
             for company in companies
         ],
+        "files": [_public_order_file(file) for file in files],
     }

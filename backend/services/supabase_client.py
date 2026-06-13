@@ -869,6 +869,41 @@ def get_order_company(company_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def create_order_file(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create an order file metadata row in Supabase."""
+    url = f"{get_base_url()}/order_files"
+
+    try:
+        response = requests.post(url, json=data, headers=get_headers(), timeout=30)
+        if response.status_code in [200, 201]:
+            result = response.json() if response.text else {}
+            return result[0] if isinstance(result, list) else result
+        try:
+            err_json = response.json()
+            message = err_json.get("message", response.text[:200])
+        except Exception:
+            message = response.text[:200]
+        raise Exception(f"Supabase create order file failed ({response.status_code}): {message}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Create order file request failed: {e}")
+        raise
+
+
+def get_order_files(order_id: str, order_company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Get files attached to an order, optionally filtered by order_company."""
+    url = f"{get_base_url()}/order_files?order_id=eq.{quote(order_id, safe='')}"
+    if order_company_id:
+        url += f"&order_company_id=eq.{quote(order_company_id, safe='')}"
+    url += "&order=created_at.asc"
+
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        return _handle_response(response)
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get order files failed: {e}")
+        return []
+
+
 def update_order_company(company_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Update a single order_company record and return the updated row."""
     if not data:

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import CompanyCard from "./CompanyCard.jsx";
-import { submitOrder } from "../api.js";
+import { submitOrderWithFiles } from "../api.js";
 
 const SERVICE_LEVELS = [
   { value: "basic", label: "Basic (5-7 days)" },
@@ -29,6 +29,27 @@ const emptyOrder = {
   notes: "",
 };
 
+const MAX_FILES_PER_COMPANY = 5;
+const MAX_FILE_SIZE_MB = 100;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+const ALLOWED_EXTENSIONS = new Set([
+  ".pdf",
+  ".docx",
+  ".doc",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".tiff",
+  ".xlsx",
+  ".xls",
+  ".csv",
+  ".txt",
+]);
+
+function getExtension(file) {
+  return file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+}
+
 export default function OrderForm({
   clientName,
   portalToken,
@@ -37,6 +58,7 @@ export default function OrderForm({
 }) {
   const [order, setOrder] = useState(emptyOrder);
   const [companies, setCompanies] = useState([{ ...EMPTY_COMPANY }]);
+  const [filesByCompany, setFilesByCompany] = useState([[]]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -60,10 +82,12 @@ export default function OrderForm({
 
   function addCompany() {
     setCompanies((current) => [...current, { ...EMPTY_COMPANY }]);
+    setFilesByCompany((current) => [...current, []]);
   }
 
   function removeCompany(index) {
     setCompanies((current) => current.filter((_, companyIndex) => companyIndex !== index));
+    setFilesByCompany((current) => current.filter((_, companyIndex) => companyIndex !== index));
   }
 
   function validate() {
@@ -94,12 +118,40 @@ export default function OrderForm({
     return "";
   }
 
+  function validateFiles() {
+    for (let companyIndex = 0; companyIndex < filesByCompany.length; companyIndex += 1) {
+      const companyFiles = filesByCompany[companyIndex] || [];
+
+      if (companyFiles.length > MAX_FILES_PER_COMPANY) {
+        return `Company ${companyIndex + 1} can have at most ${MAX_FILES_PER_COMPANY} files.`;
+      }
+
+      for (const file of companyFiles) {
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+          return `${file.name} is larger than ${MAX_FILE_SIZE_MB}MB.`;
+        }
+
+        if (!ALLOWED_EXTENSIONS.has(getExtension(file))) {
+          return `${file.name} is not an allowed file type.`;
+        }
+      }
+    }
+
+    return "";
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
 
     const validationError = validate();
     if (validationError) {
       setError(validationError);
+      return;
+    }
+
+    const fileError = validateFiles();
+    if (fileError) {
+      setError(fileError);
       return;
     }
 
@@ -126,7 +178,7 @@ export default function OrderForm({
         })),
       };
 
-      const result = await submitOrder(portalToken, payload);
+      const result = await submitOrderWithFiles(portalToken, payload, filesByCompany);
       onSubmitSuccess(result);
     } catch (err) {
       setError(err.message || "Failed to submit order. Please try again.");
@@ -138,6 +190,7 @@ export default function OrderForm({
   function resetForm() {
     setOrder({ ...emptyOrder });
     setCompanies([{ ...EMPTY_COMPANY }]);
+    setFilesByCompany([[]]);
     setError("");
     setLoading(false);
   }
@@ -257,11 +310,15 @@ export default function OrderForm({
 
           {companies.map((company, index) => (
             <CompanyCard
-              key={`${company.company_name}-${index}`}
+              key={index}
               index={index}
               company={company}
+              files={filesByCompany[index] || []}
               removable={companies.length > 1}
               onChange={updateCompany}
+              onFilesChange={(nextFiles) => setFilesByCompany((current) =>
+                current.map((files, companyIndex) => companyIndex === index ? nextFiles : files)
+              )}
               onRemove={() => removeCompany(index)}
             />
           ))}

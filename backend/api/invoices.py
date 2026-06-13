@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path as PathParam
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from api.auth import get_current_user
+from services.pricing_engine import calculate_invoice, generate_invoice_number
 from services.supabase_client import (
     create_invoice as sb_create_invoice,
     get_all_invoices as sb_get_all_invoices,

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, CalendarClock, CheckCircle2, Clock, Edit3, ExternalLink, FileCheck, FileText, Loader2, PlayCircle, PencilLine, RefreshCw, User, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CalendarClock, CheckCircle2, Clock, Download, Edit3, ExternalLink, FileCheck, FileText, Loader2, PlayCircle, PencilLine, RefreshCw, User, X } from 'lucide-react'
 import { invoicesAPI, ordersAPI } from '../api/client'
 
 const STATUS_LABELS = {
@@ -57,6 +57,18 @@ function formatDateTime(value) {
     const date = new Date(value)
     if (Number.isNaN(date.getTime())) return '-'
     return date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function formatFileSize(value) {
+    const size = Number(value || 0)
+    if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
+    if (size >= 1024) return `${(size / 1024).toFixed(0)} KB`
+    return `${size} B`
+}
+
+function getPortalFileUrl(file) {
+    if (!file?.order_id || !file?.filename) return '#'
+    return `/uploads/portal/${encodeURIComponent(file.order_id)}/${encodeURIComponent(file.filename)}`
 }
 
 function getCountryFlag(country) {
@@ -257,6 +269,50 @@ function OrderHeaderCard({ order, onEditNotes, savingNotes }) {
                 </div>
             </div>
         </div>
+    )
+}
+
+function OrderFilesSection({ files }) {
+    const safeFiles = Array.isArray(files) ? files : []
+    if (!safeFiles.length) return null
+
+    return (
+        <section className="glass-card p-6 mb-6 cursor-default">
+            <div className="flex items-center justify-between mb-4">
+                <div>
+                    <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">Client Attachments</h2>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">{safeFiles.length} file{safeFiles.length === 1 ? '' : 's'} submitted through the client portal.</p>
+                </div>
+            </div>
+
+            <div className="grid gap-3">
+                {safeFiles.map((file) => (
+                    <a
+                        key={file.id}
+                        href={getPortalFileUrl(file)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 dark:border-white/10 bg-white/60 dark:bg-white/5 p-4 hover:border-primary/40 hover:bg-primary/5 transition-all"
+                    >
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                                <FileText size={18} />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-sm font-black text-slate-800 dark:text-white truncate">{file.filename || 'Attachment'}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                    {file.file_type || 'file'} · {formatFileSize(file.file_size)}
+                                    {file.order_company_id ? ' · linked company' : ' · order level'}
+                                </p>
+                            </div>
+                        </div>
+                        <span className="text-primary font-black text-xs uppercase tracking-widest flex items-center gap-1 flex-shrink-0">
+                            Open <Download size={14} />
+                        </span>
+                    </a>
+                ))}
+            </div>
+        </section>
     )
 }
 
@@ -604,6 +660,8 @@ export default function OrderDetailPage() {
                     </div>
 
                     <OrderHeaderCard order={order} onEditNotes={() => setNotesOpen(true)} savingNotes={savingNotes} />
+
+                    <OrderFilesSection files={order.files || []} />
 
                     <CompaniesSection
                         orderId={order.id}

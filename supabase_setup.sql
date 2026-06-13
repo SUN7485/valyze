@@ -138,6 +138,21 @@ create table if not exists order_companies (
     updated_at timestamp with time zone default now()
 );
 
+-- Order files table
+create table if not exists order_files (
+    id serial primary key,
+    order_id uuid not null references orders(id) on delete cascade,
+    order_company_id uuid references order_companies(id) on delete cascade,
+    filename text not null,
+    file_path text not null,
+    file_type text not null,
+    file_size integer not null default 0,
+    language text,
+    pages integer,
+    processed boolean default false,
+    created_at timestamp with time zone default now()
+);
+
 -- Invoices table
 create table if not exists invoices (
     id uuid primary key default uuid_generate_v4(),
@@ -166,6 +181,7 @@ alter table clients enable row level security;
 alter table client_sessions enable row level security;
 alter table orders enable row level security;
 alter table order_companies enable row level security;
+alter table order_files enable row level security;
 alter table invoices enable row level security;
 
 -- Create permissive policies for new tables
@@ -181,6 +197,9 @@ create policy "Allow all operations on orders" on orders
 create policy "Allow all operations on order_companies" on order_companies
     for all using (true) with check (true);
 
+create policy "Allow all operations on order_files" on order_files
+    for all using (true) with check (true);
+
 create policy "Allow all operations on invoices" on invoices
     for all using (true) with check (true);
 
@@ -190,6 +209,8 @@ create index if not exists idx_orders_client_id on orders(client_id);
 create index if not exists idx_orders_status on orders(status);
 create index if not exists idx_order_companies_order_id on order_companies(order_id);
 create index if not exists idx_order_companies_report_id on order_companies(report_id);
+create index if not exists idx_order_files_order_id on order_files(order_id);
+create index if not exists idx_order_files_order_company_id on order_files(order_company_id);
 create index if not exists idx_invoices_order_id on invoices(order_id);
 create index if not exists idx_client_sessions_token on client_sessions(token);
 create index if not exists idx_client_sessions_client_id on client_sessions(client_id);
@@ -199,4 +220,5 @@ comment on table clients is 'Companies, banks, or third parties who place orders
 comment on table client_sessions is 'One-time or limited-use portal access tokens sent to clients';
 comment on table orders is 'Orders submitted by clients containing companies to be researched';
 comment on table order_companies is 'Individual companies within an order, each becoming a Valyze report';
+comment on table order_files is 'Files uploaded by clients through the portal and attached to orders or order companies.';
 comment on table invoices is 'Billing documents generated per completed order';

@@ -1,13 +1,32 @@
 export default function CompanyCard({
   index,
   company,
+  files = [],
   removable,
   onChange,
+  onFilesChange,
   onRemove,
 }) {
   function updateField(field, value) {
     onChange(index, { ...company, [field]: value });
   }
+
+  function handleFileChange(event) {
+    const selectedFiles = Array.from(event.target.files || []);
+    onFilesChange([...files, ...selectedFiles]);
+    event.target.value = "";
+  }
+
+  function removeFile(fileIndex) {
+    onFilesChange(files.filter((_, currentIndex) => currentIndex !== fileIndex));
+  }
+
+  function formatFileSize(file) {
+    const mb = file.size / 1024 / 1024;
+    return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(file.size / 1024).toFixed(0)} KB`;
+  }
+
+  const fileInputId = `company-files-${index}`;
 
   return (
     <div className="company-card">
@@ -116,11 +135,38 @@ export default function CompanyCard({
           />
         </div>
 
-        <div className="flex flex-col justify-end">
-          <button className="disabled-button w-full" type="button" disabled>
-            Attach Documents (coming soon)
-          </button>
-        </div>
+      <div className="file-upload">
+        <label className="field-label" htmlFor={fileInputId}>
+          Attached Documents
+        </label>
+        <label className="file-drop" htmlFor={fileInputId}>
+          <input
+            id={fileInputId}
+            type="file"
+            multiple
+            accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.tiff,.xlsx,.xls,.csv,.txt"
+            onChange={handleFileChange}
+          />
+          <span>{files.length ? `${files.length} file${files.length === 1 ? "" : "s"} selected` : "Choose files"}</span>
+          <small>PDF, Word, Excel, CSV, TXT, images · max 100MB each</small>
+        </label>
+
+        {files.length > 0 && (
+          <ul className="file-list">
+            {files.map((file, fileIndex) => (
+              <li className="file-item" key={`${file.name}-${file.lastModified}-${fileIndex}`}>
+                <div className="file-item-main">
+                  <strong className="file-name">{file.name}</strong>
+                  <span className="file-meta">{formatFileSize(file)}</span>
+                </div>
+                <button className="file-remove" type="button" onClick={() => removeFile(fileIndex)}>
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       </div>
 
       <label className="field-label" htmlFor={`comments-${index}`}>

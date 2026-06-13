@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -29,6 +30,7 @@ from services.supabase_client import (
     get_order as sb_get_order,
     get_order_company as sb_get_order_company,
     get_order_companies as sb_get_order_companies,
+    get_order_files,
     get_order_invoice as sb_get_order_invoice,
     update_order as sb_update_order,
     update_order_company as sb_update_order_company,
@@ -189,6 +191,13 @@ def _get_rotation_anchor(assignable_users: List[str]) -> Optional[str]:
         return None
 
 
+def generate_order_number() -> str:
+    now = datetime.now(timezone.utc)
+    year = now.year
+    max_seq = get_max_order_number(year) or 0
+    return f"ORD-{year}-{max_seq + 1:04d}"
+
+
 def _client_name_from_order(order: Dict[str, Any]) -> Optional[str]:
     client = order.get("client")
     if isinstance(client, dict):
@@ -229,6 +238,21 @@ def _public_company(company: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _public_order_file(file: Dict[str, Any]) -> Dict[str, Any]:
+    order_id = file.get("order_id")
+    filename = file.get("filename")
+    return {
+        "id": file.get("id"),
+        "order_id": order_id,
+        "order_company_id": file.get("order_company_id"),
+        "filename": filename,
+        "file_type": file.get("file_type"),
+        "file_size": file.get("file_size", 0),
+        "file_url": f"/uploads/portal/{quote(str(order_id), safe='')}/{quote(str(filename), safe='')}" if order_id and filename else None,
+        "created_at": file.get("created_at"),
+    }
+
+
 def _progress_from_companies(companies: List[Dict[str, Any]]) -> Dict[str, int]:
     total = len(companies)
     completed = sum(1 for company in companies if company.get("status") == "completed")
@@ -249,6 +273,7 @@ def _build_order_detail(
 ) -> Dict[str, Any]:
     companies = companies if companies is not None else sb_get_order_companies(order.get("id", ""))
     invoice = invoice if invoice is not None else sb_get_order_invoice(order.get("id", ""))
+    order_files = get_order_files(order.get("id", ""))
     progress = _progress_from_companies(companies)
     client_data = order.get("client") if isinstance(order.get("client"), dict) else {}
 
@@ -273,6 +298,7 @@ def _build_order_detail(
         "notes": order.get("notes"),
         "submitted_via_portal": order.get("submitted_via_portal", False),
         "companies": [_public_company(company) for company in companies],
+        "files": [_public_order_file(file) for file in order_files],
         "invoice": invoice,
         "progress": progress,
         "created_at": order.get("created_at"),

@@ -1,4 +1,6 @@
 export default function SuccessScreen({ result, onReset }) {
+  const fileCount = result?.files?.length || 0;
+
   return (
     <div className="portal-page">
       <div className="success-card">
@@ -26,6 +28,11 @@ export default function SuccessScreen({ result, onReset }) {
         <p className="success-note">
           Your Valyze team has received your order and will begin processing shortly.
         </p>
+        {fileCount > 0 && (
+          <p className="success-note">
+            {fileCount} attached file{fileCount === 1 ? "" : "s"} submitted with this order.
+          </p>
+        )}
 
         <button className="primary-button" type="button" onClick={onReset}>
           Submit Another Order
