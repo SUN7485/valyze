@@ -476,7 +476,7 @@ def get_orders_for_clients(client_ids: List[str]) -> List[Dict[str, Any]]:
         return []
 
     encoded_ids = ",".join(quote(client_id, safe="") for client_id in client_ids)
-    url = f"{get_base_url()}/orders?select=id,client_id&client_id=in.({encoded_ids})"
+    url = f"{get_base_url()}/orders?select=id,client_id,company_count,completed_count&client_id=in.({encoded_ids})"
     try:
         response = requests.get(url, headers=get_headers(), timeout=30)
         return _handle_response(response)

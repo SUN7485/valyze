@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { Search, Plus, Eye, Edit3, Trash2, X, Loader2, Copy, CheckCircle, Clock, AlertTriangle, Key, ExternalLink, CopyCheck, FileText } from 'lucide-react'
 import { clientsAPI, ordersAPI, invoicesAPI } from '../api/client'
@@ -154,6 +154,7 @@ export default function ClientDetailPage() {
   const [sessions, setSessions]         = useState([])
   const [invoices, setInvoices]         = useState([])
   const [refreshing, setRefreshing]     = useState(false)
+  const [actionLoading, setActionLoading] = useState({})
   const [editFormOpen, setEditFormOpen] = useState(false)
   const [editForm, setEditForm]         = useState({ client_name: '', client_type: 'Company', contact_person: '', email: '', phone: '', country: '', address: '', is_pilot: false, notes: '' })
   const [editSaving, setEditSaving]     = useState(false)
@@ -163,14 +164,16 @@ export default function ClientDetailPage() {
   const fetchClient = async () => {
     try {
       setLoading(true)
-      const [cRes, sRes] = await Promise.all([
+      const [cRes, sRes, iRes] = await Promise.all([
         clientsAPI.getOne(clientId).catch(() => ({ data: {} })),
         clientsAPI.getSessions(clientId).catch(() => ({ data: [] })),
+        invoicesAPI.getAll({ client_id: clientId }).catch(() => ({ data: [] })),
       ])
       const clientData = cRes.data || {}
+      const invoicesData = Array.isArray(iRes.data) ? iRes.data : (iRes.data?.invoices || [])
       setClient(clientData)
       setOrders(clientData.orders || [])
-      setInvoices((clientData.orders || []).filter(o => o.invoice_id).map(o => o.invoice))
+      setInvoices(invoicesData)
       setSessions(Array.isArray(sRes.data) ? sRes.data : (sRes.data?.sessions || []))
     } catch (e) {
       setError(e.message || 'Failed to load client')
@@ -180,6 +183,8 @@ export default function ClientDetailPage() {
   }
 
   useEffect(() => { fetchClient() }, [clientId])
+
+  const invoiceByOrderId = useMemo(() => new Map(invoices.map(invoice => [invoice.order_id, invoice])), [invoices])
 
   const openEdit = () => {
     if (!client) return
@@ -201,6 +206,36 @@ export default function ClientDetailPage() {
 
   const handleDelete = async () => { await clientsAPI.delete(deleteTarget.clientId); navigate('/clients') }
   const copy = async (text) => { try { await navigator.clipboard.writeText(text) } catch { alert('Clipboard unavailable') } }
+
+  const viewOrder = (orderId) => {
+    navigate(`/orders/${orderId}`)
+  }
+
+  const generateInvoice = async (orderId) => {
+    setActionLoading(prev => ({ ...prev, [orderId]: true }))
+    try {
+      const response = await invoicesAPI.generate(orderId)
+      const invoiceId = response.data?.id
+      await fetchClient()
+      if (invoiceId) navigate(`/invoices/${invoiceId}`)
+    } catch (e) {
+      setError(e.message || 'Failed to generate invoice')
+    } finally {
+      setActionLoading(prev => ({ ...prev, [orderId]: false }))
+    }
+  }
+
+  const markInvoicePaid = async (invoice) => {
+    setActionLoading(prev => ({ ...prev, [invoice.id]: true }))
+    try {
+      await invoicesAPI.updateStatus(invoice.id, 'paid')
+      await fetchClient()
+    } catch (e) {
+      setError(e.message || 'Failed to mark invoice paid')
+    } finally {
+      setActionLoading(prev => ({ ...prev, [invoice.id]: false }))
+    }
+  }
 
   if (loading) return <div className="py-12 flex items-center justify-center"><Loader2 size={32} className="text-primary animate-spin" /><span className="ml-4 text-slate-500">Loading client...</span></div>
   if (error || !client) return <div className="py-12 text-center"><div className="text-rose-500 mb-4">{error || 'Client not found'}</div><button onClick={() => navigate('/clients')} className="px-4 py-2 bg-slate-100 dark:bg-white/5 rounded-lg text-sm font-semibold">Back to Clients</button></div>
@@ -279,24 +314,31 @@ export default function ClientDetailPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                  {orders.map(order => (
-                    <tr key={order.id} className="group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all">
-                      <td className="px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-200">{order.order_number || order.id}</td>
-                      <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{order.order_date ? new Date(order.order_date).toLocaleDateString('en-US') : '-'}</td>
-                      <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300 font-semibold">{order.service_level || '-'}</td>
-                      <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{order.companies_count ?? '-'}</td>
-                      <td className="px-4 py-3"><StatusBadge status={order.status} /></td>
-                      <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{order.assigned_analyst || '-'}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1">
-                          <button className="px-3 py-1.5 text-[10px] font-bold text-primary bg-primary/10 rounded-lg hover:bg-primary/20 uppercase tracking-wider">View</button>
-                          {order.status === 'completed' && !order.invoice_id && (
-                            <button className="px-3 py-1.5 text-[10px] font-bold text-purple-600 bg-purple-500/10 rounded-lg hover:bg-purple-500/20 uppercase tracking-wider">Generate Invoice</button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                    {orders.map(order => {
+                      const invoice = invoiceByOrderId.get(order.id)
+                      return (
+                        <tr key={order.id} onClick={() => viewOrder(order.id)} className="group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all cursor-pointer">
+                          <td className="px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-200">{order.order_number || order.id}</td>
+                          <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{order.date_received || order.order_date ? new Date(order.date_received || order.order_date).toLocaleDateString('en-US') : '-'}</td>
+                          <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300 font-semibold">{order.service_level || '-'}</td>
+                          <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{order.company_count ?? order.companies_count ?? '-'}</td>
+                          <td className="px-4 py-3"><StatusBadge status={order.status} /></td>
+                          <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{order.assigned_analyst || order.auto_assigned_analyst || '-'}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                              <button onClick={() => viewOrder(order.id)} className="px-3 py-1.5 text-[10px] font-bold text-primary bg-primary/10 rounded-lg hover:bg-primary/20 uppercase tracking-wider">View</button>
+                              {invoice ? (
+                                <button onClick={() => navigate(`/invoices/${invoice.id}`)} className="px-3 py-1.5 text-[10px] font-bold text-purple-600 bg-purple-500/10 rounded-lg hover:bg-purple-500/20 uppercase tracking-wider">View Invoice</button>
+                              ) : order.status === 'completed' ? (
+                                <button onClick={() => generateInvoice(order.id)} disabled={actionLoading[order.id]} className="px-3 py-1.5 text-[10px] font-bold text-purple-600 bg-purple-500/10 rounded-lg hover:bg-purple-500/20 uppercase tracking-wider disabled:opacity-50 flex items-center gap-1">
+                                  {actionLoading[order.id] ? <Loader2 size={12} className="animate-spin" /> : null} Generate Invoice
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
                 </tbody>
               </table>
             </div>
@@ -325,31 +367,33 @@ export default function ClientDetailPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                  {sessions.map(session => {
-                    const status = session.revoked_at ? 'revoked' : (new Date(session.expires_at).getTime() < Date.now() ? 'expired' : (session.used >= session.max_uses ? 'full' : 'active'))
-                    return (
-                      <tr key={session.id} className="group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-mono text-slate-600 dark:text-slate-300 truncate max-w-[200px]">{session.portal_url || session.url || '-'}</span>
-                            <button onClick={() => copy(session.portal_url || session.url || '')} className="p-1 text-slate-400 hover:text-primary" title="Copy link"><Copy size={14} /></button>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{session.created_at ? new Date(session.created_at).toLocaleDateString('en-US') : '-'}</td>
-                        <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{session.expires_at ? new Date(session.expires_at).toLocaleDateString('en-US') : '-'}</td>
-                        <td className="px-4 py-3 text-xs font-bold text-slate-600 dark:text-slate-300">{session.used != null ? `${session.used}/${session.max_uses}` : '-'}</td>
-                        <td className="px-4 py-3">
-                          {status === 'active' ? <Pill color="green">Active</Pill> : status === 'expired' ? <Pill color="rose">Expired</Pill> : status === 'full' ? <Pill color="amber">Full</Pill> : <Pill>{status}</Pill>}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-end gap-2">
-                            <button onClick={async () => { await navigator.clipboard.writeText(session.portal_url || session.url || '') }} className="px-2.5 py-1.5 text-[10px] font-bold text-primary bg-primary/10 rounded-lg hover:bg-primary/20 uppercase tracking-wider">Copy Link</button>
-                            <button onClick={async () => { if (!window.confirm('Revoke this session?')) return; await clientsAPI.revokeSession(session.id); fetchClient() }} className="px-2.5 py-1.5 text-[10px] font-bold text-rose-600 bg-rose-500/10 rounded-lg hover:bg-rose-500/20 uppercase tracking-wider">Revoke</button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                    {sessions.map(session => {
+                      const used = session.used ?? session.used_count ?? 0
+                      const maxUses = session.max_uses ?? session.maxUses ?? 0
+                      const status = session.revoked_at ? 'revoked' : (new Date(session.expires_at).getTime() < Date.now() ? 'expired' : (used >= maxUses ? 'full' : 'active'))
+                      return (
+                        <tr key={session.id} className="group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-mono text-slate-600 dark:text-slate-300 truncate max-w-[200px]">{session.portal_url || session.url || '-'}</span>
+                              <button onClick={() => copy(session.portal_url || session.url || '')} className="p-1 text-slate-400 hover:text-primary" title="Copy link"><Copy size={14} /></button>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{session.created_at ? new Date(session.created_at).toLocaleDateString('en-US') : '-'}</td>
+                          <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{session.expires_at ? new Date(session.expires_at).toLocaleDateString('en-US') : '-'}</td>
+                          <td className="px-4 py-3 text-xs font-bold text-slate-600 dark:text-slate-300">{used != null && maxUses ? `${used}/${maxUses}` : '-'}</td>
+                          <td className="px-4 py-3">
+                            {status === 'active' ? <Pill color="green">Active</Pill> : status === 'expired' ? <Pill color="rose">Expired</Pill> : status === 'full' ? <Pill color="amber">Full</Pill> : <Pill>{status}</Pill>}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-2">
+                              <button onClick={async () => { await navigator.clipboard.writeText(session.portal_url || session.url || '') }} className="px-2.5 py-1.5 text-[10px] font-bold text-primary bg-primary/10 rounded-lg hover:bg-primary/20 uppercase tracking-wider">Copy Link</button>
+                              <button onClick={async () => { if (!window.confirm('Revoke this session?')) return; await clientsAPI.revokeSession(session.id); fetchClient() }} className="px-2.5 py-1.5 text-[10px] font-bold text-rose-600 bg-rose-500/10 rounded-lg hover:bg-rose-500/20 uppercase tracking-wider">Revoke</button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
                 </tbody>
               </table>
             </div>
@@ -375,21 +419,25 @@ export default function ClientDetailPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                  {invoices.map(inv => (
-                    <tr key={inv.id} className="group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all">
-                      <td className="px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-200">{inv.invoice_number || inv.id}</td>
-                      <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{inv.order_id || '-'}</td>
-                      <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{inv.created_at ? new Date(inv.created_at).toLocaleDateString('en-US') : '-'}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-slate-600 dark:text-slate-300">{inv.total ? `${inv.total}` : '-'}</td>
-                      <td className="px-4 py-3"><Pill color={inv.paid ? 'green' : 'amber'}>{inv.paid ? 'Paid' : 'Unpaid'}</Pill></td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-2">
-                          <button className="px-3 py-1.5 text-[10px] font-bold text-primary bg-primary/10 rounded-lg hover:bg-primary/20 uppercase tracking-wider">View</button>
-                          {!inv.paid && <button className="px-3 py-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-500/10 rounded-lg hover:bg-emerald-500/20 uppercase tracking-wider">Mark Paid</button>}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                    {invoices.map(inv => (
+                      <tr key={inv.id} className="group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all">
+                        <td className="px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-200">{inv.invoice_number || inv.id}</td>
+                        <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{inv.order_number || inv.order?.order_number || inv.order_id || '-'}</td>
+                        <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{inv.created_at ? new Date(inv.created_at).toLocaleDateString('en-US') : '-'}</td>
+                        <td className="px-4 py-3 text-xs font-bold text-slate-600 dark:text-slate-300">{inv.total ? `${inv.total}` : '-'}</td>
+                        <td className="px-4 py-3"><Pill color={inv.status === 'paid' ? 'green' : inv.status === 'sent' ? 'blue' : 'amber'}>{inv.status || 'Draft'}</Pill></td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-2">
+                            <button onClick={() => navigate(`/invoices/${inv.id}`)} className="px-3 py-1.5 text-[10px] font-bold text-primary bg-primary/10 rounded-lg hover:bg-primary/20 uppercase tracking-wider">View</button>
+                            {inv.status !== 'paid' && (
+                              <button onClick={() => markInvoicePaid(inv)} disabled={actionLoading[inv.id]} className="px-3 py-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-500/10 rounded-lg hover:bg-emerald-500/20 uppercase tracking-wider disabled:opacity-50 flex items-center gap-1">
+                                {actionLoading[inv.id] ? <Loader2 size={12} className="animate-spin" /> : null} Mark Paid
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>

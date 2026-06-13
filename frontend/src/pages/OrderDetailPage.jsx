@@ -605,7 +605,7 @@ export default function OrderDetailPage() {
             setGeneratingInvoice(true)
             setError('')
             const response = await invoicesAPI.generate(order.id)
-            const invoiceId = getInvoiceId({ invoice: response.data })
+            const invoiceId = response.data?.id || getInvoiceId({ invoice: response.data })
             if (!invoiceId) throw new Error('Invoice generated, but no invoice ID was returned')
             navigate(`/invoices/${invoiceId}`)
         } catch (e) {

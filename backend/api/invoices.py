@@ -192,21 +192,25 @@ def _render_invoice_html(invoice: Dict[str, Any]) -> str:
   <meta charset="utf-8" />
   <title>Invoice {invoice_number}</title>
   <style>
-    body {{ margin: 0; background: #0f172a; color: #e5e7eb; font-family: Arial, sans-serif; }}
-    .page {{ max-width: 900px; margin: 40px auto; background: #111827; border: 1px solid #334155; border-radius: 18px; padding: 32px; box-shadow: 0 24px 80px rgba(0,0,0,0.35); }}
-    .brand {{ display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; border-bottom: 1px solid #334155; padding-bottom: 24px; }}
-    .logo {{ font-size: 28px; font-weight: 800; color: #60a5fa; letter-spacing: 0.04em; }}
-    .meta {{ text-align: right; color: #cbd5e1; line-height: 1.7; }}
-    h1 {{ margin: 28px 0 8px; font-size: 26px; }}
-    .subtle {{ color: #94a3b8; margin-bottom: 24px; }}
+    body {{ margin: 0; padding: 20px; background: #ffffff; color: #1f2937; font-family: Arial, sans-serif; }}
+    .page {{ max-width: 900px; margin: 0 auto; background: #ffffff; padding: 32px; }}
+    .brand {{ display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; border-bottom: 2px solid #e5e7eb; padding-bottom: 24px; }}
+    .logo {{ font-size: 28px; font-weight: 800; color: #111827; letter-spacing: 0.04em; }}
+    .meta {{ text-align: right; color: #374151; line-height: 1.7; font-size: 14px; }}
+    h1 {{ margin: 28px 0 8px; font-size: 26px; color: #111827; }}
+    .subtle {{ color: #6b7280; margin-bottom: 24px; font-size: 14px; }}
     table {{ width: 100%; border-collapse: collapse; margin: 24px 0; }}
-    th, td {{ padding: 14px; border-bottom: 1px solid #334155; text-align: left; }}
-    th {{ color: #93c5fd; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }}
-    td {{ color: #e5e7eb; }}
+    th, td {{ padding: 12px 14px; border-bottom: 1px solid #e5e7eb; text-align: left; }}
+    th {{ color: #111827; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; background: #f9fafb; }}
+    td {{ color: #374151; font-size: 14px; }}
     .totals {{ margin-left: auto; width: 320px; }}
-    .total-row {{ display: flex; justify-content: space-between; padding: 10px 0; color: #cbd5e1; }}
-    .total-row.final {{ color: #ffffff; font-size: 22px; font-weight: 800; border-top: 1px solid #475569; margin-top: 8px; padding-top: 16px; }}
-    .terms {{ margin-top: 32px; padding: 18px; background: #020617; border-left: 4px solid #60a5fa; color: #cbd5e1; line-height: 1.6; }}
+    .total-row {{ display: flex; justify-content: space-between; padding: 10px 0; color: #374151; font-size: 14px; }}
+    .total-row.final {{ color: #111827; font-size: 22px; font-weight: 800; border-top: 2px solid #111827; margin-top: 8px; padding-top: 16px; }}
+    .terms {{ margin-top: 32px; padding: 18px; background: #f9fafb; border-left: 4px solid #2563eb; color: #374151; line-height: 1.6; font-size: 14px; }}
+    @media print {{
+      body {{ padding: 0; }}
+      .page {{ box-shadow: none; }}
+    }}
   </style>
 </head>
 <body>
@@ -223,7 +227,7 @@ def _render_invoice_html(invoice: Dict[str, Any]) -> str:
       </div>
     </section>
 
-    <h1>Invoice</h1>
+    <h1>Tax Invoice</h1>
     <div class="subtle">
       <strong>{client_name}</strong><br />
       Valyze ID: {valyze_id}<br />
@@ -247,8 +251,8 @@ def _render_invoice_html(invoice: Dict[str, Any]) -> str:
 
     <section class="totals">
       <div class="total-row"><span>Subtotal</span><span>{html.escape(_money(invoice.get('subtotal')))}</span></div>
-      <div class="total-row"><span>Discount</span><span>- {html.escape(_money(invoice.get('discount_amount')))}</span></div>
-      <div class="total-row final"><span>Total</span><span>{html.escape(_money(invoice.get('total')))}</span></div>
+      <div class="total-row"><span>Volume Discount</span><span>- {html.escape(_money(invoice.get('discount_amount')))}</span></div>
+      <div class="total-row final"><span>Total</span><span>{html.escape(_money(invoice.get('total')))} USD</span></div>
     </section>
 
     <section class="terms">

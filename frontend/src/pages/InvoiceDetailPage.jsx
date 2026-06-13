@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Download, Loader2, RefreshCw, Shield, X, Edit3, Save } from 'lucide-react'
 import { invoicesAPI } from '../api/client'
-import html2pdf from 'html2pdf.js'
 
 const STATUS_STYLES = {
     draft: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
@@ -183,7 +182,7 @@ export default function InvoiceDetailPage() {
     }
 
     const handleDownloadPdf = async () => {
-        const filename = `Valyze-Invoice-${String(invoiceNumber).replace(/[^\w.-]+/g, '_')}.pdf`
+        const filename = `Valyze-Invoice-${String(invoiceNumber).replace(/[^\w.-]+/g, '_')}.html`
         try {
             setDownloading(true)
             setError('')
@@ -191,32 +190,18 @@ export default function InvoiceDetailPage() {
             const rawHtml = extractHtml(response)
             if (!rawHtml) throw new Error('Invoice HTML was empty')
 
-            const lightHtml = rawHtml.replace(
-                /<style>/i,
-                `<style>
-                    body { background: #ffffff !important; color: #1f2937 !important; }
-                    .page { background: #ffffff !important; border-color: #e5e7eb !important; }
-                    * { color: #1f2937 !important; border-color: #e5e7eb !important; }
-                    .logo { color: #111827 !important; }
-                    h1 { color: #111827 !important; }
-                    .brand { border-bottom-color: #e5e7eb !important; }
-                    th { color: #111827 !important; background: #f9fafb !important; }
-                    td { color: #374151 !important; }
-                    tr { background: #ffffff !important; }
-                    .total-row { color: #374151 !important; border-top-color: #e5e7eb !important; }
-                    .total-row.final { color: #111827 !important; }
-                    .terms { background: #f9fafb !important; border-left-color: #2563eb !important; }
-                `
-            )
-            await html2pdf().set({
-                filename,
-                margin: [10, 10, 10, 10],
-                image: { type: 'jpeg', quality: 0.95 },
-                html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            }).from(lightHtml).save()
+            // Save as HTML file (clean, printable light mode from backend now)
+            const blob = new Blob([rawHtml], { type: 'text/html;charset=utf-8' })
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = url
+            link.download = filename
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            URL.revokeObjectURL(url)
         } catch (e) {
-            setError(`Failed to download PDF: ${e.message}`)
+            setError(`Failed to download: ${e.message}`)
         } finally {
             setDownloading(false)
         }

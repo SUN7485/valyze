@@ -166,9 +166,21 @@ async def list_clients(
     client_ids = [str(client["id"]) for client in clients if client.get("id")]
     orders = get_orders_for_clients(client_ids)
     order_counts = Counter(order.get("client_id") for order in orders if order.get("client_id"))
+    completed_tasks = Counter()
+    total_tasks = Counter()
+
+    for order in orders:
+        client_id = str(order.get("client_id"))
+        total_tasks[client_id] += int(order.get("company_count") or 0)
+        completed_tasks[client_id] += int(order.get("completed_count") or 0)
 
     return [
-        {**client, "total_orders": order_counts.get(client.get("id"), 0)}
+        {
+            **client,
+            "total_orders": order_counts.get(client.get("id"), 0),
+            "completed_tasks": completed_tasks.get(client.get("id"), 0),
+            "total_tasks": total_tasks.get(client.get("id"), 0),
+        }
         for client in clients
     ]
 

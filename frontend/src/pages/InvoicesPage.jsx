@@ -104,31 +104,7 @@ function extractHtml(response) {
     return ''
 }
 
-function openHtmlWindow(loadingMessage) {
-    const popup = window.open('', '_blank')
-    if (!popup) {
-        return null
-    }
-
-    popup.document.open()
-    popup.document.write(`<!doctype html><html><body style="margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:grid;place-items:center;min-height:100vh;background:#f8fafc;color:#334155;">${loadingMessage}</body></html>`)
-    popup.document.close()
-    return popup
-}
-
-function writeHtmlWindow(popup, html) {
-    popup.document.open()
-    popup.document.write(html)
-    popup.document.close()
-}
-
-function writeErrorWindow(popup, message) {
-    popup.document.open()
-    popup.document.body.textContent = message
-    popup.document.close()
-}
-
-function downloadHtmlFallback(html, filename) {
+function downloadHtmlFile(html, filename) {
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -173,10 +149,9 @@ export default function InvoicesPage() {
         fetchInvoices()
     }, [])
 
-    const handleDownloadPdf = async (invoice) => {
+    const handleDownload = async (invoice) => {
         const invoiceNumber = getInvoiceNumber(invoice)
-        const filename = `Valyze-Invoice-${String(invoiceNumber).replace(/[^\w.-]+/g, '_')}.pdf`
-        const popup = openHtmlWindow('Preparing invoice PDF...')
+        const filename = `Valyze-Invoice-${String(invoiceNumber).replace(/[^\w.-]+/g, '_')}.html`
 
         try {
             setDownloading(prev => ({ ...prev, [invoice.id]: true }))
@@ -188,16 +163,9 @@ export default function InvoicesPage() {
                 throw new Error('Invoice HTML was empty')
             }
 
-            if (popup) {
-                writeHtmlWindow(popup, html)
-            } else {
-                downloadHtmlFallback(html, filename)
-            }
+            downloadHtmlFile(html, filename)
         } catch (e) {
-            if (popup) {
-                writeErrorWindow(popup, `Failed to download PDF: ${e.message}`)
-            }
-            setError(`Failed to download PDF: ${e.message}`)
+            setError(`Failed to download: ${e.message}`)
         } finally {
             setDownloading(prev => ({ ...prev, [invoice.id]: false }))
         }
@@ -326,11 +294,11 @@ export default function InvoicesPage() {
                                                         {busy ? <Loader2 size={18} className="animate-spin" /> : <Eye size={18} />}
                                                     </button>
                                                     <button
-                                                        onClick={() => handleDownloadPdf(invoice)}
+                                                        onClick={() => handleDownload(invoice)}
                                                         disabled={downloading[invoice.id]}
                                                         className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-50"
-                                                        aria-label={`Download PDF for invoice ${invoiceNumber}`}
-                                                        title="Download PDF"
+                                                        aria-label={`Download invoice ${invoiceNumber}`}
+                                                        title="Download HTML"
                                                     >
                                                         {downloading[invoice.id] ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
                                                     </button>

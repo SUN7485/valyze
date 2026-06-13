@@ -429,7 +429,7 @@ export default function ClientsPage() {
                                 <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Contact</th>
                                 <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Country</th>
                                 <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Orders</th>
-                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Sessions</th>
+                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Done</th>
                                 <th className="text-right px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
                             </tr>
                         </thead>
@@ -484,9 +484,15 @@ export default function ClientsPage() {
                                         </span>
                                     </td>
                                     <td className="px-4 py-4">
-                                        <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                                            {client.active_sessions != null ? client.active_sessions : '-'}
-                                        </span>
+                                        {(() => {
+                                            const total = Number(client.total_tasks || 0)
+                                            const done = Number(client.completed_tasks || 0)
+                                            return (
+                                                <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                                                    {total > 0 ? `${done}/${total}` : '0/0'}
+                                                </span>
+                                            )
+                                        })()}
                                     </td>
                                     <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
