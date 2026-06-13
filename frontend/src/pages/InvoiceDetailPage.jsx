@@ -182,7 +182,6 @@ export default function InvoiceDetailPage() {
     }
 
     const handleDownloadPdf = async () => {
-        const filename = `Valyze-Invoice-${String(invoiceNumber).replace(/[^\w.-]+/g, '_')}.html`
         try {
             setDownloading(true)
             setError('')
@@ -190,16 +189,22 @@ export default function InvoiceDetailPage() {
             const rawHtml = extractHtml(response)
             if (!rawHtml) throw new Error('Invoice HTML was empty')
 
-            // Save as HTML file (clean, printable light mode from backend now)
-            const blob = new Blob([rawHtml], { type: 'text/html;charset=utf-8' })
-            const url = URL.createObjectURL(blob)
-            const link = document.createElement('a')
-            link.href = url
-            link.download = filename
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-            URL.revokeObjectURL(url)
+            // Print via hidden iframe (same pattern as report generation)
+            const iframe = document.createElement('iframe')
+            iframe.style.position = 'fixed'
+            iframe.style.left = '-9999px'
+            document.body.appendChild(iframe)
+
+            const doc = iframe.contentDocument || iframe.contentWindow.document
+            doc.open()
+            doc.write(rawHtml)
+            doc.close()
+
+            setTimeout(() => {
+                iframe.contentWindow.focus()
+                iframe.contentWindow.print()
+                setTimeout(() => document.body.removeChild(iframe), 1000)
+            }, 800)
         } catch (e) {
             setError(`Failed to download: ${e.message}`)
         } finally {

@@ -104,16 +104,22 @@ function extractHtml(response) {
     return ''
 }
 
-function downloadHtmlFile(html, filename) {
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename.replace(/\.pdf$/i, '.html')
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+function printHtml(html) {
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.left = '-9999px'
+    document.body.appendChild(iframe)
+
+    const doc = iframe.contentDocument || iframe.contentWindow.document
+    doc.open()
+    doc.write(html)
+    doc.close()
+
+    setTimeout(() => {
+        iframe.contentWindow.focus()
+        iframe.contentWindow.print()
+        setTimeout(() => document.body.removeChild(iframe), 1000)
+    }, 800)
 }
 
 export default function InvoicesPage() {
@@ -150,9 +156,6 @@ export default function InvoicesPage() {
     }, [])
 
     const handleDownload = async (invoice) => {
-        const invoiceNumber = getInvoiceNumber(invoice)
-        const filename = `Valyze-Invoice-${String(invoiceNumber).replace(/[^\w.-]+/g, '_')}.html`
-
         try {
             setDownloading(prev => ({ ...prev, [invoice.id]: true }))
             setError('')
@@ -163,7 +166,7 @@ export default function InvoicesPage() {
                 throw new Error('Invoice HTML was empty')
             }
 
-            downloadHtmlFile(html, filename)
+            printHtml(html)
         } catch (e) {
             setError(`Failed to download: ${e.message}`)
         } finally {

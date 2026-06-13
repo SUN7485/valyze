@@ -153,10 +153,15 @@ select option {
 .ghost-button,
 .disabled-button {
   min-height: 46px;
+  max-width: 100%;
   border-radius: 14px;
   padding: 0 18px;
   font-weight: 800;
   cursor: pointer;
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
   transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease, opacity 160ms ease;
 }
 
@@ -375,6 +380,8 @@ select option {
   display: grid;
   gap: 6px;
   justify-content: center;
+  width: 100%;
+  max-width: 100%;
   min-height: 72px;
   border: 1px dashed var(--border);
   border-radius: 14px;
@@ -393,6 +400,11 @@ select option {
 
 .file-drop input {
   display: none;
+}
+
+.file-drop span,
+.file-drop small {
+  overflow-wrap: anywhere;
 }
 
 .file-drop span {
@@ -418,6 +430,7 @@ select option {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
   border: 1px solid var(--border-soft);
   border-radius: 12px;
   padding: 8px 10px;
