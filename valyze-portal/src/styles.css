@@ -78,6 +78,9 @@ button {
   width: min(440px, 100%);
   padding: 42px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .login-card .logo,

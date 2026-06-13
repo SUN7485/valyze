@@ -513,6 +513,7 @@ async def _submit_order_payload(
     }
 
 
+@router.post("/auth")
 async def portal_auth(body: PortalAuthRequest):
     token = body.token.strip()
     password = body.password

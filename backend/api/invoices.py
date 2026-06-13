@@ -132,11 +132,19 @@ def _enrich_invoice_summary(invoice: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": invoice.get("id"),
         "invoice_number": invoice.get("invoice_number"),
+        "client_id": invoice.get("client_id"),
+        "order_id": invoice.get("order_id"),
         "client_name": client_name,
         "order_number": order_number,
         "total": invoice.get("total"),
+        "subtotal": invoice.get("subtotal"),
+        "discount_amount": invoice.get("discount_amount"),
+        "unit_price": invoice.get("unit_price"),
+        "company_count": invoice.get("company_count"),
+        "currency": invoice.get("currency"),
         "status": invoice.get("status"),
         "created_at": invoice.get("created_at"),
+        "updated_at": invoice.get("updated_at"),
     }
 
 
