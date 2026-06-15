@@ -1,43 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import * as mammoth from 'mammoth'
-
-const COLORS = {
-  dark: {
-    bg: '#0f172a',
-    surface: '#1e293b', 
-    surfaceHover: '#334155',
-    text: '#f1f5f9',
-    textSecondary: '#94a3b8',
-    textMuted: '#64748b',
-    border: '#1e293b',
-    borderSoft: '#0f172a',
-    borderStrong: '#334155',
-    primary: '#f59e0b',
-    cta: '#8b5cf6',
-    info: '#3b82f6',
-    success: '#22c55e',
-    warning: '#f59e0b',
-    danger: '#ef4444',
-  },
-  light: {
-    bg: '#ffffff',
-    surface: '#f8fafc',
-    surfaceHover: '#f1f5f9', 
-    text: '#0f172a',
-    textSecondary: '#475569',
-    textMuted: '#94a3b8',
-    border: '#e2e8f0',
-    borderSoft: '#f1f5f9',
-    borderStrong: '#cbd5e1',
-    primary: '#f59e0b',
-    cta: '#8b5cf6',
-    info: '#3b82f6',
-    success: '#22c55e',
-    warning: '#f59e0b',
-    danger: '#ef4444',
-  }
-};
+import { useDarkMode } from '../hooks/useDarkMode'
 
 const loadPdfJs = () => new Promise((resolve, reject) => {
   if (window.pdfjsLib) { resolve(window.pdfjsLib); return; }
@@ -259,8 +223,16 @@ const fIcon = f => f.type === "application/pdf" ? "📄" : f.type?.startsWith("i
 export default function ExtractorPage() {
   const navigate = useNavigate()
   const { reportId } = useParams()
+  const { darkMode } = useDarkMode()
   const proxyUrl = `${(import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')}/api/proxy`
   const hasReportId = Boolean(reportId)
+  const [themeDarkMode, setThemeDarkMode] = useState(darkMode)
+
+  useEffect(() => {
+    const handleThemeChange = (event) => setThemeDarkMode(event.detail?.darkMode ?? document.documentElement.classList.contains('dark'))
+    window.addEventListener('valyze:theme-change', handleThemeChange)
+    return () => window.removeEventListener('valyze:theme-change', handleThemeChange)
+  }, [])
 
   const [files, setFiles]               = useState([]);
   const [status, setStatus]             = useState("idle");
@@ -280,7 +252,6 @@ export default function ExtractorPage() {
   const [patchError, setPatchError]     = useState("");
   const [apiKey, setApiKey]             = useState(() => localStorage.getItem("valyze_api_key") || "");
   const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem("valyze_api_key"));
-  const [darkMode, setDarkMode]         = useState(true);
 
   useEffect(() => { if (apiKey) localStorage.setItem("valyze_api_key", apiKey); }, [apiKey]);
 
@@ -290,8 +261,7 @@ export default function ExtractorPage() {
   const addFiles = f => setFiles(p => [...p, ...[...f]].slice(0, 5));
   const onDrop = useCallback(e => { e.preventDefault(); addFiles(e.dataTransfer.files); }, []);
 
-  const toggleDarkMode = () => setDarkMode(d => !d);
-  const C = COLORS[darkMode ? 'dark' : 'light'];
+  const C = COLORS[themeDarkMode ? 'dark' : 'light'];
   const toB64 = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(f); });
 
   const stopClock = () => { clearInterval(clockRef.current); clockRef.current = null; };
@@ -460,7 +430,8 @@ export default function ExtractorPage() {
           else if (ch === "}") {
             depth--;
             if (depth === 0) return text.slice(start, i + 1);
-          }
+}
+
         }
         // Fallback: if bracket matching failed, try greedy match
         const greedy = text.match(/\{[\s\S]*\}/);
@@ -591,20 +562,37 @@ export default function ExtractorPage() {
     } catch (e) { setPatchError(e.message); setPatchStatus("error"); }
   };
 
-  const saveResultForEditor = useCallback(() => {
+  const saveResultForEditor = useCallback(async () => {
     if (!result) return;
     setNavigating(true);
+    setError("");
     try {
       if (hasReportId) {
-        localStorage.setItem("valyze_import_" + reportId, JSON.stringify(result));
-        navigate("/editor/" + reportId + "?autoImport=1", { replace: true });
+        // Save to backend immediately before navigating
+        const { default: api } = await import("../api/client");
+        const token = localStorage.getItem("valyze_token") || "";
+        const baseUrl = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+        const saveRes = await fetch(`${baseUrl}/api/report/${reportId}/easy-way`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(result),
+        });
+        if (!saveRes.ok) {
+          const errData = await saveRes.json().catch(() => ({}));
+          throw new Error(errData.detail || `Failed to save report (HTTP ${saveRes.status})`);
+        }
+        // Navigate to editor — no autoImport param, data is already in backend
+        navigate("/editor/" + reportId, { replace: true });
       } else {
         localStorage.setItem("valyze_pending_import", JSON.stringify(result));
         navigate("/", { replace: true });
       }
     } catch (e) {
       setNavigating(false);
-      setError("Could not prepare import: " + (e.message || e));
+      setError("Could not save report: " + (e.message || e));
       setStatus("error");
     }
   }, [hasReportId, navigate, reportId, result]);
@@ -613,192 +601,197 @@ export default function ExtractorPage() {
   const cf = d.financial_data || {};
   const fmtTime = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
+  const colorClass = (color) => {
+    const key = String(color || "").toLowerCase();
+    const colors = {
+      "#10b981": "bg-emerald-500",
+      "#22c55e": "bg-emerald-500",
+      green: "bg-emerald-500",
+      "#f59e0b": "bg-amber-500",
+      yellow: "bg-amber-500",
+      "#ef4444": "bg-rose-500",
+      red: "bg-rose-500",
+      "#7c3aed": "bg-violet-500",
+      purple: "bg-violet-500",
+      "#3b82f6": "bg-blue-500",
+      blue: "bg-blue-500",
+    };
+    return colors[key];
+  };
+
   const Badge = ({ v, color }) => {
-    const c = { Low:"#22c55e",Medium:"#f59e0b",High:"#ef4444",Critical:"#7c3aed",green:"#22c55e",yellow:"#f59e0b",red:"#ef4444" };
-    const bg = color || c[v] || "#6b7280";
-    return v ? <span style={{ background:bg,color:"#fff",borderRadius:6,padding:"2px 10px",fontSize:12,fontWeight:700 }}>{v}</span>
-              : <span style={{ color:C.textMuted }}>—</span>;
+    const c = { Low: "bg-emerald-500", Medium: "bg-amber-500", High: "bg-rose-500", Critical: "bg-violet-500", green: "bg-emerald-500", yellow: "bg-amber-500", red: "bg-rose-500" };
+    const bg = colorClass(color) || c[v] || "bg-slate-500";
+    return v ? <span className={`rounded-full px-3 py-0.5 text-[11px] font-bold text-white ${bg}`}>{v}</span>
+      : <span className="text-[var(--color-text-muted)]">—</span>;
   };
   const Bar = ({ label, val, color, invert }) => {
-    const w = Math.max(0, Math.min(100, invert ? 100-(+val||0) : (+val||0)));
-    const defaultBg = w>70?"#22c55e":w>40?"#f59e0b":"#ef4444";
-    const bg = color || defaultBg;
-    return <div style={{ marginBottom:10 }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3 }}><span style={{ color:C.textSecondary }}>{label}</span><span style={{ color:C.text,fontWeight:600 }}>{val??"—"}</span></div><div style={{ background:C.borderSoft,borderRadius:4,height:6 }}><div style={{ width:`${w}%`,background:bg,height:6,borderRadius:4,transition:"width 0.8s" }}/></div></div>;
+    const w = Math.max(0, Math.min(100, invert ? 100 - (+val || 0) : (+val || 0)));
+    const widthSteps = ["w-0", "w-5", "w-10", "w-15", "w-20", "w-25", "w-30", "w-35", "w-40", "w-45", "w-50", "w-55", "w-60", "w-65", "w-70", "w-75", "w-80", "w-85", "w-90", "w-95", "w-100"];
+    const widthClass = widthSteps[Math.round(w / 5)];
+    const defaultBg = w > 70 ? "bg-emerald-500" : w > 40 ? "bg-amber-500" : "bg-rose-500";
+    const bg = colorClass(color) || defaultBg;
+    return <div className="mb-2.5"><div className="mb-0.5 flex items-center justify-between text-xs"><span className="text-[var(--color-text-secondary)]">{label}</span><span className="font-semibold text-[var(--color-text)]">{val ??"—"}</span></div><div className="h-1.5 overflow-hidden rounded bg-[var(--color-border-soft)]"><div className={`h-full rounded ${bg} ${widthClass} transition-all duration-700`} /></div></div>;
   };
   const Sec = ({ title, ch }) => (
-    <div style={{ background:C.surface,border:"1px solid "+C.borderSoft,borderRadius:10,padding:18,marginBottom:14 }}>
-      <div style={{ color:C.textMuted,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:12 }}>{title}</div>
+    <div className="mb-3.5 rounded-2xl border border-[var(--color-border-soft)] bg-[var(--color-surface)] p-4">
+      <div className="mb-3 text-[11px] font-black uppercase tracking-wider text-[var(--color-text-muted)]">{title}</div>
       {ch}
     </div>
   );
   const F = ({ l, v }) => (
-    <div style={{ display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid "+C.borderSoft,fontSize:13 }}>
-      <span style={{ color:C.textMuted,flexShrink:0,marginRight:8 }}>{l}</span>
-      <span style={{ color:C.text,fontWeight:500,maxWidth:"62%",textAlign:"right" }}>{v??"—"}</span>
+    <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border-soft)] py-1 text-xs">
+      <span className="flex-shrink-0 text-[var(--color-text-muted)]">{l}</span>
+      <span className="max-w-[65%] break-words text-right font-medium text-[var(--color-text)]">{v ??"—"}</span>
     </div>
   );
-  const THead = ({ cols }) => <thead><tr>{cols.map(h=><th key={h} style={{ background:"linear-gradient(135deg,rgba(59,130,246,0.1),rgba(6,182,212,0.1))",color:C.info,padding:"6px 8px",textAlign:"left",fontSize:12,fontWeight:700,borderBottom:"2px solid "+C.border }}>{h}</th>)}</tr></thead>;
-  const TRow  = ({ row }) => <tr>{row.map((c,i)=><td key={i} style={{ padding:"5px 8px",borderBottom:"1px solid "+C.borderSoft,fontSize:12,color:i===0?C.textSecondary:C.text }}>{c||"—"}</td>)}</tr>;
-  const Table = ({ cols, rows }) => <table style={{ width:"100%",borderCollapse:"collapse" }}><THead cols={cols}/><tbody>{rows.map((r,i)=><TRow key={i} row={r}/>)}</tbody></table>;
+  const THead = ({ cols }) => <thead><tr>{cols.map(h=><th key={h} className="border-b-2 border-[var(--color-border)] bg-blue-500/10 px-2 py-1.5 text-left text-[11px] font-bold text-blue-500">{h}</th>)}</tr></thead>;
+  const TRow  = ({ row }) => <tr>{row.map((c,i)=><td key={i} className={`border-b border-[var(--color-border-soft)] px-2 py-1 text-xs ${i === 0 ? "text-[var(--color-text-secondary)]" : "text-[var(--color-text)]"}`}>{c||"—"}</td>)}</tr>;
+  const Table = ({ cols, rows }) => <table className="w-full border-collapse"><THead cols={cols}/><tbody>{rows.map((r,i)=><TRow key={i} row={r}/>)}</tbody></table>;
+
+  const alertClass = a => {
+    if (a.alert_type === "danger") return "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300";
+    if (a.alert_type === "warning") return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+    if (a.alert_type === "success") return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+    return "border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300";
+  };
+
+  const sentimentClass = n => {
+    if (n.event_sentiment === "positive") return "border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+    if (n.event_sentiment === "negative") return "border border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300";
+    return "border border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300";
+  };
 
   const TABS = ["summary","operations","financials","ratios","risk","legal","news","recommendation","json","patch"];
 
   return (
-    <div style={{ background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text }}>
+    <div className="min-h-[calc(100vh-96px)] w-full">
+      <div className="bg-[var(--color-surface)] dark:bg-white/5 border border-[var(--color-border)] rounded-3xl shadow-sm overflow-hidden">
 
-      <div style={{ 
-        borderBottom:"1px solid "+C.borderSoft,padding:"14px 20px",display:"flex",alignItems:"center",gap:12,
-        background:C.bg,
-      }}>
-        <div style={{ background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15 }}>⚡</div>
-        <div style={{ flex:1 }}>
-          <div style={{ fontWeight:700,fontSize:14,color:C.text }}>Valyze Credit Intelligence v5</div>
-          {hasReportId && <div style={{ color:C.textMuted,fontSize:11 }}>Report: {reportId}</div>}
-          <div style={{ color:C.textMuted,fontSize:11 }}>Smart PDF Extraction · Hybrid OCR · Claude Sonnet 4</div>
+        <div className="border-b border-[var(--color-border)] p-5 md:p-6 flex items-center justify-between gap-4 bg-white/70 dark:bg-white/[0.03]">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-500 flex items-center justify-center text-white text-xl shadow-lg shadow-blue-500/20 flex-shrink-0">⚡</div>
+            <div className="min-w-0">
+              <div className="text-base md:text-lg font-black text-[var(--color-text)] truncate">Valyze AI Document Extractor</div>
+              <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">Smart PDF extraction · Hybrid OCR · Claude Sonnet 4</div>
+              {hasReportId && <div className="text-[11px] text-[var(--color-text-muted)] mt-1 font-mono truncate">Report: {reportId}</div>}
+            </div>
+          </div>
+          {!showKeyInput && !status.includes("loading") && !status.includes("done") && (
+            <button onClick={()=>setShowKeyInput(true)} className="px-4 py-2 rounded-xl border border-[var(--color-border)] bg-white/70 dark:bg-white/5 text-[var(--color-text-secondary)] hover:text-primary hover:border-primary/50 transition-all text-xs font-bold">
+              🔑 Change Key
+            </button>
+          )}
         </div>
-        <button 
-          onClick={toggleDarkMode}
-          style={{
-            background:C.surface,
-            border:"1px solid "+C.borderSoft,
-            borderRadius:8,
-            width:36,height:36,
-            display:"flex",alignItems:"center",justifyContent:"center",
-            cursor:"pointer",
-            color:C.textSecondary,
-            fontSize:16,
-            transition:"all 0.2s"
-          }}
-        >
-          {darkMode ? '☀️' : '🌙'}
-        </button>
-        {!showKeyInput && !status.includes("loading") && !status.includes("done") && (
-          <button onClick={()=>setShowKeyInput(true)} style={{ background:C.surface,border:"1px solid "+C.border,borderRadius:6,padding:"5px 10px",color:C.textSecondary,fontSize:11,cursor:"pointer" }}>
-            🔑 Change Key
-          </button>
-        )}
-      </div>
 
       {(showKeyInput || !apiKey) && status !== "loading" && status !== "done" && (
-        <div style={{ background:`linear-gradient(135deg,${C.surface},${C.bg})`,borderBottom:"1px solid "+C.border,padding:"16px 20px" }}>
-          <div style={{ display:"flex",gap:10,alignItems:"center",flexWrap:"wrap" }}>
-            <div style={{ flex:1,minWidth:200 }}>
-              <div style={{ color:C.textSecondary,fontSize:12,marginBottom:6,fontWeight:600 }}>🔐 Anthropic API Key</div>
+        <div className="border-b border-[var(--color-border)] p-5 md:p-6 bg-white/60 dark:bg-white/[0.02]">
+          <div className="flex flex-col md:flex-row gap-4 md:items-center">
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-black uppercase tracking-widest text-[var(--color-text-muted)] mb-2">🔐 Anthropic API Key</div>
               <input 
                 type="password" 
                 value={apiKey} 
                 onChange={e=>setApiKey(e.target.value)} 
                 placeholder="sk-ant-api03-..."
-                style={{ width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid "+C.border,background:C.bg,color:C.text,fontSize:13,fontFamily:"monospace",boxSizing:"border-box" }}
+                className="input-field font-mono"
               />
             </div>
-            <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+            <div className="flex flex-col gap-2 md:w-44">
               <button 
                 onClick={()=>{if(apiKey.startsWith("sk-ant-")){localStorage.setItem("valyze_api_key",apiKey);setShowKeyInput(false)}}} 
                 disabled={!apiKey.startsWith("sk-ant-")}
-                style={{ padding:"10px 20px",borderRadius:8,border:"none",background:apiKey.startsWith("sk-ant-")?"linear-gradient(135deg,#22c55e,#16a34a)":C.surface,color:apiKey.startsWith("sk-ant-")?"#fff":C.textMuted,fontWeight:700,fontSize:13,cursor:apiKey.startsWith("sk-ant-")?"pointer":"default" }}
+                className="px-4 py-3 rounded-xl border border-transparent bg-emerald-500 text-white font-bold text-xs disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-[var(--color-surface)] disabled:text-[var(--color-text-muted)] hover:bg-emerald-600 transition-all"
               >
                 ✓ Save Key
               </button>
-              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" style={{ color:C.textMuted,fontSize:11,textAlign:"center" }}>Get API Key →</a>
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="text-[11px] text-[var(--color-text-muted)] hover:text-primary text-center">Get API Key →</a>
             </div>
           </div>
         </div>
       )}
 
-      <div style={{ maxWidth:960,margin:"0 auto",padding:"20px 16px" }}>
+        <div className="p-5 md:p-6 lg:p-8">
 
         {status !== "done" && <>
           <div onDragOver={e=>e.preventDefault()} onDrop={onDrop} onClick={()=>fileRef.current.click()}
-            style={{ border:"2px dashed "+C.border,borderRadius:12,padding:"36px 24px",textAlign:"center",cursor:"pointer",background:C.surface,marginBottom:12 }}>
-            <input ref={fileRef} type="file" multiple accept={ACCEPT} style={{ display:"none" }} onChange={e=>addFiles(e.target.files)}/>
-            <div style={{ fontSize:32,marginBottom:8 }}>📂</div>
-            <div style={{ fontWeight:600,marginBottom:4,color:C.text }}>Drop company documents here</div>
-            <div style={{ color:C.textSecondary,fontSize:13 }}>PDF · Word · Images · Excel · CSV · TXT — up to 5 files</div>
-            <div style={{ color:C.textMuted,fontSize:12,marginTop:6 }}>Text pages → text · Scanned pages → vision</div>
+            className="border-2 border-dashed border-[var(--color-border)] hover:border-primary/70 rounded-3xl p-8 md:p-10 text-center cursor-pointer bg-white/70 dark:bg-white/5 hover:bg-primary/5 transition-all mb-4">
+            <input ref={fileRef} type="file" multiple accept={ACCEPT} className="hidden" onChange={e=>addFiles(e.target.files)}/>
+            <div className="text-4xl mb-3">📂</div>
+            <div className="font-black text-[var(--color-text)] text-lg mb-1">Drop company documents here</div>
+            <div className="text-sm text-[var(--color-text-secondary)]">PDF · Word · Images · Excel · CSV · TXT — up to 5 files</div>
+            <div className="text-xs text-[var(--color-text-muted)] mt-2">Text pages → text · Scanned pages → vision</div>
           </div>
           {files.map((f,i)=>(
-            <div key={i} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",background:C.surface,border:"1px solid "+C.borderSoft,borderRadius:8,padding:"9px 14px",marginBottom:6 }}>
-              <span style={{ fontSize:13,color:C.textSecondary }}>{fIcon(f)} {f.name} <span style={{ color:C.textMuted }}>({(f.size/1024).toFixed(0)} KB)</span></span>
-              <button onClick={()=>setFiles(p=>p.filter((_,j)=>j!==i))} style={{ background:"none",border:"none",color:C.danger,cursor:"pointer",fontSize:16 }}>✕</button>
+            <div key={i} className="flex items-center justify-between gap-4 bg-white/70 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 mb-2">
+              <span className="text-sm text-[var(--color-text-secondary)] truncate">{fIcon(f)} {f.name} <span className="text-[var(--color-text-muted)]">({(f.size/1024).toFixed(0)} KB)</span></span>
+              <button onClick={()=>setFiles(p=>p.filter((_,j)=>j!==i))} className="text-xl text-rose-500 hover:text-rose-600">✕</button>
             </div>
           ))}
         </>}
 
         {status === "loading" && (
-          <div style={{ background:C.surface,border:"1px solid "+C.borderSoft,borderRadius:12,padding:28,textAlign:"center",marginBottom:16 }}>
-            <div style={{ fontSize:28,marginBottom:6 }}>⚙️</div>
-            <div style={{ color:C.primary,fontSize:26,fontWeight:800,marginBottom:6,fontFamily:"monospace" }}>{fmtTime(elapsed)}</div>
-            <div style={{ color:C.textSecondary,fontSize:13,marginBottom:16,minHeight:20 }}>{logMsg}</div>
-            <div style={{ display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap",marginBottom:16 }}>
+          <div className="bg-white/70 dark:bg-white/5 border border-[var(--color-border)] rounded-3xl p-8 text-center mb-4">
+            <div className="text-4xl mb-2">⚙️</div>
+            <div className="text-primary text-3xl font-black font-mono mb-2">{fmtTime(elapsed)}</div>
+            <div className="text-sm text-[var(--color-text-secondary)] mb-5 min-h-5">{logMsg}</div>
+            <div className="flex gap-2 justify-center flex-wrap mb-5">
               {STAGES.map((s,i)=>(
-                <div key={i} style={{ padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:600,background:i<=stage?"linear-gradient(135deg,#3b82f6,#8b5cf6)":C.surface,color:i<=stage?"#fff":C.textMuted,transition:"all 0.4s" }}>
+                <div key={i} className="px-3 py-1.5 rounded-full text-xs font-bold bg-white/70 dark:bg-white/5 text-[var(--color-text-muted)] border border-[var(--color-border)]">
                   {i<stage?"✓":i===stage?"◐":"○"} {s}
                 </div>
               ))}
             </div>
-            <button onClick={cancel} style={{ padding:"7px 20px",borderRadius:8,border:"1px solid "+C.danger,background:"rgba(239,68,68,0.1)",color:C.danger,cursor:"pointer",fontSize:13,fontWeight:600 }}>✕ Cancel</button>
+            <button onClick={cancel} className="px-5 py-2 rounded-xl border border-rose-300 bg-rose-50 text-rose-600 font-bold text-sm hover:bg-rose-100">✕ Cancel</button>
           </div>
         )}
 
         {status === "error" && (
-          <div style={{ background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:14,marginBottom:16,color:C.danger,fontSize:13,whiteSpace:"pre-line" }}>⚠️ {error}</div>
+          <div className="bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 rounded-2xl p-4 mb-4 text-rose-700 dark:text-rose-300 text-sm whitespace-pre-line">⚠️ {error}</div>
         )}
 
         {status !== "done" && <>
           <button onClick={extract} disabled={!files.length||status==="loading"}
-            style={{ width:"100%",padding:13,borderRadius:10,border:"none",background:!files.length||status==="loading"?C.surface:"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:!files.length||status==="loading"?C.textMuted:"#fff",fontWeight:700,fontSize:15,cursor:!files.length||status==="loading"?"default":"pointer",marginBottom:10 }}>
+            className="w-full py-4 rounded-2xl border border-transparent bg-gradient-to-r from-blue-500 to-violet-500 text-white font-black text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:from-[var(--color-surface)] disabled:to-[var(--color-surface)] disabled:text-[var(--color-text-muted)] hover:shadow-xl hover:shadow-blue-500/20 transition-all mb-3">
             {status==="loading"?"Extracting...":"⚡ Run Credit Intelligence Extraction"}
           </button>
-          <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:10 }}>
-            <div onClick={()=>setUseWebSearch(v=>!v)} style={{ width:36,height:20,borderRadius:10,background:useWebSearch?C.primary:C.surface,position:"relative",cursor:"pointer",flexShrink:0,transition:"background 0.2s",border:"1px solid "+C.borderSoft }}>
-              <div style={{ position:"absolute",top:3,left:useWebSearch?18:3,width:14,height:14,borderRadius:"50%",background:"#fff",transition:"left 0.2s" }}/>
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <div onClick={()=>setUseWebSearch(v=>!v)} className="w-11 h-6 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] relative cursor-pointer flex-shrink-0">
+              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-primary transition-all ${useWebSearch ? "left-[calc(100%-1.5rem)]" : "left-1"}`}/>
             </div>
-            <span style={{ fontSize:13,color:C.textSecondary,cursor:"pointer",userSelect:"none" }} onClick={()=>setUseWebSearch(v=>!v)}>
-              🔍 Web search {useWebSearch?<span style={{ color:C.warning }}>ON</span>:<span style={{ color:C.success }}>OFF</span>}
+            <span className="text-sm text-[var(--color-text-secondary)] cursor-pointer select-none" onClick={()=>setUseWebSearch(v=>!v)}>
+              🔍 Web search {useWebSearch?<span className="text-amber-500">ON</span>:<span className="text-emerald-500">OFF</span>}
             </span>
           </div>
-          <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginTop:8,fontSize:12 }}>
-            <span style={{ color:C.textMuted }}>OCR:</span>
+          <div className="flex items-center justify-center gap-2 text-xs">
+            <span className="text-[var(--color-text-muted)]">OCR:</span>
             {["text","smart","vision"].map(m=>(
-              <button key={m} onClick={()=>setExtractMode(m)} style={{ padding:"3px 8px",borderRadius:4,border:"none",background:extractMode===m?C.primary:C.surface,color:extractMode===m?"#fff":C.textSecondary,cursor:"pointer",textTransform:"capitalize",fontSize:11 }}>
+              <button key={m} onClick={()=>setExtractMode(m)} className={`px-3 py-1 rounded-lg border border-transparent text-[11px] font-bold ${extractMode===m ? 'bg-primary text-white' : 'bg-white/70 dark:bg-white/5 text-[var(--color-text-secondary)] border-[var(--color-border)] hover:text-primary'}`}>
                 {m}
               </button>
             ))}
-            <span style={{ color:C.textMuted,fontSize:10 }}>{extractMode==="text"?"(cheap)":extractMode==="vision"?"(max data)":"(balanced)"}</span>
+            <span className="text-[var(--color-text-muted)] text-[10px]">{extractMode==="text"?"(cheap)":extractMode==="vision"?"(max data)":"(balanced)"}</span>
           </div>
         </>}
 
         {status === "done" && result && (
           <div>
-            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:12,padding:4,background:C.surface,borderRadius:12,border:"1px solid "+C.borderSoft }}>
+            <div className="flex gap-2 flex-wrap mb-4 p-2 bg-white/70 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl">
               {TABS.map(t=>(
-                <button key={t} onClick={()=>setTab(t)} style={{ padding:"5px 11px",borderRadius:8,border:"none",background:tab===t?C.primary:"transparent",color:tab===t?"#fff":C.textSecondary,fontWeight:600,fontSize:12,cursor:"pointer",textTransform:"capitalize" }}>
+                <button key={t} onClick={()=>setTab(t)} className={`px-3 py-2 rounded-xl border border-transparent text-xs font-black uppercase tracking-wide ${tab===t ? 'bg-primary text-white' : 'bg-white/70 dark:bg-white/5 text-[var(--color-text-secondary)] hover:text-primary hover:border-primary/50'}`}>
                   {t==="json"?"Raw JSON":t==="patch"?"🔧 Patch":t}
                 </button>
               ))}
             </div>
 
-            <div style={{ display:"flex",gap:8,marginBottom:16,flexWrap:"wrap" }}>
-              <button onClick={copyJSON} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid "+C.border,background:C.surface,color:C.textSecondary,cursor:"pointer",fontSize:13 }}>{copied?"✓ Copied":"Copy JSON"}</button>
-              <button onClick={downloadJSON} style={{ padding:"7px 12px",borderRadius:8,border:"none",background:C.success,color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13 }}>⬇ Download JSON</button>
-              <button onClick={()=>{setStatus("idle");setFiles([]);setResult(null);setLogMsg("");}} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid "+C.border,background:C.surface,color:C.textSecondary,cursor:"pointer",fontSize:13 }}>New Report</button>
+            <div className="flex gap-3 mb-6 flex-wrap">
+              <button onClick={copyJSON} className="px-4 py-2 rounded-xl border border-[var(--color-border)] bg-white/70 dark:bg-white/5 text-[var(--color-text-secondary)] hover:text-primary hover:border-primary/50 text-sm font-bold">{copied?"✓ Copied":"Copy JSON"}</button>
+              <button onClick={downloadJSON} className="px-4 py-2 rounded-xl border border-transparent bg-emerald-500 text-white text-sm font-bold hover:bg-emerald-600">⬇ Download JSON</button>
+              <button onClick={()=>{setStatus("idle");setFiles([]);setResult(null);setLogMsg("");}} className="px-4 py-2 rounded-xl border border-[var(--color-border)] bg-white/70 dark:bg-white/5 text-[var(--color-text-secondary)] hover:text-primary hover:border-primary/50 text-sm font-bold">New Report</button>
               <button
                 onClick={saveResultForEditor}
                 disabled={navigating || !result}
-                style={{
-                  padding: "12px 24px",
-                  borderRadius: 12,
-                  border: "none",
-                  background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
-                  color: "#fff",
-                  fontWeight: 700,
-                  fontSize: 14,
-                  cursor: navigating ? "wait" : "pointer",
-                  boxShadow: "0 4px 15px rgba(99, 102, 241, 0.4), 0 0 30px rgba(139, 92, 246, 0.2)",
-                  opacity: navigating ? 0.7 : 1,
-                  transition: "all 0.2s ease"
-                }}
+                className="px-5 py-3 rounded-xl border border-transparent bg-gradient-to-r from-blue-500 to-violet-500 text-white font-black text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-xl hover:shadow-violet-500/20 transition-all"
               >
                 {navigating ? "Opening..." : hasReportId ? "Continue to Editor →" : "Save for Easy Import →"}
               </button>
@@ -806,14 +799,14 @@ export default function ExtractorPage() {
 
             {tab==="summary"&&<div>
               <Sec title="Company Identity" ch={<><F l="Legal Name" v={d.legal_name}/><F l="Trade Names" v={d.trade_names}/><F l="CR / Reg No." v={d.cr_number}/><F l="Unified No." v={d.unified_number}/><F l="Country / City" v={`${d.country||"—"} / ${d.city||"—"}`}/><F l="Industry" v={d.industry}/><F l="Type / Status" v={`${d.company_type||"—"} / ${d.company_status||"—"}`}/><F l="Incorporated" v={d.incorporation_date}/><F l="Capital" v={d.capital}/><F l="Employees" v={d.employee_count}/><F l="Website" v={d.website}/><F l="Email" v={d.email}/><F l="Phone" v={d.phone}/></>}/>
-              <Sec title="Executive Summary" ch={<><div style={{ color:C.textSecondary,fontSize:13,lineHeight:1.7,marginBottom:10 }}>{d.executive_summary_text||"—"}</div><div style={{ color:C.textMuted,fontSize:12,fontStyle:"italic",lineHeight:1.6 }}>{d.company_history_text}</div></>}/>
+              <Sec title="Executive Summary" ch={<><div className="mb-2.5 text-sm leading-7 text-[var(--color-text-secondary)]">{d.executive_summary_text||"—"}</div><div className="text-xs leading-6 italic text-[var(--color-text-muted)]">{d.company_history_text}</div></>}/>
               <Sec title="Key Ratios" ch={<><F l="Current Ratio" v={d.exec_current_ratio}/><F l="Equity Ratio" v={d.exec_equity_ratio}/><F l="EBIT Margin" v={d.exec_ebit_margin}/><F l="Debt/Equity" v={d.exec_debt_equity}/><F l="Net Margin" v={d.exec_profitability}/></>}/>
               <Sec title="Ownership" ch={<><F l="UBO" v={d.ultimate_beneficial_owner}/><F l="Parent" v={d.parent_company}/><F l="Subsidiaries" v={d.subsidiaries}/>{(d.shareholders||[]).map((s,i)=><F key={i} l={`Shareholder ${i+1}`} v={`${s.name} · ${s.percentage}% · ${s.nationality}`}/>)}</>}/>
-              <Sec title="Management" ch={(d.management_team||[]).map((m,i)=><div key={i} style={{ borderBottom:"1px solid "+C.borderSoft,padding:"8px 0" }}><div style={{ color:C.info,fontWeight:600,fontSize:13 }}>{m.name} <span style={{ color:C.textMuted }}>· {m.title}</span></div><div style={{ color:C.textSecondary,fontSize:12,marginTop:3 }}>{m.bio}</div></div>)}/>
+              <Sec title="Management" ch={(d.management_team||[]).map((m,i)=><div key={i} className="border-b border-[var(--color-border-soft)] py-2 last:border-b-0"><div className="text-sm font-semibold text-blue-500">{m.name} <span className="text-[var(--color-text-muted)]">· {m.title}</span></div><div className="mt-1 text-xs leading-5 text-[var(--color-text-secondary)]">{m.bio}</div></div>)}/>
             </div>}
 
             {tab==="operations"&&<div>
-              <Sec title="Activities" ch={<div style={{ color:C.textSecondary,fontSize:13,lineHeight:1.7 }}>{d.registration_activities_description||d.activities_full_description||"—"}</div>}/>
+              <Sec title="Activities" ch={<div className="text-sm leading-7 text-[var(--color-text-secondary)]">{d.registration_activities_description||d.activities_full_description||"—"}</div>}/>
               <Sec title="Classification" ch={<><F l="NACE" v={`${d.nace_codes||"—"} — ${d.nace_description||""}`}/><F l="HS Codes" v={`${d.hs_codes||"—"} — ${d.hs_description||""}`}/><F l="SIC" v={d.sic_codes}/></>}/>
               <Sec title="Operations" ch={<><F l="Employees" v={`${d.employee_count||"—"} · ${d.employee_location||""}`}/><F l="Facilities" v={`${d.facilities_count||"—"} · ${d.main_facility_location||""}`}/><F l="Markets" v={`${d.markets_count||"—"} · ${d.markets_regions||""}`}/></>}/>
               <Sec title="Supply Chain — Purchasing" ch={<><F l="Main Suppliers" v={d.main_suppliers}/><F l="Local Sourcing" v={`${d.local_purchasing_pct||0}% — ${d.local_purchasing_detail||""}`}/><F l="Imports" v={`${d.import_purchasing_pct||0}% from ${d.import_countries||"—"}`}/><F l="Items" v={d.import_items}/><F l="Payment" v={`${d.supplier_payment_method||"—"} · ${d.supplier_payment_terms||""}`}/></>}/>
@@ -830,53 +823,53 @@ export default function ExtractorPage() {
 
             {tab==="ratios"&&<div>
               {[["Liquidity",[["Current Ratio",d.current_ratio,d.current_ratio_industry,d.current_ratio_label,d.current_ratio_interpretation],["Quick Ratio",d.quick_ratio,d.quick_ratio_industry,d.quick_ratio_label,d.quick_ratio_interpretation]]],["Profitability",[["Gross Margin",`${d.gross_margin||"—"}%`,`${d.gross_margin_industry||"—"}%`,d.gross_margin_label,d.gross_margin_interpretation],["EBITDA Margin",`${d.ebitda_margin||"—"}%`,`${d.ebitda_margin_industry||"—"}%`,d.ebitda_margin_label,d.ebitda_margin_interpretation],["EBIT Margin",`${d.ebit_margin||"—"}%`,`${d.ebit_margin_industry||"—"}%`,d.ebit_margin_label,d.ebit_margin_interpretation],["Net Margin",`${d.net_margin||"—"}%`,`${d.net_margin_industry||"—"}%`,d.net_margin_label,d.net_margin_interpretation]]],["Leverage",[["Debt/Equity",d.debt_equity,d.debt_equity_industry,d.debt_equity_label,d.debt_equity_interpretation],["Equity Ratio",`${d.equity_ratio||"—"}%`,`${d.equity_ratio_industry||"—"}%`,d.equity_ratio_label,d.equity_ratio_interpretation]]],["Efficiency",[["Asset Turnover",d.asset_turnover,d.asset_turnover_industry,d.asset_turnover_label,d.asset_turnover_interpretation],["DSO",`${d.dso||"—"}d`,`${d.dso_industry||"—"}d`,d.dso_label,d.dso_interpretation],["DPO",`${d.dpo||"—"}d`,`${d.dpo_industry||"—"}d`,d.dpo_label,d.dpo_interpretation]]]].map(([title,rows])=>(
-                <Sec key={title} title={`${title} Ratios`} ch={rows.map(([l,v,ind,lbl,interp])=><div key={l} style={{ borderBottom:"1px solid "+C.borderSoft,padding:"8px 0" }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}><span style={{ color:C.textMuted }}>{l}</span><span style={{ color:C.text,fontWeight:600 }}>{v??"—"}</span></div><div style={{ fontSize:12,color:C.textSecondary,marginTop:2 }}>Industry avg: {ind??"—"} · {lbl??"—"}</div>{interp&&<div style={{ fontSize:11,color:C.textMuted,marginTop:2 }}>{interp}</div>}</div>)}/>
+                <Sec key={title} title={`${title} Ratios`} ch={rows.map(([l,v,ind,lbl,interp])=><div key={l} className="border-b border-[var(--color-border-soft)] py-2 last:border-b-0"><div className="flex items-start justify-between gap-3 text-xs"><span className="text-[var(--color-text-muted)]">{l}</span><span className="font-semibold text-[var(--color-text)]">{v??"—"}</span></div><div className="mt-0.5 text-xs text-[var(--color-text-secondary)]">Industry avg: {ind??"—"} · {lbl??"—"}</div>{interp&&<div className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">{interp}</div>}</div>)}/>
               ))}
             </div>}
 
             {tab==="risk"&&<div>
-              <Sec title="Credit Rating" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:28,fontWeight:800 }}>{d.credit_rating||"—"}</div><div style={{ color:C.textSecondary,fontSize:12 }}>Credit Rating</div></div><Badge v={d.risk_level} color={d.risk_color}/></div><Bar label="Health Score" val={d.health_score} color={d.viability_color}/><Bar label="Viability Score" val={d.viability_score} color={d.viability_color}/><Bar label="Payment Score" val={d.payment_score} color={d.payment_color}/><Bar label="Delinquency Risk" val={d.delinquency_score} color={d.delinquency_color} invert/><Bar label="Failure Risk" val={d.failure_score} color={d.failure_color} invert/><F l="PAYDEX" v={d.paydex_score}/><F l="Company Size" v={d.company_size}/><F l="Annual Revenue" v={d.annual_revenue}/></>}/>
+              <Sec title="Credit Rating" ch={<><div className="mb-4 flex items-center justify-between gap-3"><div><div className="text-3xl font-black text-[var(--color-text)]">{d.credit_rating||"—"}</div><div className="text-xs text-[var(--color-text-secondary)]">Credit Rating</div></div><Badge v={d.risk_level} color={d.risk_color}/></div><Bar label="Health Score" val={d.health_score} color={d.viability_color}/><Bar label="Viability Score" val={d.viability_score} color={d.viability_color}/><Bar label="Payment Score" val={d.payment_score} color={d.payment_color}/><Bar label="Delinquency Risk" val={d.delinquency_score} color={d.delinquency_color} invert/><Bar label="Failure Risk" val={d.failure_score} color={d.failure_color} invert/><F l="PAYDEX" v={d.paydex_score}/><F l="Company Size" v={d.company_size}/><F l="Annual Revenue" v={d.annual_revenue}/></>}/>
               <Sec title="Payment Behavior" ch={<><F l="Avg Days Beyond Terms" v={d.avg_dbt!=null?`${d.avg_dbt} days`:null}/><F l="% On Time" v={d.pct_on_time!=null?`${d.pct_on_time}%`:null}/><F l="Prompt" v={d.prompt_pct!=null?`${d.prompt_pct}% · ${d.prompt_amount}`:null}/><F l="1–30 Days Slow" v={d.slow_30_pct!=null?`${d.slow_30_pct}% · ${d.slow_30_amount}`:null}/><F l="90+ Days Slow" v={d.slow_90plus_pct!=null?`${d.slow_90plus_pct}% · ${d.slow_90plus_amount}`:null}/></>}/>
-              <Sec title="Alerts" ch={(d.alerts||[]).map((a,i)=><div key={i} style={{ background:a.alert_type==="danger"?"rgba(239,68,68,0.1)":a.alert_type==="warning"?"rgba(245,158,11,0.1)":a.alert_type==="success"?"rgba(16,185,129,0.1)":"rgba(59,130,246,0.1)",borderRadius:8,padding:"8px 12px",marginBottom:6,fontSize:13,border:"1px solid",borderColor:a.alert_type==="danger"?"rgba(239,68,68,0.2)":a.alert_type==="warning"?"rgba(245,158,11,0.2)":a.alert_type==="success"?"rgba(16,185,129,0.2)":"rgba(59,130,246,0.2)" }}>{a.alert_icon} {a.alert_message}</div>)}/>
+              <Sec title="Alerts" ch={(d.alerts||[]).map((a,i)=><div key={i} className={`mb-1.5 rounded-lg border px-3 py-2 text-xs ${alertClass(a)}`}>{a.alert_icon} {a.alert_message}</div>)}/>
             </div>}
 
             {tab==="legal"&&<div>
-              <Sec title="Legal Summary" ch={[["Lawsuits",d.lawsuit_count,d.lawsuit_amount,d.lawsuit_status],["Liens",d.lien_count,d.lien_amount,d.lien_status],["Judgments",d.judgment_count,d.judgment_amount,d.judgment_status]].map(([t,c,a,s])=><div key={t} style={{ borderBottom:"1px solid "+C.borderSoft,padding:"8px 0" }}><div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}><span style={{ color:C.textMuted }}>{t}</span><span>Count: {c??"—"} · {a||"—"}</span></div><div style={{ fontSize:12,color:C.textSecondary }}>Status: {s||"—"}</div></div>)}/>
+              <Sec title="Legal Summary" ch={[["Lawsuits",d.lawsuit_count,d.lawsuit_amount,d.lawsuit_status],["Liens",d.lien_count,d.lien_amount,d.lien_status],["Judgments",d.judgment_count,d.judgment_amount,d.judgment_status]].map(([t,c,a,s])=><div key={t} className="border-b border-[var(--color-border-soft)] py-2 last:border-b-0"><div className="flex items-start justify-between gap-3 text-xs"><span className="text-[var(--color-text-muted)]">{t}</span><span>Count: {c??"—"} · {a||"—"}</span></div><div className="text-xs text-[var(--color-text-secondary)]">Status: {s||"—"}</div></div>)}/>
               <Sec title="Compliance" ch={<><F l="License" v={`${d.license_status||"—"} (exp: ${d.license_expiry||"—"})`}/><F l="Tax Status" v={d.tax_status}/></>}/>
-              {(d.legal_details||[]).length>0&&<Sec title="Legal Details" ch={(d.legal_details).map((l,i)=><div key={i} style={{ background:C.surface,borderRadius:8,padding:12,marginBottom:8,fontSize:13,border:"1px solid "+C.borderSoft }}><strong style={{ color:C.info }}>{l.event_type} · {l.event_date}</strong><div style={{ color:C.textSecondary,marginTop:4 }}>{l.event_description}</div></div>)}/>}
+              {(d.legal_details||[]).length>0&&<Sec title="Legal Details" ch={(d.legal_details).map((l,i)=><div key={i} className="mb-2 rounded-lg border border-[var(--color-border-soft)] bg-[var(--color-surface)] p-3 text-xs last:mb-0"><strong className="text-blue-500">{l.event_type} · {l.event_date}</strong><div className="mt-1 text-[var(--color-text-secondary)]">{l.event_description}</div></div>)}/>}
             </div>}
 
             {tab==="news"&&<div>
-              <Sec title="News & Events (2024+)" ch={!(d.news_events||[]).length?<div style={{ color:C.textMuted,fontSize:13 }}>No 2024+ news found.</div>:(d.news_events).map((n,i)=><div key={i} style={{ background:C.surface,borderRadius:8,padding:"10px 14px",marginBottom:8,fontSize:13,border:"1px solid "+C.borderSoft }}><div style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}><span style={{ color:C.textMuted,fontSize:11 }}>{n.event_date}</span><span style={{ background:n.event_sentiment==="positive"?"rgba(16,185,129,0.1)":n.event_sentiment==="negative"?"rgba(239,68,68,0.1)":"rgba(59,130,246,0.1)",color:C.text,borderRadius:4,padding:"1px 8px",fontSize:11 }}>{n.event_sentiment_label}</span></div><strong style={{ color:C.info }}>{n.event_title}</strong><div style={{ color:C.textSecondary,marginTop:4 }}>{n.event_summary}</div></div>)}/>
+              <Sec title="News & Events (2024+)" ch={!(d.news_events||[]).length?<div className="text-sm text-[var(--color-text-muted)]">No 2024+ news found.</div>:(d.news_events).map((n,i)=><div key={i} className="mb-2 rounded-lg border border-[var(--color-border-soft)] bg-[var(--color-surface)] p-3.5 text-xs last:mb-0"><div className="mb-1 flex items-center justify-between gap-3"><span className="text-[11px] text-[var(--color-text-muted)]">{n.event_date}</span><span className={`rounded px-2 py-0.5 text-[11px] ${sentimentClass(n)}`}>{n.event_sentiment_label}</span></div><strong className="text-blue-500">{n.event_title}</strong><div className="mt-1 text-[var(--color-text-secondary)]">{n.event_summary}</div></div>)}/>
             </div>}
 
             {tab==="recommendation"&&<div>
-              <Sec title="Credit Decision" ch={<><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}><div><div style={{ fontSize:26,fontWeight:800 }}>{d.final_credit_rating||"—"}</div><div style={{ color:C.textSecondary,fontSize:12 }}>Final Rating</div></div><Badge v={d.final_risk_level} color={d.final_risk_color}/></div><F l="Credit Limit (USD)" v={d.recommended_credit_limit}/><F l="Max Exposure (USD)" v={d.maximum_exposure}/><F l="Payment Terms" v={d.recommended_payment_terms}/><F l="Review Frequency" v={d.review_frequency}/><F l="Collateral" v={d.collateral_requirements}/>{d.credit_opinion_text&&<div style={{ background:C.surface,borderRadius:8,padding:14,marginTop:12,fontSize:13,color:C.textSecondary,lineHeight:1.7,border:"1px solid "+C.borderSoft }}><strong style={{ color:C.info,display:"block",marginBottom:6 }}>📋 Credit Opinion</strong>{d.credit_opinion_text}</div>}</>}/>
-              {(d.risk_mitigations||[]).length>0&&<Sec title="Risk Mitigations" ch={(d.risk_mitigations).map((m,i)=><div key={i} style={{ borderBottom:"1px solid "+C.borderSoft,padding:"8px 0" }}><div style={{ color:C.info,fontSize:13,fontWeight:600 }}>{m.strategy}</div><div style={{ color:C.textSecondary,fontSize:12 }}>{m.expected_outcome}</div></div>)}/>}
-              <Sec title="Monitoring Triggers" ch={(d.monitoring_triggers||[]).map((t,i)=><div key={i} style={{ borderBottom:"1px solid "+C.borderSoft,padding:"8px 0" }}><div style={{ color:C.warning,fontSize:13,fontWeight:600 }}>⚠️ {t.trigger_event}</div><div style={{ color:C.textSecondary,fontSize:12 }}>{t.trigger_action}</div></div>)}/>
+              <Sec title="Credit Decision" ch={<><div className="mb-4 flex items-center justify-between gap-3"><div><div className="text-3xl font-black text-[var(--color-text)]">{d.final_credit_rating||"—"}</div><div className="text-xs text-[var(--color-text-secondary)]">Final Rating</div></div><Badge v={d.final_risk_level} color={d.final_risk_color}/></div><F l="Credit Limit (USD)" v={d.recommended_credit_limit}/><F l="Max Exposure (USD)" v={d.maximum_exposure}/><F l="Payment Terms" v={d.recommended_payment_terms}/><F l="Review Frequency" v={d.review_frequency}/><F l="Collateral" v={d.collateral_requirements}/>{d.credit_opinion_text&&<div className="mt-3 rounded-lg border border-[var(--color-border-soft)] bg-[var(--color-surface)] p-3.5 text-xs leading-6 text-[var(--color-text-secondary)]"><strong className="mb-1.5 block text-blue-500">📋 Credit Opinion</strong>{d.credit_opinion_text}</div>}</>}/>
+              {(d.risk_mitigations||[]).length>0&&<Sec title="Risk Mitigations" ch={(d.risk_mitigations).map((m,i)=><div key={i} className="border-b border-[var(--color-border-soft)] py-2 last:border-b-0"><div className="text-sm font-semibold text-blue-500">{m.strategy}</div><div className="text-xs text-[var(--color-text-secondary)]">{m.expected_outcome}</div></div>)}/>}
+              <Sec title="Monitoring Triggers" ch={(d.monitoring_triggers||[]).map((t,i)=><div key={i} className="border-b border-[var(--color-border-soft)] py-2 last:border-b-0"><div className="text-sm font-semibold text-amber-500">⚠️ {t.trigger_event}</div><div className="text-xs text-[var(--color-text-secondary)]">{t.trigger_action}</div></div>)}/>
             </div>}
 
-            {tab==="json"&&<div style={{ background:C.surface,border:"1px solid "+C.borderSoft,borderRadius:10,padding:18 }}><pre style={{ color:C.success,fontSize:11,overflowX:"auto",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-word" }}>{JSON.stringify(result,null,2)}</pre></div>}
+            {tab==="json"&&<div className="rounded-2xl border border-[var(--color-border-soft)] bg-[var(--color-surface)] p-4"><pre className="m-0 max-h-[70vh] overflow-auto break-words text-[11px] leading-5 text-emerald-500">{JSON.stringify(result,null,2)}</pre></div>}
 
             {tab==="patch"&&(
               <div>
-                <div style={{ background:C.surface,border:"1px solid rgba(59,130,246,0.3)",borderRadius:10,padding:18,marginBottom:14 }}>
-                  <div style={{ color:C.info,fontSize:12,fontWeight:700,marginBottom:10 }}>🔧 PASTE YOUR JSON</div>
+                <div className="mb-3.5 rounded-2xl border border-blue-500/30 bg-[var(--color-surface)] p-4">
+                  <div className="mb-2.5 text-xs font-bold text-blue-500">🔧 PASTE YOUR JSON</div>
                   <textarea value={patchJSON} onChange={e=>setPatchJSON(e.target.value)} placeholder="Paste your credit report JSON here..."
-                    style={{ width:"100%",minHeight:180,background:C.bg,border:"1px solid "+C.border,borderRadius:8,color:C.success,fontSize:11,padding:12,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box" }}/>
-                  {result&&<button onClick={()=>setPatchJSON(JSON.stringify(result,null,2))} style={{ marginTop:8,padding:"5px 12px",borderRadius:6,border:"none",background:"rgba(59,130,246,0.2)",color:C.info,cursor:"pointer",fontSize:12 }}>↑ Load current report JSON</button>}
+                    className="input-field min-h-[180px] font-mono text-[11px] text-emerald-500"/>
+                  {result&&<button onClick={()=>setPatchJSON(JSON.stringify(result,null,2))} className="mt-2 rounded-lg bg-blue-500/20 px-3 py-1 text-xs font-medium text-blue-500 transition-all hover:bg-blue-500/30">↑ Load current report JSON</button>}
                 </div>
-                <div style={{ background:C.surface,border:"1px solid "+C.borderSoft,borderRadius:10,padding:18,marginBottom:14 }}>
-                  <div style={{ color:C.warning,fontSize:12,fontWeight:700,marginBottom:10 }}>📋 PATCH INSTRUCTIONS</div>
+                <div className="mb-3.5 rounded-2xl border border-[var(--color-border-soft)] bg-[var(--color-surface)] p-4">
+                  <div className="mb-2.5 text-xs font-bold text-amber-500">📋 PATCH INSTRUCTIONS</div>
                   <textarea value={patchInstructions} onChange={e=>setPatchInstructions(e.target.value)}
                     placeholder={"## WRONG VALUES\n1. \"field\": \"old\" → \"new\"\n\n## EMPTY FIELDS\n2. \"field\": \"\" → \"value\"\n\n## ADD NEW FIELDS\n3. Add after \"field\":\n   \"new_field\": \"value\""}
-                    style={{ width:"100%",minHeight:240,background:C.bg,border:"1px solid "+C.border,borderRadius:8,color:C.text,fontSize:12,padding:12,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box" }}/>
+                    className="input-field min-h-[240px] font-mono text-xs text-[var(--color-text)]"/>
                 </div>
-                {patchStatus==="error"&&<div style={{ background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:8,padding:12,marginBottom:12,color:C.danger,fontSize:13 }}>⚠️ {patchError}</div>}
-                {patchStatus==="done"&&<div style={{ background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:8,padding:12,marginBottom:12,color:C.success,fontSize:13 }}>✓ JSON patched! Switched to Raw JSON tab — download to save.</div>}
-                {patchStatus==="loading"&&<div style={{ background:C.surface,border:"1px solid "+C.borderSoft,borderRadius:8,padding:10,marginBottom:12,color:C.textSecondary,fontSize:13,textAlign:"center" }}>⚙️ Applying patches with Haiku…</div>}
+                {patchStatus==="error"&&<div className="mb-3 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-300">⚠️ {patchError}</div>}
+                {patchStatus==="done"&&<div className="mb-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300">✓ JSON patched! Switched to Raw JSON tab — download to save.</div>}
+                {patchStatus==="loading"&&<div className="mb-3 rounded-lg border border-[var(--color-border-soft)] bg-[var(--color-surface)] p-2.5 text-center text-sm text-[var(--color-text-secondary)]">⚙️ Applying patches with Haiku…</div>}
                 <button onClick={runPatch} disabled={!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"}
-                  style={{ width:"100%",padding:13,borderRadius:10,border:"none",background:!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"?C.surface:"linear-gradient(135deg,"+C.warning+",#d97706)",color:!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"?C.textMuted:"#fff",fontWeight:700,fontSize:15,cursor:patchStatus==="loading"?"default":"pointer" }}>
+                  className={`w-full rounded-xl border-none px-4 py-3 text-sm font-bold transition-all ${!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading" ? "cursor-not-allowed bg-[var(--color-surface)] text-[var(--color-text-muted)]" : "bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:shadow-lg"}`}>
                   {patchStatus==="loading"?"Applying patches...":"🔧 Apply Patches"}
                 </button>
               </div>
@@ -885,5 +878,6 @@ export default function ExtractorPage() {
         )}
       </div>
     </div>
+  </div>
   );
 }

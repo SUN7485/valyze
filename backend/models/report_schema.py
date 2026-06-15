@@ -203,15 +203,18 @@ class UpdateFieldRequest(BaseModel):
     )
     value: Any
     source: str = "user"
+    last_known_updated_at: Optional[str] = None
 
 
 class UpdateFieldsBulkRequest(BaseModel):
     fields: Dict[str, Any] = Field(..., max_length=100)
+    last_known_updated_at: Optional[str] = None
 
 
 class UpdateArrayRequest(BaseModel):
     array_name: str = Field(..., pattern=r"^[a-z_][a-z0-9_]*$")
     data: List[Any]
+    last_known_updated_at: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

@@ -971,6 +971,97 @@ def get_invoice(invoice_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+# ---------------------------------------------------------------------------
+# Supabase Storage Operations
+# ---------------------------------------------------------------------------
+
+def get_storage_base_url() -> str:
+    """Get Supabase Storage base URL."""
+    return f"{os.getenv('SUPABASE_URL')}/storage/v1"
+
+
+def upload_to_storage(bucket: str, path: str, file_bytes: bytes, content_type: str = "application/octet-stream") -> bool:
+    """Upload a file to Supabase Storage."""
+    url = f"{get_storage_base_url()}/object/{bucket}/{path}"
+    headers = {
+        "apikey": os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY", ""),
+        "Authorization": f"Bearer {os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_ANON_KEY', '')}",
+        "Content-Type": content_type,
+        "x-upsert": "true",
+    }
+    try:
+        response = requests.post(url, headers=headers, data=file_bytes, timeout=60)
+        if response.status_code in [200, 201]:
+            return True
+        logger.error(f"[Storage] Upload failed ({response.status_code}): {response.text[:200]}")
+        return False
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Storage] Upload request failed: {e}")
+        return False
+
+
+def create_signed_url(bucket: str, path: str, expires_in: int = 3600) -> Optional[str]:
+    """Create a signed URL for a file in Supabase Storage."""
+    url = f"{get_storage_base_url()}/object/sign/{bucket}/{path}"
+    headers = {
+        "apikey": os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY", ""),
+        "Authorization": f"Bearer {os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_ANON_KEY', '')}",
+        "Content-Type": "application/json",
+    }
+    try:
+        response = requests.post(url, headers=headers, json={"expiresIn": expires_in}, timeout=30)
+        if response.status_code in [200, 201]:
+            data = response.json()
+            signed_url = data.get("signedUrl")
+            if signed_url:
+                # Supabase returns relative path, prepend the base URL
+                if signed_url.startswith("/"):
+                    return f"{os.getenv('SUPABASE_URL')}{signed_url}"
+                return signed_url
+        logger.error(f"[Storage] Signed URL failed ({response.status_code}): {response.text[:200]}")
+        return None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Storage] Signed URL request failed: {e}")
+        return None
+
+
+def ensure_storage_bucket(bucket: str) -> bool:
+    """Create a storage bucket if it doesn't exist."""
+    url = f"{get_storage_base_url()}/bucket"
+    headers = {
+        "apikey": os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY", ""),
+        "Authorization": f"Bearer {os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_ANON_KEY', '')}",
+        "Content-Type": "application/json",
+    }
+    try:
+        # List existing buckets
+        list_url = f"{get_storage_base_url()}/bucket"
+        resp = requests.get(list_url, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            buckets = resp.json()
+            for b in buckets:
+                if b.get("name") == bucket:
+                    return True  # Bucket already exists
+
+        # Create bucket
+        payload = {
+            "id": bucket,
+            "name": bucket,
+            "public": False,
+            "file_size_limit": 104857600,  # 100MB
+            "allowed_mime_types": None,
+        }
+        response = requests.post(url, headers=headers, json=payload, timeout=15)
+        if response.status_code in [200, 201]:
+            return True
+        logger.warning(f"[Storage] Bucket create returned {response.status_code}: {response.text[:200]}")
+        # May already exist (409 conflict) — treat as success
+        return response.status_code == 409
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Storage] Bucket creation failed: {e}")
+        return False
+
+
 def get_all_invoices(filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Get invoices with optional status and client filters."""
     filters = filters or {}

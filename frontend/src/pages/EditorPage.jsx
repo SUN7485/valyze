@@ -67,8 +67,6 @@ export default function EditorPage() {
     const [showExportMenu, setShowExportMenu] = useState(false)
     const [savingToCloud, setSavingToCloud] = useState(false)
     const [cloudSaved, setCloudSaved]     = useState(false)
-    const [searchParams]                  = useSearchParams()
-    const [autoImporting, setAutoImporting] = useState(false)
 
     useEffect(() => {
         if (reportId) {
@@ -76,27 +74,6 @@ export default function EditorPage() {
             loadReport(reportId)
         }
     }, [reportId])
-
-    useEffect(() => {
-        if (!reportId || !searchParams.get('autoImport')) return
-        const stored = localStorage.getItem('valyze_import_' + reportId)
-        if (!stored) return
-
-        const doImport = async () => {
-            setAutoImporting(true)
-            try {
-                await reportAPI.easyWayImport(reportId, JSON.parse(stored))
-                localStorage.removeItem('valyze_import_' + reportId)
-                navigate('/editor/' + reportId, { replace: true })
-                loadReport(reportId)
-            } catch (e) {
-                console.error('Auto-import failed:', e)
-            } finally {
-                setAutoImporting(false)
-            }
-        }
-        doImport()
-    }, [reportId, searchParams])
 
     if (loading && !report) {
         return (

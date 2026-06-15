@@ -16,6 +16,7 @@ export function useDarkMode() {
       root.classList.remove('dark')
     }
     localStorage.setItem('darkMode', darkMode.toString())
+    window.dispatchEvent(new CustomEvent('valyze:theme-change', { detail: { darkMode } }))
   }, [darkMode])
 
   const toggleDarkMode = () => setDarkMode(prev => !prev)

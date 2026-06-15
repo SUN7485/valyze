@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_current_user, get_order_assignable_users
 from database.crud import create_report, update_report_field, update_report_status
+import logging
 from services.pricing_engine import calculate_invoice, generate_invoice_number
 from services.supabase_client import (
     create_invoice as sb_create_invoice,
@@ -35,6 +36,8 @@ from services.supabase_client import (
     update_order as sb_update_order,
     update_order_company as sb_update_order_company,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["orders"])
 
@@ -399,7 +402,20 @@ def _trigger_invoice_creation(order: Dict[str, Any], companies: List[Dict[str, A
     try:
         return sb_create_invoice(payload)
     except Exception as exc:
-        print(f"[ORDERS] Invoice creation failed for order {order.get('id')}: {exc}")
+        error_msg = str(exc).lower()
+        # Handle unique constraint violation (PostgreSQL error code 23505)
+        # This means another concurrent request already created the invoice
+        if "23505" in error_msg or "unique" in error_msg or "duplicate" in error_msg:
+            logger.info(
+                f"[ORDERS] Invoice already exists for order {order.get('id')} "
+                f"(concurrent creation detected). Fetching existing."
+            )
+            existing = sb_get_order_invoice(order.get("id", ""))
+            return existing
+        logger.error(
+            f"[ORDERS] Invoice creation FAILED for order {order.get('id')}: {exc}",
+            exc_info=True,
+        )
         return None
 
 
@@ -575,7 +591,9 @@ async def start_company_work(order_id: str, company_id: str, user: dict = Depend
     if company.get("status") == "completed":
         raise HTTPException(status_code=400, detail="Company work is already completed")
 
+    # Idempotency check: if report already linked, return it
     if company.get("report_id"):
+        logger.info(f"[ORDERS] Company {company_id} already has report {company['report_id']} — returning existing")
         return {
             "report_id": company["report_id"],
             "redirect_url": f"/extractor/{company['report_id']}",
@@ -586,8 +604,13 @@ async def start_company_work(order_id: str, company_id: str, user: dict = Depend
     country = company.get("country", "")
     registration_no = company.get("registration_no", "")
 
+    # Attempt to create the report and link it atomically
+    report_created = False
     try:
+        # Step a: Create the report row
         await create_report(None, report_id)
+        report_created = True
+
         now = datetime.now(timezone.utc)
         await update_report_field(None, report_id, "report_date", now.strftime("%Y-%m-%d"), "high", "system")
         await update_report_field(None, report_id, "current_year", str(now.year), "high", "system")
@@ -606,6 +629,7 @@ async def start_company_work(order_id: str, company_id: str, user: dict = Depend
             await update_report_field(None, report_id, "analyst_name", analyst, "high", "system")
         await update_report_status(None, report_id, "uploading")
 
+        # Step b: Link report to company
         updated_company = sb_update_order_company(
             company_id,
             {
@@ -616,8 +640,16 @@ async def start_company_work(order_id: str, company_id: str, user: dict = Depend
             },
         )
         if not updated_company:
-            raise HTTPException(status_code=500, detail="Failed to link report to company")
+            # Compensating transaction: delete the orphaned report
+            logger.error(f"[ORDERS] Failed to link report {report_id} to company {company_id} — rolling back report creation")
+            try:
+                from services.supabase_client import delete_report as sb_delete_report
+                sb_delete_report(report_id)
+            except Exception as cleanup_err:
+                logger.error(f"[ORDERS] Failed to clean up orphaned report {report_id}: {cleanup_err}")
+            raise HTTPException(status_code=500, detail="Failed to link report to company — report was rolled back")
 
+        # Step c: Update order status if pending
         if order.get("status") == "pending":
             companies = sb_get_order_companies(order_id)
             sb_update_order(
@@ -629,6 +661,18 @@ async def start_company_work(order_id: str, company_id: str, user: dict = Depend
                 },
             )
 
+        # Verify the link was set (final safety check)
+        verify_company = sb_get_order_company(company_id)
+        if not verify_company or verify_company.get("report_id") != report_id:
+            logger.error(f"[ORDERS] Verification failed: company {company_id} does not have report_id {report_id}")
+            # Clean up orphaned report
+            try:
+                from services.supabase_client import delete_report as sb_delete_report
+                sb_delete_report(report_id)
+            except Exception as cleanup_err:
+                logger.error(f"[ORDERS] Failed to clean up after verification failure: {cleanup_err}")
+            raise HTTPException(status_code=500, detail="Failed to verify report-company link — please retry")
+
         return {
             "report_id": report_id,
             "redirect_url": f"/extractor/{report_id}",
@@ -636,6 +680,14 @@ async def start_company_work(order_id: str, company_id: str, user: dict = Depend
     except HTTPException:
         raise
     except Exception as exc:
+        # If we created the report but linking failed, clean up
+        if report_created:
+            try:
+                from services.supabase_client import delete_report as sb_delete_report
+                sb_delete_report(report_id)
+                logger.info(f"[ORDERS] Cleaned up orphaned report {report_id} after error: {exc}")
+            except Exception as cleanup_err:
+                logger.error(f"[ORDERS] Failed to clean up orphaned report {report_id}: {cleanup_err}")
         raise HTTPException(status_code=500, detail=f"Failed to start work: {exc}")
 
 

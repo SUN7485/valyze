@@ -29,6 +29,9 @@ from services.supabase_client import (
     get_base_url,
     get_headers,
     get_order_files,
+    upload_to_storage,
+    create_signed_url,
+    ensure_storage_bucket,
 )
 
 router = APIRouter(tags=["portal"])
@@ -356,6 +359,22 @@ def _unique_portal_filename(directory: Path, filename: str) -> str:
 def _public_order_file(file: Dict[str, Any]) -> Dict[str, Any]:
     order_id = file.get("order_id")
     filename = file.get("filename")
+    file_path = file.get("file_path", "")
+
+    # Handle storage:// paths — generate a signed URL
+    file_url = None
+    if file_path and file_path.startswith("storage://"):
+        # Extract bucket/path from storage://bucket/path
+        storage_ref = file_path[len("storage://"):]
+        parts = storage_ref.split("/", 1)
+        if len(parts) == 2:
+            bucket, path = parts
+            signed = create_signed_url(bucket, path, expires_in=3600)
+            if signed:
+                file_url = signed
+    elif order_id and filename:
+        file_url = f"/uploads/portal/{_quote(order_id)}/{_quote(filename)}"
+
     return {
         "id": file.get("id"),
         "order_id": order_id,
@@ -363,9 +382,28 @@ def _public_order_file(file: Dict[str, Any]) -> Dict[str, Any]:
         "filename": filename,
         "file_type": file.get("file_type"),
         "file_size": file.get("file_size", 0),
-        "file_url": f"/uploads/portal/{_quote(order_id)}/{_quote(filename)}" if order_id and filename else None,
+        "file_url": file_url,
         "created_at": file.get("created_at"),
     }
+
+
+# Storage bucket for portal uploads
+PORTAL_STORAGE_BUCKET = "portal-uploads"
+
+# MIME type mapping
+MIME_TYPE_MAP = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".tiff": "image/tiff",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xls": "application/vnd.ms-excel",
+    ".csv": "text/csv",
+    ".txt": "text/plain",
+}
 
 
 async def _save_portal_files(
@@ -399,9 +437,8 @@ async def _save_portal_files(
                 detail=f"Maximum {MAX_PORTAL_FILES_PER_COMPANY} files per company allowed",
             )
 
-    PORTAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    order_dir = PORTAL_UPLOAD_DIR / order_id
-    order_dir.mkdir(parents=True, exist_ok=True)
+    # Ensure the storage bucket exists
+    ensure_storage_bucket(PORTAL_STORAGE_BUCKET)
 
     saved_rows: List[Dict[str, Any]] = []
     for index, upload in enumerate(uploads):
@@ -420,17 +457,32 @@ async def _save_portal_files(
                 detail=f"File '{original_name}' exceeds maximum size of {MAX_PORTAL_FILE_SIZE_MB}MB",
             )
 
-        safe_name = _unique_portal_filename(order_dir, _sanitize_portal_filename(original_name))
-        file_path = order_dir / safe_name
-        file_path.write_bytes(content)
+        safe_name = _sanitize_portal_filename(original_name)
+        # Use unique name if needed (append short uuid for uniqueness)
+        storage_path = f"{order_id}/{safe_name}"
+        content_type = MIME_TYPE_MAP.get(ext, "application/octet-stream")
 
-        relative_path = f"uploads/portal/{order_id}/{safe_name}"
+        # Upload to Supabase Storage
+        uploaded = await asyncio.to_thread(
+            upload_to_storage,
+            PORTAL_STORAGE_BUCKET,
+            storage_path,
+            content,
+            content_type,
+        )
+        if not uploaded:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to upload file '{original_name}' to storage",
+            )
+
+        # Store the storage path in the database (not local disk path)
         row = create_order_file(
             {
                 "order_id": order_id,
                 "order_company_id": company_ids_by_index.get(indexes[index]) if indexes else None,
                 "filename": safe_name,
-                "file_path": relative_path,
+                "file_path": f"storage://{PORTAL_STORAGE_BUCKET}/{storage_path}",
                 "file_type": FILE_TYPE_MAP.get(ext, "unknown"),
                 "file_size": len(content),
                 "processed": False,

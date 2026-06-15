@@ -21,8 +21,10 @@ import traceback
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+
+from api.auth import get_current_user
 
 router = APIRouter(prefix="/api", tags=["proxy"])
 
@@ -35,7 +37,7 @@ MAX_BODY_BYTES = 4 * 1024 * 1024  # 4 MB (safe margin under 4.5 MB)
 
 
 @router.post("/proxy")
-async def proxy_anthropic(request: Request):
+async def proxy_anthropic(request: Request, current_user: dict = Depends(get_current_user)):
     """
     Forward a request to the Anthropic Messages API.
     Supports gzip-compressed request bodies (Content-Encoding: gzip)

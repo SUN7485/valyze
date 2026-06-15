@@ -153,6 +153,17 @@ async def update_single_field(
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
+    # Optimistic locking check
+    if body.last_known_updated_at and report.updated_at != body.last_known_updated_at:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "conflict",
+                "message": "Report was modified by another user. Please reload and reapply your changes.",
+                "current_updated_at": report.updated_at,
+            },
+        )
+
     if body.field_name in report.fields and report.fields[body.field_name].locked:
         raise HTTPException(
             status_code=400,
@@ -174,6 +185,7 @@ async def update_single_field(
         "field_name": body.field_name,
         "value": body.value,
         "source": body.source,
+        "updated_at": updated.updated_at,
     }
 
 
@@ -191,6 +203,17 @@ async def update_fields_bulk(
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
+    # Optimistic locking check
+    if body.last_known_updated_at and report.updated_at != body.last_known_updated_at:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "conflict",
+                "message": "Report was modified by another user. Please reload and reapply your changes.",
+                "current_updated_at": report.updated_at,
+            },
+        )
+
     updated = await update_report_fields_bulk(None, report_id, body.fields)
     if updated is None:
         raise HTTPException(status_code=500, detail="Failed to update fields")
@@ -198,6 +221,7 @@ async def update_fields_bulk(
     return {
         "updated_count": len(body.fields),
         "fields": list(body.fields.keys()),
+        "updated_at": updated.updated_at,
     }
 
 
@@ -214,6 +238,17 @@ async def update_array(
     report = await get_report(None, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
+
+    # Optimistic locking check
+    if body.last_known_updated_at and report.updated_at != body.last_known_updated_at:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "conflict",
+                "message": "Report was modified by another user. Please reload and reapply your changes.",
+                "current_updated_at": report.updated_at,
+            },
+        )
 
     if body.array_name not in ARRAY_FIELDS:
         raise HTTPException(

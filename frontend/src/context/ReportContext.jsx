@@ -363,8 +363,10 @@ export function ReportProvider({ children }) {
     const clearReport = useCallback(() => {
         saveReportId(null)
         setReport(null)
+        setReportUpdatedAt(null)
         setError(null)
         setExtractionStats(null)
+        setConflictModal(null)
     }, [saveReportId])
 
     // Get effective currency - from field or derived from country
@@ -378,9 +380,11 @@ export function ReportProvider({ children }) {
     const contextValue = {
         reportId,
         report,
+        reportUpdatedAt,
         loading,
         error,
         extractionStats,
+        conflictModal,
         saveReportId,
         loadReport,
         getFieldValue,
@@ -396,7 +400,8 @@ export function ReportProvider({ children }) {
         getCompletionPercentage,
         clearReport,
         setError,
-        getEffectiveCurrency
+        getEffectiveCurrency,
+        setConflictModal,
     }
 
     return (
