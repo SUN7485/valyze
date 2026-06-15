@@ -216,6 +216,43 @@ data_quality_rating, data_limitations, data_source_analyst_comment
 
 Trends: "↑ Growing +X%" / "↓ Declining X%" / "→ Stable". Financials: comma-formatted strings. All values: strings.`;
 
+const COLORS = {
+  dark: {
+    bg: '#0f172a',
+    surface: '#1e293b', 
+    surfaceHover: '#334155',
+    text: '#f1f5f9',
+    textSecondary: '#94a3b8',
+    textMuted: '#64748b',
+    border: '#1e293b',
+    borderSoft: '#0f172a',
+    borderStrong: '#334155',
+    primary: '#f59e0b',
+    cta: '#8b5cf6',
+    info: '#3b82f6',
+    success: '#22c55e',
+    warning: '#f59e0b',
+    danger: '#ef4444',
+  },
+  light: {
+    bg: '#ffffff',
+    surface: '#f8fafc',
+    surfaceHover: '#f1f5f9', 
+    text: '#0f172a',
+    textSecondary: '#475569',
+    textMuted: '#94a3b8',
+    border: '#e2e8f0',
+    borderSoft: '#f1f5f9',
+    borderStrong: '#cbd5e1',
+    primary: '#f59e0b',
+    cta: '#8b5cf6',
+    info: '#3b82f6',
+    success: '#22c55e',
+    warning: '#f59e0b',
+    danger: '#ef4444',
+  }
+};
+
 const STAGES = ["Processing files", "Claude thinking", "Building JSON", "Done"];
 const ACCEPT = ".pdf,image/*,.xlsx,.csv,.txt,.docx,.doc,.png,.jpg,.jpeg,.webp,.gif";
 const fIcon = f => f.type === "application/pdf" ? "📄" : f.type?.startsWith("image/") ? "🖼️" : f.name.match(/\.docx?$/i) ? "📝" : "📊";
