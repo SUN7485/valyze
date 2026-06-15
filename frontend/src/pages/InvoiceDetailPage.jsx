@@ -185,20 +185,22 @@ export default function InvoiceDetailPage() {
         try {
             setDownloading(true)
             setError('')
-            const response = await invoicesAPI.getHtml(invoiceId)
-            const rawHtml = extractHtml(response)
+            const token = localStorage.getItem('valyze_token') || ''
+            const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
+            const url = `${baseUrl}/api/invoices/${invoiceId}/html`
+            const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+            const rawHtml = await resp.text()
             if (!rawHtml) throw new Error('Invoice HTML was empty')
-
-            const filename = `Valyze-Invoice-${String(invoiceNumber).replace(/[^\w.-]+/g, '_')}.html`
             const blob = new Blob([rawHtml], { type: 'text/html;charset=utf-8' })
-            const url = URL.createObjectURL(blob)
-            const link = document.createElement('a')
-            link.href = url
-            link.download = filename
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-            setTimeout(() => URL.revokeObjectURL(url), 1000)
+            const blobUrl = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = blobUrl
+            a.download = `Valyze-Invoice-${String(invoiceNumber).replace(/[^\w.-]+/g, '_')}.html`
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(blobUrl)
         } catch (e) {
             setError(`Failed to download: ${e.message}`)
         } finally {

@@ -135,7 +135,7 @@ export default function CompanyCard({
           />
         </div>
 
-      <div className="file-upload">
+      <div className="file-upload full-span">
         <label className="field-label" htmlFor={fileInputId}>
           Attached Documents
         </label>

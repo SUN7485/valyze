@@ -378,6 +378,11 @@ select option {
 .file-upload {
   display: grid;
   gap: 8px;
+  min-width: 0;
+}
+
+.file-upload.full-span {
+  grid-column: 1 / -1;
 }
 
 .file-drop {
