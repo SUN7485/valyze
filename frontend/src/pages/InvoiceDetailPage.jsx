@@ -192,15 +192,16 @@ export default function InvoiceDetailPage() {
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
             const rawHtml = await resp.text()
             if (!rawHtml) throw new Error('Invoice HTML was empty')
-            const blob = new Blob([rawHtml], { type: 'text/html;charset=utf-8' })
-            const blobUrl = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = blobUrl
-            a.download = `Valyze-Invoice-${String(invoiceNumber).replace(/[^\w.-]+/g, '_')}.html`
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-            URL.revokeObjectURL(blobUrl)
+            // Open in new tab for print/save as PDF
+            const win = window.open('', '_blank')
+            if (win) {
+                win.document.write(rawHtml)
+                win.document.close()
+                win.focus()
+                setTimeout(() => {
+                    try { win.print() } catch (err) { /* user can Ctrl+P */ }
+                }, 500)
+            }
         } catch (e) {
             setError(`Failed to download: ${e.message}`)
         } finally {

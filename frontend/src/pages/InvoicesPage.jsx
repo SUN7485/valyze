@@ -135,21 +135,33 @@ export default function InvoicesPage() {
             const token = localStorage.getItem('valyze_token') || ''
             const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
             const url = `${baseUrl}/api/invoices/${invoice.id}/html`
-            const response = await fetch(url, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
+            const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
             if (!response.ok) throw new Error(`HTTP ${response.status}`)
             const html = await response.text()
             if (!html) throw new Error('Invoice HTML was empty')
-            const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-            const blobUrl = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = blobUrl
-            a.download = `Valyze-Invoice-${String(getInvoiceNumber(invoice)).replace(/[^\w.-]+/g, '_')}.html`
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-            URL.revokeObjectURL(blobUrl)
+            // Use window.print() to open print dialog → user can Save as PDF
+            const iframe = document.createElement('iframe')
+            iframe.style.position = 'fixed'
+            iframe.style.top = '-9999px'
+            iframe.style.left = '-9999px'
+            iframe.style.width = '210mm'
+            iframe.style.height = '297mm'
+            document.body.appendChild(iframe)
+            const doc = iframe.contentDocument || iframe.contentWindow.document
+            doc.open()
+            doc.write(html)
+            doc.close()
+            setTimeout(() => {
+                try {
+                    iframe.contentWindow.focus()
+                    iframe.contentWindow.print()
+                } catch (err) {
+                    // Fallback: open in new tab
+                    const win = window.open('', '_blank')
+                    if (win) { win.document.write(html); win.document.close() }
+                }
+                setTimeout(() => document.body.removeChild(iframe), 1200)
+            }, 800)
         } catch (e) {
             console.error('[InvoiceDownload] Error:', e)
             setError(`Failed to download: ${e.message}`)
