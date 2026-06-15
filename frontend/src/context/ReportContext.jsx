@@ -83,6 +83,8 @@ export function ReportProvider({ children }) {
         }
     )
     const [report, setReport] = useState(null)
+    const [reportUpdatedAt, setReportUpdatedAt] = useState(null)
+    const [conflictModal, setConflictModal] = useState(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
     const [extractionStats, setExtractionStats] = useState(null)
