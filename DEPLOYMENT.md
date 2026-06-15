@@ -116,6 +116,7 @@ Should return: `{"status": "ok", "version": "1.0.0", "pdf": "client-side"}`
 
 - [ ] Backend health check returns `{"status": "ok"}`
 - [ ] Frontend loads without errors
+- [ ] `/extractor` loads inside the main frontend
 - [ ] Can create a new report
 - [ ] Can edit report fields
 - [ ] Can generate PDF (client-side)

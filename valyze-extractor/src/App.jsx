@@ -357,7 +357,7 @@ export default function ValyzeExtractor() {
         <div style={{ fontSize:40,marginBottom:16 }}>🚫</div>
         <div style={{ fontWeight:700,fontSize:20,marginBottom:12,color:"#ef4444" }}>Access Denied</div>
         <div style={{ fontSize:14,lineHeight:1.7,marginBottom:20 }}>Your Valyze session is missing, expired, or not trusted by this extractor. Sign in again, then reopen the extractor.</div>
-        <a href={import.meta.env.VITE_FRONTEND_URL || window.location.origin} style={{ display:"inline-block",padding:"12px 24px",borderRadius:8,background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",cursor:"pointer" }}>Go to Login →</a>
+        <a href={import.meta.env.VITE_FRONTEND_URL || "https://valyze-frontend.vercel.app"} style={{ display:"inline-block",padding:"12px 24px",borderRadius:8,background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",cursor:"pointer" }}>Go to Login →</a>
       </div>
     </div>;
   }
@@ -843,10 +843,10 @@ export default function ValyzeExtractor() {
                         const reportId = params.get("reportId");
                         if (reportId) {
                             localStorage.setItem("valyze_import_" + reportId, JSON.stringify(result));
-                            const frontendUrl = import.meta.env.VITE_FRONTEND_URL || window.location.origin;
+                            const frontendUrl = import.meta.env.VITE_FRONTEND_URL || "https://valyze-frontend.vercel.app";
                             window.location.href = frontendUrl + "/editor/" + reportId + "?autoImport=1";
                         } else {
-                            const frontendUrl = import.meta.env.VITE_FRONTEND_URL || window.location.origin;
+                            const frontendUrl = import.meta.env.VITE_FRONTEND_URL || "https://valyze-frontend.vercel.app";
                             window.location.href = frontendUrl;
                         }
                     }

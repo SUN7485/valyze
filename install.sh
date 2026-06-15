@@ -19,7 +19,7 @@ echo "[1/6] Installing system dependencies..."
 brew install python@3.12 node ghostscript tesseract poppler
 
 echo ""
-echo "[2/6] Installing Python dependencies..."
+echo "[2/5] Installing Python dependencies..."
 if ! python3 --version > /dev/null 2>&1; then
     echo "ERROR: Python 3 not found."
     exit 1
@@ -40,8 +40,8 @@ npm install
 cd ..
 
 echo ""
-echo "[4/6] Installing Valyze Extractor dependencies..."
-cd valyze-extractor
+echo "[4/6] Installing Valyze Portal dependencies..."
+cd valyze-portal
 npm install
 cd ..
 

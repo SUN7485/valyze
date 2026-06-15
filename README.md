@@ -60,10 +60,10 @@ valyez-final/
 │   ├── engines/         # PDF processing engines
 │   ├── uploads/         # Uploaded files
 │   └── outputs/         # Generated reports
-├── frontend/             # React + Vite frontend
+├── frontend/             # React + Vite frontend with embedded AI extractor
 │   ├── src/             # React components
 │   └── dist/            # Production build
-├── valyze-extractor/    # Standalone PDF extractor
+├── valyze-portal/       # Client portal
 ├── design-system/       # Shared design components
 ├── startall.bat         # Windows - Start all services
 ├── startall.sh          # macOS - Start all services
@@ -78,8 +78,8 @@ valyez-final/
 | Service | Port | URL |
 |---------|------|-----|
 | Backend API | 8000 | http://localhost:8000 |
-| Frontend | 1573 | http://localhost:1573 |
-| Valyze Extractor | 5174 | http://localhost:5174 |
+| Frontend + AI Extractor | 1573 | http://localhost:1573/extractor |
+| Client Portal | 3000 | http://localhost:3000 |
 
 ---
 
@@ -99,7 +99,7 @@ The system works without AI, but for enhanced analysis:
 If you get port errors, change the port in:
 - `backend/main.py` - change `--port 8000`
 - `frontend/vite.config.js` - change port 1573
-- `valyze-extractor/vite.config.js` - change port 5174
+- `valyze-portal/vite.config.js` - change port 3000
 
 ### Permission Denied (macOS)
 ```bash

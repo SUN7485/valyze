@@ -1,29 +1,17 @@
 # Valyze Credit Intelligence Extractor
 
-A React application for extracting structured credit intelligence data from various document formats using Anthropic Claude AI.
+Deprecated standalone extractor. The extractor now lives inside the main frontend at `frontend/src/pages/ExtractorPage.jsx` and is accessed through `/extractor`.
 
-## Quick Start
+## Legacy Quick Start
 
 ```bash
 npm install
-npm run dev:with-proxy
-```
-
-Two servers start:
-- Proxy server: `http://localhost:3001`
-- App: `http://localhost:5173`
-
-## Manual Start (if preferred)
-
-Terminal 1:
-```bash
-npm run server
-```
-
-Terminal 2:
-```bash
 npm run dev
 ```
+
+App: `http://localhost:5173`
+
+Use `VITE_PROXY_URL=http://localhost:8000/api/proxy` for local backend proxy.
 
 ## Getting an Anthropic API Key
 

@@ -26,19 +26,13 @@ echo    Waiting for backend to initialize...
 timeout /t 5 /nobreak >nul
 
 :: Start Frontend in THIS window too (using start /B to run in background)
-echo [2/4] Starting Frontend (port 1573)...
+echo [2/3] Starting Frontend (port 1573)...
 echo    Frontend starting in background...
 cd /d "%~dp0frontend"
 start /B npm run dev
 
-:: Start Standalone Valyze Extractor in background (port 5173)
-echo [3/4] Starting Valyze Extractor (port 5173)...
-echo    Valyze Extractor starting in background...
-cd /d "%~dp0valyze-extractor"
-start /B npm run dev
-
 :: Start Valyze Client Portal in background (port 3000)
-echo [4/4] Starting Valyze Client Portal (port 3000)...
+echo [3/3] Starting Valyze Client Portal (port 3000)...
 echo    Valyze Client Portal starting in background...
 cd /d "%~dp0valyze-portal"
 start /B npm run dev
@@ -53,7 +47,6 @@ echo ============================================
 echo.
 echo   Backend:  http://localhost:8000
 echo   Frontend: http://localhost:1573
-echo   Valyze Extractor: http://localhost:5173
 echo   Valyze Client Portal: http://localhost:3000
 echo.
 echo   ALL logs will appear in this console

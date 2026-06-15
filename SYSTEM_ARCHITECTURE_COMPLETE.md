@@ -10,7 +10,7 @@
 2. [Architecture Diagram](#2-architecture-diagram)
 3. [Backend (FastAPI)](#3-backend-fastapi)
 4. [Frontend (React/Vite)](#4-frontend-reactvite)
-5. [Valyze Extractor (AI Extraction SPA)](#5-valyze-extractor-ai-extraction-spa)
+5. [Embedded AI Extractor](#5-embedded-ai-extractor)
 6. [Database (Supabase/PostgreSQL)](#6-database-supabasepostgresql)
 7. [PDF Generation System](#7-pdf-generation-system)
 8. [Data Model & Field Registry](#8-data-model--field-registry)
@@ -120,7 +120,7 @@ CLAUDE API (Anthropic):
 
 - **Framework:** FastAPI with async lifespan
 - **Startup:** `init_db()` (no-op, Supabase handles schema), creates `uploads/` and `outputs/` directories (skipped in Vercel serverless)
-- **CORS:** Allows localhost:1573-1575, localhost:5173-5179, localhost:3000-3001, plus `FRONTEND_URL` and `CORS_EXTRA_ORIGINS` (comma-separated) from env
+- **CORS:** Allows localhost:1573-1575, localhost:5173-5179, localhost:3000, plus `FRONTEND_URL` and `CORS_EXTRA_ORIGINS` (comma-separated) from env
 - **Static mounts:** `/uploads` and `/outputs` (skipped in Vercel)
 - **Exception handlers:** `DuplicateReportError` → 409
 - **Health:** `GET /health` → `{status: "ok", pdf: "client-side"}`
@@ -250,7 +250,7 @@ StrictMode → ErrorBoundary → BrowserRouter → ReportProvider → App
 | `/reports` | `ReportsPage` | Yes | Report list/search |
 | `/upload` | `UploadPage` | Yes | Upload documents |
 | `/processing/:reportId` | `ProcessingPage` | Yes | Show upload progress |
-| `/extractor/:reportId` | `ExtractorPage` | Yes | AI extraction (iframe to valyze-extractor) |
+| `/extractor/:reportId` | `ExtractorPage` | Yes | Embedded AI extraction UI |
 | `/editor/:reportId` | `EditorPage` | Yes | 19-page interactive editor |
 | `/generating/:reportId` | `GeneratingPage` | Yes | PDF generation |
 | `/done/:reportId` | `DonePage` | Yes | Completion/success |
@@ -285,10 +285,12 @@ StrictMode → ErrorBoundary → BrowserRouter → ReportProvider → App
 - Pagination
 
 **ExtractorPage:**
-- Embeds `valyze-extractor` in an iframe
-- Passes report_id and JWT token as URL params
-- Child communicates back via `postMessage`
-- Shows extraction progress and completion
+- Embedded React extractor UI inside the main frontend
+- Uses the active `AuthContext` user/session; no separate token query parameter
+- Uploads PDFs, Word files, images, Excel, CSV, and TXT directly in the main app
+- Sends Anthropic requests through the main backend `POST /api/proxy`
+- Saves completed JSON to `valyze_import_{reportId}` and opens `/editor/{reportId}?autoImport=1`
+- If opened without a report id, saves completed JSON to `valyze_pending_import` and returns to the dashboard
 
 **EditorPage (The Main Interface):**
 - Loads report via `GET /api/report/{report_id}`
@@ -377,11 +379,11 @@ StrictMode → ErrorBoundary → BrowserRouter → ReportProvider → App
 
 ---
 
-## 5. VALYZE EXTRACTOR (AI Extraction SPA)
+## 5. EMBEDDED AI EXTRACTOR
 
 ### 5.1 Overview
 
-A **separate standalone React SPA** at `valyze-extractor/` that uses **Claude Anthropic API** to automatically extract structured credit data from uploaded documents.
+The AI extractor is embedded in `frontend/src/pages/ExtractorPage.jsx` instead of running as a separate app. It uses the main frontend authentication state, the main backend `POST /api/proxy`, and the existing Easy Way import flow.
 
 ### 5.2 Key Features
 
@@ -404,19 +406,20 @@ A **separate standalone React SPA** at `valyze-extractor/` that uses **Claude An
 
 **Architecture:**
 ```
-Extractor SPA (React)
+Frontend ExtractorPage (React)
   │
+  ├── AuthContext from main frontend
   ├── File Upload (drag & drop)
   ├── PDF Processing (pdf.js text extraction)
   ├── Image Processing (canvas → base64)
   ├── Claude API Client
-  │     └── POST /api/proxy (through backend, not directly)
+  │     └── POST /api/proxy (main backend proxy)
   └── Results Output
         └── JSON formatted for Easy Way Import
 ```
 
 **Backend Proxy:**
-- The extractor sends to `POST /api/proxy` on the backend
+- The extractor sends to `POST /api/proxy` on the main backend
 - Backend forwards to `api.anthropic.com/v1/messages` with the API key
 - Supports gzip-compressed request bodies (Vercel has ~4.5MB body limit)
 - 5-minute timeout, size checks on compressed and decompressed payloads
@@ -424,17 +427,14 @@ Extractor SPA (React)
 **Mock Data:**
 - `valyze-extractor/mock-data.json` — Complete example of the expected JSON output format with all sections populated
 
-### 5.3 Token-Based Auth
+### 5.3 Auth and Import Flow
 
-- Auth token passed as URL query parameter `?token=...`
-- Verified against backend `GET /api/auth/me`
-- No login screen — purely receives token from parent window
-
-### 5.4 Communication with Frontend
-
-- Embedded via `<iframe>` in the frontend's ExtractorPage
-- Token passed as URL parameter
-- After extraction completes, passes JSON result back via `postMessage` or user manually copies it for Easy Way Import
+- No separate extractor login
+- No `?token=...` URL parameter
+- No standalone `VITE_EXTRACTOR_URL`
+- Completed JSON is saved to localStorage:
+  - With report id: `valyze_import_{reportId}` → opens `/editor/{reportId}?autoImport=1`
+  - Without report id: `valyze_pending_import` → opens dashboard Easy Way import flow
 
 ---
 
@@ -802,16 +802,12 @@ VERCEL=true                  # If running on Vercel
 
 **Frontend (`.env`):**
 ```
-VITE_API_URL=http://localhost:8000        # Backend URL
+VITE_API_BASE_URL=http://localhost:8000        # Backend URL
 VITE_SUPABASE_URL=https://xxxx.supabase.co
 VITE_SUPABASE_ANON_KEY=anon_key
 ```
 
-**Extractor (`.env`):**
-```
-VITE_API_URL=http://localhost:8000
-VITE_EXTRACTOR_URL=http://localhost:5173
-```
+The AI extractor is embedded in `frontend/src/pages/ExtractorPage.jsx` and uses the main frontend/backend auth flow. It no longer needs a separate extractor app, `VITE_EXTRACTOR_URL`, token query parameter, or standalone proxy URL.
 
 ---
 
@@ -896,6 +892,6 @@ VITE_EXTRACTOR_URL=http://localhost:5173
 | Frontend | `frontend/src/api/client.js` | ~80 | Axios API client |
 | Frontend | `frontend/src/pages/EditorPage.jsx` | ~300 | Main report editor |
 | Frontend | `frontend/src/components/EasyWayImport.jsx` | ~200 | JSON import modal |
-| Extractor | `valyze-extractor/src/App.jsx` | ~946 | AI extraction SPA |
+| Frontend | `frontend/src/pages/ExtractorPage.jsx` | ~889 | Embedded AI extraction UI |
 | Infra | `supabase_setup.sql` | 52 | Database schema |
 | Infra | `docker-compose.yml` | ~30 | Container setup |

@@ -32,11 +32,11 @@ FRONTEND_PID=$!
 # Wait for frontend to start
 sleep 3
 
-# Start Extractor
-echo "[3/3] Starting Valyze Extractor (port 5174)..."
-cd "$SCRIPT_DIR/valyze-extractor"
+# Start Valyze Client Portal
+echo "[3/3] Starting Valyze Client Portal (port 3000)..."
+cd "$SCRIPT_DIR/valyze-portal"
 npm run dev &
-EXTRACTOR_PID=$!
+PORTAL_PID=$!
 
 sleep 3
 
@@ -47,12 +47,12 @@ echo "============================================"
 echo ""
 echo "  Backend:  http://localhost:8000"
 echo "  Frontend: http://localhost:1573"
-echo "  Valyze Extractor: http://localhost:5173"
+echo "  Client Portal: http://localhost:3000"
 echo ""
 echo "  Process IDs:"
 echo "    Backend: $BACKEND_PID"
 echo "    Frontend: $FRONTEND_PID"
-echo "    Extractor: $EXTRACTOR_PID"
+echo "    Portal: $PORTAL_PID"
 echo ""
 echo "  Press Ctrl+C to stop all services"
 echo ""
@@ -61,8 +61,8 @@ echo ""
 cleanup() {
     echo ""
     echo "Stopping all services..."
-    kill $BACKEND_PID $FRONTEND_PID $EXTRACTOR_PID 2>/dev/null
-    wait $BACKEND_PID $FRONTEND_PID $EXTRACTOR_PID 2>/dev/null
+    kill $BACKEND_PID $FRONTEND_PID $PORTAL_PID 2>/dev/null
+    wait $BACKEND_PID $FRONTEND_PID $PORTAL_PID 2>/dev/null
     echo "All services stopped."
     exit 0
 }

@@ -68,31 +68,8 @@ if %errorlevel% neq 0 (
 echo       Playwright OK
 echo.
 
-:: Install Valyze Extractor Dependencies
-echo [5/8] Installing Valyze Extractor Node packages...
-cd /d "%~dp0valyze-extractor"
-call npm install
-if %errorlevel% neq 0 (
-    echo ERROR: npm install failed for Extractor!
-    pause
-    exit /b 1
-)
-echo       Valyze Extractor OK
-
-:: Install Valyze Portal Dependencies
-echo [5.5/8] Installing Valyze Portal Node packages...
-cd /d "%~dp0valyze-portal"
-call npm install
-if %errorlevel% neq 0 (
-    echo ERROR: npm install failed for Portal!
-    pause
-    exit /b 1
-)
-echo       Valyze Portal OK
-echo.
-
 :: Install Frontend Dependencies
-echo [6/8] Installing Frontend Node packages...
+echo [5/8] Installing Frontend Node packages...
 cd /d "%~dp0frontend"
 call npm install
 if %errorlevel% neq 0 (
@@ -101,6 +78,18 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 echo       Node packages OK
+echo.
+
+:: Install Valyze Portal Dependencies
+echo [6/8] Installing Valyze Portal Node packages...
+cd /d "%~dp0valyze-portal"
+call npm install
+if %errorlevel% neq 0 (
+    echo ERROR: npm install failed for Portal!
+    pause
+    exit /b 1
+)
+echo       Valyze Portal OK
 echo.
 
 :: Create required directories
