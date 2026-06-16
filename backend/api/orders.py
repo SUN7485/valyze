@@ -8,21 +8,24 @@ Each order_company becomes one Valyze report.
 from __future__ import annotations
 
 import uuid
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
+import os
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.auth import get_current_user, get_order_assignable_users
-from database.crud import create_report, update_report_field, update_report_status
+from database.crud import add_uploaded_file, create_report, update_report_field, update_report_status
 import logging
-from services.pricing_engine import calculate_invoice, generate_invoice_number
 from services.supabase_client import (
     create_invoice as sb_create_invoice,
     create_order as sb_create_order,
     delete_order as sb_delete_order,
+    download_from_storage,
     get_all_orders as sb_get_all_orders,
     get_analyst_workload as sb_get_analyst_workload,
     get_active_order_assignments as sb_get_active_order_assignments,
@@ -38,6 +41,24 @@ from services.supabase_client import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Local upload directory for report files
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
+
+def _sanitize_filename(filename: str) -> str:
+    """Sanitize a filename for safe storage."""
+    if not filename:
+        return "unnamed_file"
+    filename = Path(filename).name
+    filename = re.sub(r"[^\w\-\.\s]", "_", filename)
+    filename = filename.strip(". ")
+    if not filename:
+        return "unnamed_file"
+    if len(filename) > 255:
+        name, ext = Path(filename).stem, Path(filename).suffix
+        filename = name[:255 - len(ext)] + ext
+    return filename
+
 
 router = APIRouter(tags=["orders"])
 
@@ -628,6 +649,56 @@ async def start_company_work(order_id: str, company_id: str, user: dict = Depend
         if analyst:
             await update_report_field(None, report_id, "analyst_name", analyst, "high", "system")
         await update_report_status(None, report_id, "uploading")
+
+        # Step a1: Copy portal files to the report (if any were uploaded via portal)
+        company_portal_files = get_order_files(order_id, company_id)
+        order_portal_files = get_order_files(order_id)
+        all_portal_files = company_portal_files + [f for f in order_portal_files if not f.get("order_company_id")]
+
+        if all_portal_files:
+            logger.info(f"[ORDERS] Copying {len(all_portal_files)} portal file(s) to report {report_id}")
+            report_dir = UPLOAD_DIR / report_id
+            report_dir.mkdir(parents=True, exist_ok=True)
+
+            for pf in all_portal_files:
+                file_path = pf.get("file_path", "")
+                # Download file from storage if it's a storage:// path
+                if file_path.startswith("storage://"):
+                    storage_ref = file_path[len("storage://"):]
+                    parts = storage_ref.split("/", 1)
+                    if len(parts) == 2:
+                        bucket, path = parts
+                        file_content = download_from_storage(bucket, path)
+                        if file_content:
+                            safe_name = _sanitize_filename(pf.get("filename", "portal_file"))
+                            file_type_map = {
+                                ".pdf": "pdf",
+                                ".docx": "word",
+                                ".doc": "word",
+                                ".png": "image",
+                                ".jpg": "image",
+                                ".jpeg": "image",
+                                ".tiff": "image",
+                                ".xlsx": "spreadsheet",
+                                ".xls": "spreadsheet",
+                                ".csv": "spreadsheet",
+                                ".txt": "text",
+                            }
+                            ext = Path(safe_name).suffix.lower()
+                            file_type = file_type_map.get(ext, "unknown")
+
+                            # Save file locally for extraction engine
+                            local_path = report_dir / safe_name
+                            local_path.write_bytes(file_content)
+
+                            await add_uploaded_file(
+                                None,
+                                report_id=report_id,
+                                filename=safe_name,
+                                file_path=str(local_path),
+                                file_type=file_type,
+                                file_size=len(file_content),
+                            )
 
         # Step b: Link report to company
         updated_company = sb_update_order_company(

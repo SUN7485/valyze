@@ -1000,6 +1000,24 @@ def upload_to_storage(bucket: str, path: str, file_bytes: bytes, content_type: s
         return False
 
 
+def download_from_storage(bucket: str, path: str) -> Optional[bytes]:
+    """Download a file from Supabase Storage."""
+    url = f"{get_storage_base_url()}/object/{bucket}/{path}"
+    headers = {
+        "apikey": os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY", ""),
+        "Authorization": f"Bearer {os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_ANON_KEY', '')}",
+    }
+    try:
+        response = requests.get(url, headers=headers, timeout=60)
+        if response.status_code == 200:
+            return response.content
+        logger.error(f"[Storage] Download failed ({response.status_code}): {response.text[:200]}")
+        return None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Storage] Download request failed: {e}")
+        return None
+
+
 def create_signed_url(bucket: str, path: str, expires_in: int = 3600) -> Optional[str]:
     """Create a signed URL for a file in Supabase Storage."""
     url = f"{get_storage_base_url()}/object/sign/{bucket}/{path}"

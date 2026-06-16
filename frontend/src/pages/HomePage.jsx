@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { PlayCircle, History, FileText, ArrowRight, Upload, Database, Info, PlusCircle, Zap, ArrowLeft, AlertCircle, ClipboardCheck } from 'lucide-react'
+import { PlayCircle, History, FileText, ArrowRight, Upload, Database, Info, PlusCircle, Zap, ArrowLeft, AlertCircle, ClipboardCheck, Sparkles, Activity, Search } from 'lucide-react'
 import { useReport } from '../context/ReportContext'
 import { reportAPI, ordersAPI } from '../api/client'
 
-// Order Summary Modal - appears before starting new report
+// Order Summary Modal - Premium Redesign
 function OrderSummaryModal({ isOpen, onClose, onSubmit, savedOrder }) {
     const [formData, setFormData] = useState({
         client_name: savedOrder?.client_name || '',
@@ -22,50 +22,55 @@ function OrderSummaryModal({ isOpen, onClose, onSubmit, savedOrder }) {
         onSubmit(formData)
     }
 
-    const inputClasses = "w-full px-5 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-4 focus:ring-primary/20 focus:border-primary outline-none transition-all duration-300 text-sm dark:text-white dark:placeholder-slate-500"
-    const labelClasses = "block text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 ml-1"
+    const inputClasses = "w-full px-5 py-4 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md border border-slate-200/50 dark:border-slate-700/50 rounded-2xl focus:ring-4 focus:ring-primary/20 focus:border-primary outline-none transition-all duration-300 text-sm text-slate-800 dark:text-white dark:placeholder-slate-500 shadow-inner-soft"
+    const labelClasses = "block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 ml-2"
 
     return (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
-            <div className="glass-card bg-white dark:bg-slate-900 border-none shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-300">
-                <div className="p-8 border-b border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/5">
-                    <div className="flex items-center gap-3 mb-1">
-                        <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-                            <FileText size={18} />
+        <div className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-xl flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
+            <div className="glass-panel w-full max-w-xl overflow-hidden rounded-[2rem] border border-white/20 dark:border-white/10 shadow-2xl animate-in zoom-in-95 duration-500 relative">
+                {/* Decorative background glow */}
+                <div className="absolute -top-24 -right-24 w-48 h-48 bg-primary/30 rounded-full blur-3xl pointer-events-none" />
+                
+                <div className="p-10 border-b border-slate-200/30 dark:border-white/5 relative z-10">
+                    <div className="flex items-center gap-4 mb-2">
+                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 text-primary flex items-center justify-center border border-primary/20 shadow-glow">
+                            <FileText size={24} />
                         </div>
-                        <h2 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Order Parameters</h2>
+                        <div>
+                            <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Order Context</h2>
+                            <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-1">Initialize report metadata parameters</p>
+                        </div>
                     </div>
-                    <p className="text-slate-500 dark:text-slate-400 text-[11px] font-medium ml-11">Initialize report metadata context</p>
                 </div>
                 
-                <form onSubmit={handleSubmit} className="p-8 space-y-6">
-                    <div className="grid grid-cols-2 gap-6">
-                        <div>
-                            <label className={labelClasses}>Client Identity *</label>
+                <form onSubmit={handleSubmit} className="p-10 space-y-8 relative z-10">
+                    <div className="grid grid-cols-2 gap-8">
+                        <div className="group">
+                            <label className={labelClasses}>Client Identity <span className="text-primary">*</span></label>
                             <input type="text" required className={inputClasses} value={formData.client_name} onChange={(e) => setFormData({...formData, client_name: e.target.value})} placeholder="Corporate name" />
                         </div>
-                        <div>
+                        <div className="group">
                             <label className={labelClasses}>Reference Key</label>
                             <input type="text" className={inputClasses} value={formData.client_reference} onChange={(e) => setFormData({...formData, client_reference: e.target.value})} placeholder="VCR-REF-00" />
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-6">
-                        <div>
-                            <label className={labelClasses}>Assigned Analyst *</label>
+                    <div className="grid grid-cols-2 gap-8">
+                        <div className="group">
+                            <label className={labelClasses}>Assigned Analyst <span className="text-primary">*</span></label>
                             <input type="text" required className={inputClasses} value={formData.analyst_name} onChange={(e) => setFormData({...formData, analyst_name: e.target.value})} placeholder="Full name" />
                         </div>
-                        <div>
+                        <div className="group">
                             <label className={labelClasses}>Analyst UUID</label>
                             <input type="text" className={inputClasses} value={formData.analyst_id} onChange={(e) => setFormData({...formData, analyst_id: e.target.value})} placeholder="ID-000" />
                         </div>
                     </div>
-                    <div>
+                    <div className="group">
                         <label className={labelClasses}>Operational Notes</label>
-                        <textarea className={inputClasses} rows={2} value={formData.order_comment} onChange={(e) => setFormData({...formData, order_comment: e.target.value})} placeholder="Project specific constraints..." />
+                        <textarea className={inputClasses} rows={3} value={formData.order_comment} onChange={(e) => setFormData({...formData, order_comment: e.target.value})} placeholder="Project specific constraints..." />
                     </div>
                     <div className="flex gap-4 pt-4">
-                        <button type="button" onClick={onClose} className="flex-1 py-4 px-4 border border-slate-200 dark:border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 dark:hover:bg-white/5 transition-all">Abort</button>
-                        <button type="submit" className="flex-1 py-4 px-4 bg-primary text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:opacity-90 shadow-lg shadow-primary/20 transition-all active:scale-95">Initialize Report →</button>
+                        <button type="button" onClick={onClose} className="flex-1 py-4 px-6 bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 rounded-2xl font-black text-[11px] uppercase tracking-widest text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 transition-all duration-300">Abort</button>
+                        <button type="submit" className="flex-[2] py-4 px-6 bg-gradient-to-r from-primary to-orange-500 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest hover:opacity-90 shadow-[0_0_20px_-5px_rgba(245,158,11,0.5)] transition-all duration-300 active:scale-95 flex items-center justify-center gap-2">Initialize Report <ArrowRight size={16} /></button>
                     </div>
                 </form>
             </div>
@@ -73,7 +78,7 @@ function OrderSummaryModal({ isOpen, onClose, onSubmit, savedOrder }) {
     )
 }
 
-// Easy Way Import Modal with Order Summary
+// Easy Way Import Modal - Premium Redesign
 function EasyWayModalWithOrder({ isOpen, onClose, onImport, savedOrder, prefillJson = '' }) {
     const [localJsonInput, setLocalJsonInput] = useState(prefillJson)
     const [importing, setImporting] = useState(false)
@@ -87,7 +92,6 @@ function EasyWayModalWithOrder({ isOpen, onClose, onImport, savedOrder, prefillJ
         order_comment: savedOrder?.order_comment || ''
     })
 
-    // Update when prefillJson changes
     useEffect(() => {
         if (prefillJson) {
             setLocalJsonInput(prefillJson)
@@ -113,30 +117,32 @@ function EasyWayModalWithOrder({ isOpen, onClose, onImport, savedOrder, prefillJ
         }
     }
 
-    const inputClasses = "w-full px-5 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-4 focus:ring-primary/20 focus:border-primary outline-none transition-all duration-300 text-sm dark:text-white dark:placeholder-slate-500"
-    const labelClasses = "block text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 ml-1"
+    const inputClasses = "w-full px-5 py-4 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md border border-slate-200/50 dark:border-slate-700/50 rounded-2xl focus:ring-4 focus:ring-cta/20 focus:border-cta outline-none transition-all duration-300 text-sm text-slate-800 dark:text-white dark:placeholder-slate-500 shadow-inner-soft"
+    const labelClasses = "block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 ml-2"
 
     return (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
-            <div className="glass-card bg-white dark:bg-slate-900 border-none shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-300">
-                {/* Order Form - Before JSON Paste */}
+        <div className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-xl flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
+            <div className="glass-panel w-full max-w-2xl overflow-hidden rounded-[2rem] border border-white/20 dark:border-white/10 shadow-2xl animate-in zoom-in-95 duration-500 relative">
                 {showOrderForm ? (
                     <>
-                        <div className="p-8 border-b border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/5">
-                            <div className="flex items-center gap-3 mb-1">
-                                <button onClick={() => setShowOrderForm(false)} className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-slate-400 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-white/20 transition-all">
-                                    <ArrowLeft size={16} />
+                        <div className="absolute -top-24 -right-24 w-48 h-48 bg-cta/30 rounded-full blur-3xl pointer-events-none" />
+                        <div className="p-10 border-b border-slate-200/30 dark:border-white/5 relative z-10">
+                            <div className="flex items-center gap-4 mb-2">
+                                <button onClick={() => setShowOrderForm(false)} className="w-10 h-10 rounded-2xl bg-slate-100/50 dark:bg-white/5 text-slate-500 dark:text-slate-400 flex items-center justify-center hover:bg-slate-200/50 dark:hover:bg-white/10 transition-all backdrop-blur-md">
+                                    <ArrowLeft size={18} />
                                 </button>
-                                <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-                                    <FileText size={18} />
+                                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cta/20 to-cta/5 text-cta flex items-center justify-center border border-cta/20 shadow-glow-cta">
+                                    <FileText size={24} />
                                 </div>
-                                <h2 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Order Parameters</h2>
+                                <div>
+                                    <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Order Context</h2>
+                                    <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-1">Initialize report metadata parameters</p>
+                                </div>
                             </div>
-                            <p className="text-slate-500 dark:text-slate-400 text-[11px] font-medium ml-11">Initialize report metadata context</p>
                         </div>
                         
-                        <form onSubmit={(e) => { e.preventDefault(); setShowOrderForm(false) }} className="p-8 space-y-6">
-                            <div className="grid grid-cols-2 gap-6">
+                        <form onSubmit={(e) => { e.preventDefault(); setShowOrderForm(false) }} className="p-10 space-y-8 relative z-10">
+                            <div className="grid grid-cols-2 gap-8">
                                 <div>
                                     <label className={labelClasses}>Client Identity *</label>
                                     <input type="text" required className={inputClasses} value={formData.client_name} onChange={(e) => setFormData({...formData, client_name: e.target.value})} placeholder="Corporate name" />
@@ -146,7 +152,7 @@ function EasyWayModalWithOrder({ isOpen, onClose, onImport, savedOrder, prefillJ
                                     <input type="text" className={inputClasses} value={formData.client_reference} onChange={(e) => setFormData({...formData, client_reference: e.target.value})} placeholder="VCR-REF-00" />
                                 </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-6">
+                            <div className="grid grid-cols-2 gap-8">
                                 <div>
                                     <label className={labelClasses}>Assigned Analyst *</label>
                                     <input type="text" required className={inputClasses} value={formData.analyst_name} onChange={(e) => setFormData({...formData, analyst_name: e.target.value})} placeholder="Full name" />
@@ -161,58 +167,61 @@ function EasyWayModalWithOrder({ isOpen, onClose, onImport, savedOrder, prefillJ
                                 <textarea className={inputClasses} rows={2} value={formData.order_comment} onChange={(e) => setFormData({...formData, order_comment: e.target.value})} placeholder="Project specific constraints..." />
                             </div>
                             <div className="flex gap-4 pt-4">
-                                <button type="button" onClick={onClose} className="flex-1 py-4 px-4 border border-slate-200 dark:border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 dark:hover:bg-white/5 transition-all">Abort</button>
-                                <button type="submit" className="flex-1 py-4 px-4 bg-primary text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:opacity-90 shadow-lg shadow-primary/20 transition-all active:scale-95">Proceed →</button>
+                                <button type="button" onClick={onClose} className="flex-1 py-4 px-6 bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 rounded-2xl font-black text-[11px] uppercase tracking-widest text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 transition-all duration-300">Abort</button>
+                                <button type="submit" className="flex-[2] py-4 px-6 bg-gradient-to-r from-cta to-indigo-500 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest hover:opacity-90 shadow-[0_0_20px_-5px_rgba(139,92,246,0.5)] transition-all duration-300 active:scale-95 flex items-center justify-center gap-2">Proceed <ArrowRight size={16} /></button>
                             </div>
                         </form>
                     </>
                 ) : (
                     <>
-                        <div className="p-8 border-b border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/5">
-                            <div className="flex items-center gap-3 mb-1">
-                                <button onClick={() => setShowOrderForm(true)} className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-slate-400 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-white/20 transition-all">
-                                    <ArrowLeft size={16} />
+                        <div className="absolute -top-24 -right-24 w-64 h-64 bg-cta/20 rounded-full blur-[64px] pointer-events-none" />
+                        <div className="p-10 border-b border-slate-200/30 dark:border-white/5 relative z-10">
+                            <div className="flex items-center gap-4 mb-2">
+                                <button onClick={() => setShowOrderForm(true)} className="w-10 h-10 rounded-2xl bg-slate-100/50 dark:bg-white/5 text-slate-500 dark:text-slate-400 flex items-center justify-center hover:bg-slate-200/50 dark:hover:bg-white/10 transition-all backdrop-blur-md">
+                                    <ArrowLeft size={18} />
                                 </button>
-                                <div className="w-8 h-8 rounded-lg bg-cta/10 text-cta flex items-center justify-center">
-                                    <Zap size={18} />
+                                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cta/20 to-cta/5 text-cta flex items-center justify-center border border-cta/20 shadow-glow-cta">
+                                    <Zap size={24} />
                                 </div>
-                                <h2 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Rapid Ingestion</h2>
+                                <div>
+                                    <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Rapid Ingestion</h2>
+                                    <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mt-1">Inject structured JSON intelligence directly into the report engine</p>
+                                </div>
                             </div>
-                            <p className="text-slate-500 dark:text-slate-400 text-[11px] font-medium ml-11">Inject structured JSON intelligence directly into the report engine</p>
                         </div>
                         
-                        <div className="p-8">
+                        <div className="p-10 relative z-10">
                             <div className="relative group">
                                 <textarea
-                                    className="w-full h-72 px-5 py-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl font-mono text-xs focus:ring-4 focus:ring-cta/10 focus:border-cta outline-none transition-all duration-300 dark:text-white placeholder-slate-400 dark:placeholder-slate-500"
-                                    placeholder='{ "company_identity": { "legal_name": "..." }, ... }'
+                                    className="w-full h-72 px-6 py-5 bg-white/50 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-700/50 rounded-3xl font-mono text-sm focus:ring-4 focus:ring-cta/20 focus:border-cta outline-none transition-all duration-300 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 shadow-inner-soft"
+                                    placeholder='{\n  "company_identity": {\n    "legal_name": "..."\n  },\n  ...\n}'
                                     value={localJsonInput}
                                     onChange={(e) => setLocalJsonInput(e.target.value)}
                                 />
-                                <div className="absolute top-4 right-4 text-cta/20 group-focus-within:text-cta/40 transition-colors pointer-events-none">
-                                    <Database size={24} />
+                                <div className="absolute top-5 right-5 text-cta/30 group-focus-within:text-cta transition-colors duration-500 pointer-events-none drop-shadow-[0_0_10px_rgba(139,92,246,0.3)]">
+                                    <Database size={28} />
                                 </div>
                             </div>
                             {error && (
-                                <div className="mt-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-3 text-rose-500 text-[10px] font-black uppercase tracking-widest animate-in slide-in-from-top-2">
-                                    <Info size={14} /> {error}
+                                <div className="mt-6 p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center gap-3 text-rose-500 text-[11px] font-black uppercase tracking-widest animate-in slide-in-from-top-2 backdrop-blur-sm">
+                                    <Info size={16} /> {error}
                                 </div>
                             )}
                         </div>
                         
-                        <div className="p-8 pt-0 flex gap-4">
-                            <button onClick={onClose} className="flex-1 py-4 border border-slate-200 dark:border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 dark:hover:bg-white/5 transition-all">Abort</button>
+                        <div className="p-10 pt-0 flex gap-4 relative z-10">
+                            <button onClick={onClose} className="flex-1 py-4 px-6 bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 rounded-2xl font-black text-[11px] uppercase tracking-widest text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 transition-all duration-300">Abort</button>
                             <button 
                                 onClick={handleImport} 
                                 disabled={importing} 
-                                className="flex-2 py-4 px-8 bg-cta text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:opacity-90 shadow-lg shadow-cta/20 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                className="flex-[2] py-4 px-8 bg-gradient-to-r from-cta to-indigo-600 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest hover:opacity-90 shadow-[0_0_20px_-5px_rgba(139,92,246,0.5)] transition-all duration-300 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-3"
                             >
                                 {importing ? (
                                     <>
-                                        <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Verifying...
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Verifying...
                                     </>
                                 ) : (
-                                    <>Commit Data Ingestion <ArrowRight size={14} /></>
+                                    <>Commit Data Ingestion <ArrowRight size={16} /></>
                                 )}
                             </button>
                         </div>
@@ -228,13 +237,11 @@ export default function HomePage() {
     const { reportId, clearReport, saveReportId } = useReport()
     const [resumeId, setResumeId] = useState('')
     
-    // Order Summary state
     const [showOrderSummary, setShowOrderSummary] = useState(false)
-    const [pendingAction, setPendingAction] = useState(null) // 'new' or 'easy'
+    const [pendingAction, setPendingAction] = useState(null)
     const [savedOrder, setSavedOrder] = useState(null)
     const [orderStats, setOrderStats] = useState({ pending: 0, inProgress: 0, hasUnreadPending: false, loading: true })
 
-    // Load saved order from localStorage on mount
     useEffect(() => {
         const saved = localStorage.getItem('valyze_order_summary')
         if (saved) {
@@ -246,7 +253,6 @@ export default function HomePage() {
 
     useEffect(() => {
         let mounted = true
-
         ordersAPI.getAll()
             .then((response) => {
                 if (!mounted) return
@@ -254,21 +260,17 @@ export default function HomePage() {
                 const pending = data.filter(order => order.status === 'pending').length
                 const inProgress = data.filter(order => order.status === 'in_progress').length
                 const hasUnreadPending = data.some(order => order.status === 'pending' && (order.unread || order.is_unread || order.read === false))
-
                 setOrderStats({ pending, inProgress, hasUnreadPending, loading: false })
             })
             .catch(() => {
                 if (mounted) setOrderStats({ pending: 0, inProgress: 0, hasUnreadPending: false, loading: false })
             })
-
         return () => { mounted = false }
     }, [])
 
-    // Easy Way Import state
     const [showEasyWay, setShowEasyWay] = useState(false)
     const [prefillJson, setPrefillJson] = useState('')
 
-    // Check for pending import from extractor
     useEffect(() => {
         const pending = localStorage.getItem('valyze_pending_import')
         if (pending) {
@@ -293,13 +295,10 @@ export default function HomePage() {
 
     const handleOrderSubmit = async (orderData) => {
         setShowOrderSummary(false)
-        
         if (pendingAction === 'new') {
-            // Start new report with order data
             clearReport()
             navigate('/upload')
         } else if (pendingAction === 'easy') {
-            // For easy way, we'll show the modal after order
             setShowEasyWay(true)
         }
         setPendingAction(null)
@@ -311,25 +310,16 @@ export default function HomePage() {
         navigate(`/editor/${targetId}`)
     }
     
-    // Easy Way Import handler - parses JSON and calls API
     const handleEasyWayImport = async (jsonString, orderData = null) => {
-        // Parse the JSON
         let str = jsonString.trim()
-        
-        // Handle code blocks
         const match = str.match(/```(?:json)?\s*([\s\S]*?)```/)
         if (match) str = match[1].trim()
-        
-        // Extract JSON object
         const objMatch = str.match(/\{[\s\S]*\}/)
         if (objMatch) str = objMatch[0]
         
         const data = JSON.parse(str)
-        
-        // Get order data from localStorage if not passed
         const savedOrder = orderData || JSON.parse(localStorage.getItem('valyze_order_summary') || '{}')
         
-        // Create a new report with order data
         const startRes = await reportAPI.startReport({
             client_name: savedOrder?.client_name || 'Easy Import',
             analyst_name: savedOrder?.analyst_name || 'System',
@@ -340,191 +330,235 @@ export default function HomePage() {
         })
         const newReportId = startRes.data.report_id
         
-        // Send to easy way import endpoint
         await reportAPI.easyWayImport(newReportId, data)
-        
-        // Navigate to editor
         saveReportId(newReportId)
         navigate(`/editor/${newReportId}`)
     }
 
     return (
-        <div className="py-12 px-6 max-w-4xl mx-auto">
-            <div className="text-center mb-20 animate-in fade-in zoom-in duration-1000">
-                <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full border border-primary/20 text-xs font-black text-primary uppercase tracking-[0.2em] mb-8">
-                    <Zap size={14} /> AI-Powered Credit Intelligence
-                </div>
-                <h1 className="text-6xl md:text-7xl font-black mb-6 tracking-tighter leading-tight dark:text-white">
-                    Corporate <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-orange-400 to-cta">Intelligence</span>
-                </h1>
-                <p className="text-lg text-slate-500 dark:text-slate-400 max-w-2xl mx-auto font-medium leading-relaxed">
-                    Transform raw financial data into professional credit reports 
-                    with deep analysis and industrial-grade accuracy.
-                </p>
+        <div className="relative min-h-screen pb-24 overflow-hidden">
+            {/* Dynamic Background */}
+            <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/20 dark:bg-primary/10 blur-[100px] animate-blob mix-blend-multiply dark:mix-blend-screen" />
+                <div className="absolute top-[20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-cta/20 dark:bg-cta/10 blur-[120px] animate-blob animation-delay-2000 mix-blend-multiply dark:mix-blend-screen" />
+                <div className="absolute bottom-[-20%] left-[20%] w-[60%] h-[60%] rounded-full bg-accent/20 dark:bg-accent/10 blur-[150px] animate-blob animation-delay-4000 mix-blend-multiply dark:mix-blend-screen" />
             </div>
 
-            <div className="grid md:grid-cols-2 gap-8 mb-20">
-                {/* Extract Your Data Card */}
-                <button
-                    onClick={() => navigate('/extractor')}
-                    className="group glass-card p-10 text-left relative overflow-hidden"
-                >
-                    <div className="absolute -right-8 -top-8 w-32 h-32 bg-primary/10 rounded-full blur-2xl group-hover:bg-primary/20 transition-all duration-500" />
-                    <div className="w-16 h-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 group-hover:rotate-6 transition-transform duration-500">
-                        <Zap size={32} />
+            <div className="relative z-10 max-w-[1400px] mx-auto px-6 pt-20">
+                {/* Hero Section */}
+                <div className="text-center mb-28 animate-in slide-up duration-1000">
+                    <div className="inline-flex items-center gap-3 px-5 py-2.5 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md rounded-full border border-slate-200/50 dark:border-white/10 shadow-[0_0_30px_-5px_rgba(245,158,11,0.2)] mb-10 group cursor-pointer hover:scale-105 transition-transform duration-500">
+                        <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                        <span className="text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-[0.25em]">Valyze Next-Gen Engine</span>
                     </div>
-                    <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-3 tracking-tight">Extract Your Data</h2>
-                    <p className="text-slate-500 dark:text-slate-400 mb-8 font-medium leading-relaxed">Launch the AI extraction tool to process documents and generate credit intelligence.</p>
-                    <div className="inline-flex items-center gap-2 text-primary font-black uppercase tracking-widest text-xs group-hover:gap-4 transition-all duration-300">
-                        Launch Extractor <ArrowRight size={18} />
-                    </div>
-                </button>
+                    
+                    <h1 className="text-7xl md:text-8xl lg:text-[100px] font-black mb-8 tracking-tighter leading-[1.1] dark:text-white">
+                        Corporate <br className="hidden md:block"/>
+                        <span className="relative inline-block">
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-orange-400 to-cta drop-shadow-sm">
+                                Intelligence
+                            </span>
+                            <div className="absolute -bottom-4 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+                        </span>
+                    </h1>
+                    
+                    <p className="text-xl md:text-2xl text-slate-600 dark:text-slate-400 max-w-3xl mx-auto font-medium leading-relaxed">
+                        Transform raw financial data into professional credit reports 
+                        with deep analysis and industrial-grade accuracy.
+                    </p>
+                </div>
 
-                {/* Easy Way Import Card */}
-                <button
-                    onClick={handleStartEasyWay}
-                    className="group glass-card p-10 text-left relative overflow-hidden"
-                >
-                    <div className="absolute -right-8 -top-8 w-32 h-32 bg-cta/10 rounded-full blur-2xl group-hover:bg-cta/20 transition-all duration-500" />
-                    <div className="w-16 h-16 bg-cta/10 text-cta rounded-2xl flex items-center justify-center mb-8 bg-white dark:bg-white/5 shadow-xl shadow-cta/10 group-hover:scale-110 group-hover:-rotate-6 transition-transform duration-500">
-                        <PlusCircle size={32} />
-                    </div>
-                    <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-3 tracking-tight">Rapid Import</h2>
-                    <p className="text-slate-500 dark:text-slate-400 mb-8 font-medium leading-relaxed">Paste parsed JSON data to instantly recreate a validated report.</p>
-                    <div className="inline-flex items-center gap-2 text-cta font-black uppercase tracking-widest text-xs group-hover:gap-4 transition-all duration-300">
-                        Execute Flash Import <ArrowRight size={18} />
-                    </div>
-                </button>
+                {/* Primary Actions Grid */}
+                <div className="grid md:grid-cols-2 gap-8 mb-16 max-w-6xl mx-auto">
+                    {/* Extract Data Card */}
+                    <button
+                        onClick={() => navigate('/extractor')}
+                        className="premium-card group text-left p-12 h-full flex flex-col justify-between min-h-[320px]"
+                    >
+                        <div className="absolute -right-20 -top-20 w-64 h-64 bg-primary/20 rounded-full blur-[64px] group-hover:bg-primary/30 group-hover:scale-110 transition-all duration-700" />
+                        
+                        <div>
+                            <div className="w-20 h-20 bg-gradient-to-br from-white to-primary/5 dark:from-slate-800 dark:to-primary/10 rounded-[24px] flex items-center justify-center mb-10 shadow-lg border border-white/50 dark:border-white/10 group-hover:scale-110 group-hover:rotate-6 transition-transform duration-500 relative z-10">
+                                <Sparkles className="text-primary w-10 h-10 drop-shadow-md" />
+                            </div>
+                            <h2 className="text-4xl font-black text-slate-800 dark:text-white mb-4 tracking-tight relative z-10">Extract Data</h2>
+                            <p className="text-lg text-slate-500 dark:text-slate-400 font-medium leading-relaxed relative z-10 max-w-md">Launch the AI extraction tool to process documents and generate credit intelligence dynamically.</p>
+                        </div>
+                        
+                        <div className="mt-12 inline-flex items-center gap-3 text-primary font-black uppercase tracking-widest text-sm group-hover:gap-6 transition-all duration-300 relative z-10">
+                            Initialize AI Engine <ArrowRight className="w-5 h-5" />
+                        </div>
+                    </button>
 
-                {/* Resume Card - Active Report */}
-                <div className="glass-card p-10 flex flex-col bg-white/40 dark:bg-white/5 border-slate-200/50 dark:border-white/5">
-                    <div className="w-16 h-16 bg-slate-100 dark:bg-white/5 text-slate-500 rounded-2xl flex items-center justify-center mb-8 shadow-sm">
-                        <History size={32} />
-                    </div>
-                    <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-3 tracking-tight">Resume Session</h2>
+                    {/* Rapid Import Card */}
+                    <button
+                        onClick={handleStartEasyWay}
+                        className="premium-card group text-left p-12 h-full flex flex-col justify-between min-h-[320px]"
+                    >
+                        <div className="absolute -right-20 -top-20 w-64 h-64 bg-cta/20 rounded-full blur-[64px] group-hover:bg-cta/30 group-hover:scale-110 transition-all duration-700" />
+                        
+                        <div>
+                            <div className="w-20 h-20 bg-gradient-to-br from-white to-cta/5 dark:from-slate-800 dark:to-cta/10 rounded-[24px] flex items-center justify-center mb-10 shadow-lg border border-white/50 dark:border-white/10 group-hover:scale-110 group-hover:-rotate-6 transition-transform duration-500 relative z-10">
+                                <Zap className="text-cta w-10 h-10 drop-shadow-md" />
+                            </div>
+                            <h2 className="text-4xl font-black text-slate-800 dark:text-white mb-4 tracking-tight relative z-10">Rapid Import</h2>
+                            <p className="text-lg text-slate-500 dark:text-slate-400 font-medium leading-relaxed relative z-10 max-w-md">Paste fully structured JSON data to instantly recreate a validated intelligence report.</p>
+                        </div>
+                        
+                        <div className="mt-12 inline-flex items-center gap-3 text-cta font-black uppercase tracking-widest text-sm group-hover:gap-6 transition-all duration-300 relative z-10">
+                            Execute Flash Import <ArrowRight className="w-5 h-5" />
+                        </div>
+                    </button>
+                </div>
 
-                    {reportId ? (
-                        <div className="flex-1 flex flex-col">
-                            <p className="text-slate-500 dark:text-slate-400 mb-8 font-medium">
-                                Active Instance: <span className="font-mono text-[10px] bg-slate-100 dark:bg-white/10 px-3 py-1 rounded-full text-slate-600 dark:text-slate-300 ml-1">{reportId}</span>
-                            </p>
+                {/* Secondary Actions Grid */}
+                <div className="grid md:grid-cols-2 gap-8 mb-24 max-w-6xl mx-auto">
+                    {/* Resume Card */}
+                    <div className="glass-panel rounded-3xl p-10 flex flex-col relative overflow-hidden group hover:shadow-xl transition-all duration-500">
+                        <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl flex items-center justify-center mb-8 shadow-sm border border-slate-100 dark:border-white/5 relative z-10">
+                            <History className="text-slate-500 dark:text-slate-400 w-8 h-8" />
+                        </div>
+                        <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-4 tracking-tight relative z-10">Resume Session</h2>
+
+                        {reportId ? (
+                            <div className="flex-1 flex flex-col relative z-10">
+                                <p className="text-slate-500 dark:text-slate-400 mb-8 font-medium text-lg">
+                                    Active Instance: <span className="font-mono text-sm bg-slate-100 dark:bg-slate-800 px-4 py-2 rounded-xl text-slate-700 dark:text-slate-300 ml-2 border border-slate-200 dark:border-slate-700 shadow-inner">{reportId}</span>
+                                </p>
+                                <button
+                                    onClick={() => handleResume(reportId)}
+                                    className="mt-auto w-full py-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95 shadow-xl shadow-slate-900/20 dark:shadow-white/10 transition-all duration-300"
+                                >
+                                    <PlayCircle size={20} /> Continue Processing
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="flex-1 flex flex-col items-center justify-center text-center py-10 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 relative z-10">
+                                <Activity className="w-10 h-10 text-slate-300 dark:text-slate-600 mb-4" />
+                                <p className="text-slate-400 dark:text-slate-500 text-xs font-black uppercase tracking-widest leading-loose">
+                                    No Active Processes Detected
+                                </p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Manual Retrieval Card */}
+                    <div className="glass-panel rounded-3xl p-10 flex flex-col relative overflow-hidden group hover:shadow-xl transition-all duration-500">
+                        <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl flex items-center justify-center mb-8 shadow-sm border border-slate-100 dark:border-white/5 relative z-10">
+                            <Search className="text-slate-500 dark:text-slate-400 w-8 h-8" />
+                        </div>
+                        <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-4 tracking-tight relative z-10">Manual Retrieval</h2>
+                        <div className="flex-1 flex flex-col relative z-10">
+                            <p className="text-slate-500 dark:text-slate-400 mb-8 font-medium text-lg">Inject a specific report UUID to restore state.</p>
+                            <input
+                                type="text"
+                                placeholder="VCR-202X..."
+                                className="w-full px-6 py-5 bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm border border-slate-200 dark:border-slate-700 rounded-2xl mb-6 focus:ring-4 focus:ring-primary/20 focus:border-primary outline-none text-base font-mono dark:text-white transition-all placeholder-slate-400 shadow-inner-soft"
+                                value={resumeId}
+                                onChange={(e) => setResumeId(e.target.value)}
+                                onKeyPress={(e) => e.key === 'Enter' && resumeId && handleResume()}
+                            />
                             <button
-                                onClick={() => handleResume(reportId)}
-                                className="mt-auto w-full py-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95 shadow-2xl shadow-slate-900/20 transition-all duration-300 cursor-pointer"
+                                disabled={!resumeId}
+                                onClick={() => handleResume()}
+                                className="mt-auto w-full py-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95 shadow-xl transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed"
                             >
-                                <PlayCircle size={20} /> Continue Processing
+                                Fetch Instance <ArrowRight size={18} />
                             </button>
                         </div>
-                    ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center text-center py-8">
-                            <div className="w-12 h-12 bg-slate-50 dark:bg-white/5 rounded-full flex items-center justify-center text-slate-300 dark:text-white/10 mb-4">
-                                <FileText size={24} />
-                            </div>
-                            <p className="text-slate-400 dark:text-slate-600 text-xs font-black uppercase tracking-widest leading-loose">
-                                No Active Processes Detected<br />
-                                Enter ID manualy below
-                            </p>
-                        </div>
-                    )}
-                </div>
-
-                {/* Custom Report ID Entry Card */}
-                <div className="glass-card p-10 flex flex-col border-2 border-dashed border-slate-200 dark:border-white/10 bg-transparent hover:bg-white/40 dark:hover:bg-white/5">
-                    <div className="w-16 h-16 bg-white dark:bg-white/5 text-slate-400 rounded-2xl flex items-center justify-center mb-8 shadow-sm">
-                        <Upload size={32} />
-                    </div>
-                    <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-3 tracking-tight">Manual Retrieval</h2>
-                    <div className="flex-1 flex flex-col">
-                        <p className="text-slate-500 dark:text-slate-400 mb-6 font-medium">Inject a specific report UUID to restore analysis state.</p>
-                        <input
-                            type="text"
-                            placeholder="VCR-202X..."
-                            className="w-full px-5 py-4 bg-white/50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl mb-6 focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm font-mono dark:text-white transition-all placeholder-slate-400"
-                            value={resumeId}
-                            onChange={(e) => setResumeId(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && resumeId && handleResume()}
-                        />
-                        <button
-                            disabled={!resumeId}
-                            onClick={() => handleResume()}
-                            className="mt-auto w-full py-5 bg-primary text-white rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95 shadow-xl shadow-primary/20 transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                        >
-                            <ArrowRight size={20} /> Fetch Instance
-                        </button>
                     </div>
                 </div>
-            </div>
 
-            <div className="glass-card p-8 mb-20 relative overflow-hidden">
-                <div className="absolute -right-16 -top-16 w-64 h-64 bg-primary/10 rounded-full blur-3xl" />
-                <div className="relative z-10">
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-                        <div>
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full border border-primary/20 text-[10px] font-black uppercase tracking-widest mb-4">
-                                <ClipboardCheck size={14} /> Orders Dashboard
+                {/* Dashboard & Pipeline Section */}
+                <div className="max-w-6xl mx-auto mb-24">
+                    <div className="premium-card p-10 md:p-14">
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-10">
+                            <div className="flex-1">
+                                <div className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700 text-xs font-black uppercase tracking-widest mb-6 text-slate-700 dark:text-slate-300">
+                                    <ClipboardCheck size={16} className="text-primary" /> Operations Center
+                                </div>
+                                <h3 className="text-4xl font-black text-slate-800 dark:text-white tracking-tight mb-4">Order Pipeline</h3>
+                                <p className="text-lg text-slate-500 dark:text-slate-400 font-medium max-w-md">
+                                    Keep pending and in-progress orders moving without losing track of deadlines.
+                                </p>
                             </div>
-                            <h3 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">Order Pipeline</h3>
-                            <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">
-                                Keep pending and in-progress orders moving without losing track of deadlines.
-                            </p>
+
+                            <div className="flex gap-4 w-full lg:w-auto">
+                                <div className="flex-1 lg:w-48 rounded-[2rem] bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-900/20 dark:to-amber-900/10 border border-amber-200/50 dark:border-amber-800/30 p-8 flex flex-col items-center justify-center shadow-lg shadow-amber-500/5 transition-transform hover:scale-105">
+                                    <div className="text-5xl font-black text-amber-600 dark:text-amber-400 mb-2">{orderStats.loading ? '...' : orderStats.pending}</div>
+                                    <div className="text-[10px] font-black uppercase tracking-widest text-amber-700/70 dark:text-amber-300/70">Pending</div>
+                                </div>
+                                <div className="flex-1 lg:w-48 rounded-[2rem] bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-900/10 border border-blue-200/50 dark:border-blue-800/30 p-8 flex flex-col items-center justify-center shadow-lg shadow-blue-500/5 transition-transform hover:scale-105">
+                                    <div className="text-5xl font-black text-blue-600 dark:text-blue-400 mb-2">{orderStats.loading ? '...' : orderStats.inProgress}</div>
+                                    <div className="text-[10px] font-black uppercase tracking-widest text-blue-700/70 dark:text-blue-300/70">In Progress</div>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col justify-center">
+                                <button
+                                    onClick={() => navigate('/orders')}
+                                    className="py-5 px-8 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 hover:scale-105 active:scale-95 transition-all shadow-xl shadow-slate-900/20 dark:shadow-white/10"
+                                >
+                                    Open Dashboard <ArrowRight size={16} />
+                                </button>
+                            </div>
                         </div>
 
-                        <div className="grid sm:grid-cols-2 gap-3 w-full lg:w-auto">
-                            <div className="rounded-2xl bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800/40 p-5">
-                                <div className="text-[9px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-300">Pending Orders</div>
-                                <div className="text-3xl font-black text-amber-700 dark:text-amber-300 mt-2">{orderStats.loading ? '...' : orderStats.pending}</div>
+                        {orderStats.hasUnreadPending && (
+                            <div className="mt-10 p-5 bg-gradient-to-r from-rose-500/10 to-transparent border border-rose-500/20 rounded-2xl flex items-center gap-4 text-rose-600 dark:text-rose-400">
+                                <div className="w-10 h-10 rounded-full bg-rose-500/20 flex items-center justify-center flex-shrink-0">
+                                    <AlertCircle size={20} className="text-rose-500" />
+                                </div>
+                                <div>
+                                    <div className="font-black uppercase tracking-widest text-xs">Action Required</div>
+                                    <p className="text-sm font-medium mt-1 text-rose-600/80 dark:text-rose-400/80">Pending orders are waiting for review in the dashboard.</p>
+                                </div>
                             </div>
-                            <div className="rounded-2xl bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/40 p-5">
-                                <div className="text-[9px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-300">In Progress</div>
-                                <div className="text-3xl font-black text-blue-700 dark:text-blue-300 mt-2">{orderStats.loading ? '...' : orderStats.inProgress}</div>
-                            </div>
-                        </div>
-
-                        <button
-                            onClick={() => navigate('/orders')}
-                            className="lg:self-end py-3 px-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-95 transition-all shadow-lg shadow-slate-900/10"
-                        >
-                            Open Orders <ArrowRight size={14} />
-                        </button>
+                        )}
                     </div>
-
-                    {orderStats.hasUnreadPending && (
-                        <div className="mt-6 p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-start gap-3 text-rose-600 dark:text-rose-300">
-                            <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
-                            <div>
-                                <div className="font-black uppercase tracking-widest text-xs">New Orders</div>
-                                <p className="text-sm mt-1">Pending orders are waiting for review. Open the Orders dashboard to triage them.</p>
-                            </div>
-                        </div>
-                    )}
                 </div>
-            </div>
 
-            <div className="glass dark:bg-white/5 border-slate-200/50 dark:border-white/5 p-10 rounded-[2.5rem] shadow-sm relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -mr-32 -mt-32 group-hover:bg-primary/10 transition-colors duration-1000" />
-                <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.3em] mb-10 flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-primary animate-pulse" /> Continuous Flow Integration
-                </h3>
-                <div className="grid md:grid-cols-3 gap-12 relative">
-                    <div className="relative z-10">
-                        <div className="text-[10px] font-black text-primary mb-3 tracking-widest uppercase">Phase 01</div>
-                        <h4 className="font-black text-slate-800 dark:text-white text-lg mb-3 tracking-tight">Raw Data Ingestion</h4>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 font-medium leading-relaxed">Multi-source document upload for RAG-enhanced AI extraction.</p>
-                    </div>
-                    <div className="relative z-10">
-                        <div className="text-[10px] font-black text-primary mb-3 tracking-widest uppercase">Phase 02</div>
-                        <h4 className="font-black text-slate-800 dark:text-white text-lg mb-3 tracking-tight">Structured Review</h4>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 font-medium leading-relaxed">Manual verification across 20+ specialized intelligence modules.</p>
-                    </div>
-                    <div className="relative z-10">
-                        <div className="text-[10px] font-black text-primary mb-3 tracking-widest uppercase">Phase 03</div>
-                        <h4 className="font-black text-slate-800 dark:text-white text-lg mb-3 tracking-tight">Final Synthesis</h4>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 font-medium leading-relaxed">Automated generation of industrial-grade PDF credit reports.</p>
+                {/* Continuous Flow Visualization */}
+                <div className="max-w-6xl mx-auto relative group">
+                    <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-cta/5 to-accent/5 rounded-[3rem] blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
+                    <div className="glass-panel p-12 md:p-16 rounded-[3rem] relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[80px] -mr-48 -mt-48 pointer-events-none" />
+                        
+                        <div className="flex items-center gap-4 mb-16">
+                            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center border border-slate-200 dark:border-slate-700">
+                                <Activity className="text-primary w-6 h-6 animate-pulse" />
+                            </div>
+                            <h3 className="text-sm font-black text-slate-500 dark:text-slate-400 uppercase tracking-[0.3em]">
+                                Continuous Flow Integration
+                            </h3>
+                        </div>
+
+                        <div className="relative">
+                            {/* Connecting Line */}
+                            <div className="absolute top-8 left-10 right-10 h-[2px] bg-slate-200 dark:bg-slate-800 hidden md:block" />
+                            <div className="absolute top-8 left-10 w-1/3 h-[2px] bg-gradient-to-r from-primary to-cta hidden md:block" />
+
+                            <div className="grid md:grid-cols-3 gap-12 relative z-10">
+                                {[
+                                    { step: '01', title: 'Raw Data Ingestion', desc: 'Multi-source document upload for RAG-enhanced AI extraction.' },
+                                    { step: '02', title: 'Structured Review', desc: 'Manual verification across 20+ specialized intelligence modules.' },
+                                    { step: '03', title: 'Final Synthesis', desc: 'Automated generation of industrial-grade PDF credit reports.' }
+                                ].map((phase, i) => (
+                                    <div key={i} className="relative group/phase">
+                                        <div className="w-16 h-16 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 flex items-center justify-center mb-8 shadow-lg group-hover/phase:border-primary/50 group-hover/phase:shadow-glow transition-all duration-300">
+                                            <span className="font-black text-xl text-primary">{phase.step}</span>
+                                        </div>
+                                        <h4 className="font-black text-slate-800 dark:text-white text-2xl mb-4 tracking-tight">{phase.title}</h4>
+                                        <p className="text-base text-slate-500 dark:text-slate-400 font-medium leading-relaxed">{phase.desc}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
             
-            {/* Order Summary Modal */}
+            {/* Modals */}
             <OrderSummaryModal 
                 isOpen={showOrderSummary} 
                 onClose={() => { setShowOrderSummary(false); setPendingAction(null) }} 
@@ -532,7 +566,6 @@ export default function HomePage() {
                 savedOrder={savedOrder}
             />
             
-            {/* Easy Way Import Modal */}
             {showEasyWay && (
                 <EasyWayModalWithOrder 
                     isOpen={showEasyWay} 

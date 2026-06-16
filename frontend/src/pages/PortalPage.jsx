@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Loader2, X, Plus, Trash2, CheckCircle } from 'lucide-react'
+import { Loader2, X, Plus, Trash2, CheckCircle, Paperclip } from 'lucide-react'
 
 const API_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000')
 
@@ -69,9 +69,14 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
   const [notes, setNotes] = useState('')
   const [clientRef, setClientRef] = useState('')
   const [companies, setCompanies] = useState([{ company_name: '', country: '', comments: '' }])
+  const [filesPerCompany, setFilesPerCompany] = useState([[]])
 
-  const addCompany = () => setCompanies(prev => [...prev, { company_name: '', country: '', comments: '' }])
-  const removeCompany = (i) => setCompanies(prev => prev.filter((_, idx) => idx !== i))
+  const MAX_FILES_PER_COMPANY = 5
+  const MAX_FILE_SIZE_MB = 100
+  const ALLOWED_EXTENSIONS = new Set(['.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg', '.tiff', '.xlsx', '.xls', '.csv', '.txt'])
+
+  const addCompany = () => { setCompanies(prev => [...prev, { company_name: '', country: '', comments: '' }]); setFilesPerCompany(prev => [...prev, []]) }
+  const removeCompany = (i) => { setCompanies(prev => prev.filter((_, idx) => idx !== i)); setFilesPerCompany(prev => prev.filter((_, idx) => idx !== i)) }
   const updateCompany = (i, field, value) => setCompanies(prev => prev.map((c, idx) => idx === i ? { ...c, [field]: value } : c))
 
   const handleSubmit = async (e) => {
@@ -82,10 +87,28 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
 
     setLoading(true); setError('')
     try {
-      const result = await portalRequest('/api/portal/submit-order', {
+      const formData = new FormData()
+      const orderData = {
+        service_level: serviceLevel,
+        report_type: reportType,
+        due_date: dueDate,
+        client_ref: clientRef || undefined,
+        notes: notes || undefined,
+        companies: validCompanies
+      }
+      formData.append('order_data', JSON.stringify(orderData))
+
+      filesPerCompany.forEach((files, companyIndex) => {
+        files.forEach(file => {
+          formData.append('files', file)
+          formData.append('file_company_indexes', String(companyIndex))
+        })
+      })
+
+      const result = await portalRequest('/api/portal/submit-order-with-files', {
         method: 'POST',
         headers: { Authorization: `Bearer ${portalToken}` },
-        body: JSON.stringify({ service_level: serviceLevel, report_type: reportType, due_date: dueDate, client_ref: clientRef || undefined, notes: notes || undefined, companies: validCompanies }),
+        body: formData,
       })
       onSubmitSuccess(result)
     } catch (err) {
@@ -177,6 +200,44 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
                       className="px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:border-amber-400 outline-none text-sm" />
                     <input type="text" value={company.comments} onChange={e => updateCompany(i, 'comments', e.target.value)} placeholder="Comments"
                       className="px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:border-amber-400 outline-none text-sm" />
+                  </div>
+                  <div className="pt-2">
+                    <label className="block text-white/70 text-xs font-bold mb-2">Attached Documents</label>
+                    <label htmlFor={`company-files-${i}`} className="flex items-center justify-center gap-2 px-3 py-2 bg-white/5 border border-dashed border-white/10 rounded-xl text-white/50 text-xs font-medium cursor-pointer hover:border-amber-400/50 transition-all">
+                      <Paperclip size={12} />
+                      <span>{filesPerCompany[i]?.length ? `${filesPerCompany[i].length} file${filesPerCompany[i].length !== 1 ? 's' : ''} selected` : 'Attach files (optional)'}</span>
+                      <input
+                        id={`company-files-${i}`}
+                        type="file"
+                        multiple
+                        accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.tiff,.xlsx,.xls,.csv,.txt"
+                        onChange={e => {
+                          const files = Array.from(e.target.files || [])
+                          const ext = files.map(f => f.name.slice(f.name.lastIndexOf('.')).toLowerCase())
+                          if (ext.some(x => !ALLOWED_EXTENSIONS.has(x))) {
+                            setError(`Invalid file type. Allowed: ${[...ALLOWED_EXTENSIONS].join(', ')}`)
+                            return
+                          }
+                          if (files.some(f => f.size > MAX_FILE_SIZE_MB * 1024 * 1024)) {
+                            setError(`Files must be under ${MAX_FILE_SIZE_MB}MB each`)
+                            return
+                          }
+                          setFilesPerCompany(prev => prev.map((existingFiles, idx) => idx === i ? [...existingFiles, ...files] : existingFiles))
+                          e.target.value = ''
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                    {filesPerCompany[i]?.length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {filesPerCompany[i].map((f, fi) => (
+                          <li key={`${f.name}-${f.lastModified}-${fi}`} className="flex items-center justify-between text-xs text-white/70 bg-white/5 rounded-lg px-2 py-1">
+                            <span className="truncate">{f.name}</span>
+                            <button type="button" onClick={() => setFilesPerCompany(prev => prev.map((files, idx) => idx === i ? files.filter((_, fj) => fj !== fi) : files))} className="text-red-400 hover:text-red-300 text-xs">✕</button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 </div>
               ))}
