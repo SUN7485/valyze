@@ -30,6 +30,7 @@ from services.supabase_client import (
 router = APIRouter(tags=["clients"])
 
 ORDER_FIELDS = (
+    "id",
     "order_number",
     "date_received",
     "status",
