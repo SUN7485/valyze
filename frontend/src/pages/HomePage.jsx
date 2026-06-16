@@ -1,10 +1,38 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { PlayCircle, History, FileText, ArrowRight, Upload, Database, Info, PlusCircle, Zap, ArrowLeft, AlertCircle, ClipboardCheck, Sparkles, Activity, Search } from 'lucide-react'
+import { 
+    PlayCircle, History, FileText, ArrowRight, Upload, Database, Info, 
+    PlusCircle, Zap, ArrowLeft, AlertCircle, ClipboardCheck, Sparkles, 
+    Activity, Search, User, ShieldCheck, Users, Briefcase, FileSignature, 
+    Coins, Loader2, Plus, CheckCircle, Clock, ChevronRight
+} from 'lucide-react'
 import { useReport } from '../context/ReportContext'
-import { reportAPI, ordersAPI } from '../api/client'
+import { useAuth } from '../context/AuthContext'
+import { reportAPI, ordersAPI, clientsAPI, invoicesAPI } from '../api/client'
 
-// Order Summary Modal - Premium Redesign
+// Status and Role styling maps
+const ROLE_COLORS = {
+    super_admin: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
+    admin: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+    analyst: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20',
+    reviewer: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
+}
+
+const STATUS_COLORS = {
+    pending: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800/40',
+    in_progress: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/40',
+    completed: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800/40',
+    invoiced: 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800/40',
+}
+
+const INVOICE_STATUS_COLORS = {
+    paid: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800/40',
+    unpaid: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800/40',
+    draft: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/50 dark:text-slate-300 dark:border-slate-700',
+    sent: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/40',
+}
+
+// Order Summary Modal
 function OrderSummaryModal({ isOpen, onClose, onSubmit, savedOrder }) {
     const [formData, setFormData] = useState({
         client_name: savedOrder?.client_name || '',
@@ -28,9 +56,7 @@ function OrderSummaryModal({ isOpen, onClose, onSubmit, savedOrder }) {
     return (
         <div className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-xl flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
             <div className="glass-panel w-full max-w-xl overflow-hidden rounded-[2rem] border border-white/20 dark:border-white/10 shadow-2xl animate-in zoom-in-95 duration-500 relative">
-                {/* Decorative background glow */}
                 <div className="absolute -top-24 -right-24 w-48 h-48 bg-primary/30 rounded-full blur-3xl pointer-events-none" />
-                
                 <div className="p-10 border-b border-slate-200/30 dark:border-white/5 relative z-10">
                     <div className="flex items-center gap-4 mb-2">
                         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 text-primary flex items-center justify-center border border-primary/20 shadow-glow">
@@ -78,7 +104,7 @@ function OrderSummaryModal({ isOpen, onClose, onSubmit, savedOrder }) {
     )
 }
 
-// Easy Way Import Modal - Premium Redesign
+// Easy Way Import Modal
 function EasyWayModalWithOrder({ isOpen, onClose, onImport, savedOrder, prefillJson = '' }) {
     const [localJsonInput, setLocalJsonInput] = useState(prefillJson)
     const [importing, setImporting] = useState(false)
@@ -234,14 +260,87 @@ function EasyWayModalWithOrder({ isOpen, onClose, onImport, savedOrder, prefillJ
 
 export default function HomePage() {
     const navigate = useNavigate()
+    const { user } = useAuth()
     const { reportId, clearReport, saveReportId } = useReport()
-    const [resumeId, setResumeId] = useState('')
     
+    // UI state
+    const [loadingStats, setLoadingStats] = useState(true)
+    const [stats, setStats] = useState({
+        openOrders: 0,
+        myOrdersCount: 0,
+        activeClients: 0,
+        totalInvoicedAmount: 0,
+        pendingInvoicesCount: 0,
+        totalReports: 0
+    })
+    
+    const [assignedOrders, setAssignedOrders] = useState([])
+    const [recentReports, setRecentReports] = useState([])
+    const [recentInvoices, setRecentInvoices] = useState([])
+    
+    // Modal states
     const [showOrderSummary, setShowOrderSummary] = useState(false)
     const [pendingAction, setPendingAction] = useState(null)
     const [savedOrder, setSavedOrder] = useState(null)
-    const [orderStats, setOrderStats] = useState({ pending: 0, inProgress: 0, hasUnreadPending: false, loading: true })
+    const [showEasyWay, setShowEasyWay] = useState(false)
+    const [prefillJson, setPrefillJson] = useState('')
 
+    // Fetch dashboard statistics and data
+    const fetchDashboardData = useCallback(async () => {
+        setLoadingStats(true)
+        try {
+            // Load stats in parallel
+            const [ordersRes, clientsRes, invoicesRes, reportsRes] = await Promise.all([
+                ordersAPI.getAll().catch(() => ({ data: [] })),
+                clientsAPI.getAll().catch(() => ({ data: [] })),
+                invoicesAPI.getAll().catch(() => ({ data: [] })),
+                reportAPI.getAllReportsCombined(0, 10).catch(() => ({ data: { reports: [] } }))
+            ])
+
+            const ordersList = Array.isArray(ordersRes.data) ? ordersRes.data : ordersRes.data.orders || []
+            const clientsList = Array.isArray(clientsRes.data) ? clientsRes.data : []
+            const invoicesList = Array.isArray(invoicesRes.data) ? invoicesRes.data : invoicesRes.data.invoices || []
+            const reportsList = reportsRes.data.reports || []
+
+            // Calculations
+            const openOrders = ordersList.filter(o => o.status === 'pending' || o.status === 'in_progress')
+            
+            // Filter user's assigned orders (matching by email or analyst name)
+            const userEmail = user?.email?.toLowerCase() || ''
+            const myOrders = ordersList.filter(o => 
+                (o.analyst && String(o.analyst).toLowerCase() === userEmail) ||
+                (o.analyst_email && String(o.analyst_email).toLowerCase() === userEmail)
+            )
+
+            const unpaidInvoices = invoicesList.filter(i => i.status === 'unpaid' || i.status === 'sent')
+            const totalUnpaidAmount = unpaidInvoices.reduce((acc, curr) => acc + Number(curr.amount || 0), 0)
+
+            setStats({
+                openOrders: openOrders.length,
+                myOrdersCount: myOrders.length,
+                activeClients: clientsList.length,
+                totalInvoicedAmount: totalUnpaidAmount,
+                pendingInvoicesCount: unpaidInvoices.length,
+                totalReports: reportsList.length
+            })
+
+            // Set detail lists
+            // If user has assigned orders, show them. Otherwise show latest pending/in progress orders
+            setAssignedOrders(myOrders.length > 0 ? myOrders.slice(0, 5) : openOrders.slice(0, 5))
+            setRecentReports(reportsList.slice(0, 4))
+            setRecentInvoices(invoicesList.slice(0, 4))
+        } catch (e) {
+            console.error('[Dashboard Error] Failed to aggregate system statistics:', e)
+        } finally {
+            setLoadingStats(false)
+        }
+    }, [user])
+
+    useEffect(() => {
+        fetchDashboardData()
+    }, [fetchDashboardData])
+
+    // Load saved order from localStorage
     useEffect(() => {
         const saved = localStorage.getItem('valyze_order_summary')
         if (saved) {
@@ -251,26 +350,7 @@ export default function HomePage() {
         }
     }, [])
 
-    useEffect(() => {
-        let mounted = true
-        ordersAPI.getAll()
-            .then((response) => {
-                if (!mounted) return
-                const data = Array.isArray(response.data) ? response.data : response.data.orders || []
-                const pending = data.filter(order => order.status === 'pending').length
-                const inProgress = data.filter(order => order.status === 'in_progress').length
-                const hasUnreadPending = data.some(order => order.status === 'pending' && (order.unread || order.is_unread || order.read === false))
-                setOrderStats({ pending, inProgress, hasUnreadPending, loading: false })
-            })
-            .catch(() => {
-                if (mounted) setOrderStats({ pending: 0, inProgress: 0, hasUnreadPending: false, loading: false })
-            })
-        return () => { mounted = false }
-    }, [])
-
-    const [showEasyWay, setShowEasyWay] = useState(false)
-    const [prefillJson, setPrefillJson] = useState('')
-
+    // Check for pending import from extractor
     useEffect(() => {
         const pending = localStorage.getItem('valyze_pending_import')
         if (pending) {
@@ -305,11 +385,10 @@ export default function HomePage() {
     }
 
     const handleResume = (id) => {
-        const targetId = id || resumeId
-        if (!targetId) return
-        navigate(`/editor/${targetId}`)
+        if (!id) return
+        navigate(`/editor/${id}`)
     }
-    
+
     const handleEasyWayImport = async (jsonString, orderData = null) => {
         let str = jsonString.trim()
         const match = str.match(/```(?:json)?\s*([\s\S]*?)```/)
@@ -335,227 +414,437 @@ export default function HomePage() {
         navigate(`/editor/${newReportId}`)
     }
 
+    const getGreeting = () => {
+        const hr = new Date().getHours()
+        if (hr < 12) return 'Good morning'
+        if (hr < 17) return 'Good afternoon'
+        return 'Good evening'
+    }
+
+    const formatCurrency = (val) => {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val)
+    }
+
     return (
-        <div className="relative min-h-screen pb-24 overflow-hidden">
-            {/* Dynamic Background */}
+        <div className="relative min-h-screen pb-24 overflow-hidden bg-slate-50/50 dark:bg-dark-bg/10">
+            {/* Ambient Background Blobs */}
             <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/20 dark:bg-primary/10 blur-[100px] animate-blob mix-blend-multiply dark:mix-blend-screen" />
-                <div className="absolute top-[20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-cta/20 dark:bg-cta/10 blur-[120px] animate-blob animation-delay-2000 mix-blend-multiply dark:mix-blend-screen" />
-                <div className="absolute bottom-[-20%] left-[20%] w-[60%] h-[60%] rounded-full bg-accent/20 dark:bg-accent/10 blur-[150px] animate-blob animation-delay-4000 mix-blend-multiply dark:mix-blend-screen" />
+                <div className="absolute top-[-15%] left-[-15%] w-[45%] h-[45%] rounded-full bg-primary/15 dark:bg-primary/10 blur-[120px] animate-blob mix-blend-multiply dark:mix-blend-screen" />
+                <div className="absolute top-[25%] right-[-10%] w-[55%] h-[55%] rounded-full bg-cta/15 dark:bg-cta/10 blur-[140px] animate-blob animation-delay-2000 mix-blend-multiply dark:mix-blend-screen" />
+                <div className="absolute bottom-[-15%] left-[25%] w-[50%] h-[50%] rounded-full bg-accent/15 dark:bg-accent/10 blur-[130px] animate-blob animation-delay-4000 mix-blend-multiply dark:mix-blend-screen" />
             </div>
 
-            <div className="relative z-10 max-w-[1400px] mx-auto px-6 pt-20">
-                {/* Hero Section */}
-                <div className="text-center mb-28 animate-in slide-up duration-1000">
-                    <div className="inline-flex items-center gap-3 px-5 py-2.5 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md rounded-full border border-slate-200/50 dark:border-white/10 shadow-[0_0_30px_-5px_rgba(245,158,11,0.2)] mb-10 group cursor-pointer hover:scale-105 transition-transform duration-500">
-                        <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                        <span className="text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-[0.25em]">Valyze Next-Gen Engine</span>
-                    </div>
-                    
-                    <h1 className="text-7xl md:text-8xl lg:text-[100px] font-black mb-8 tracking-tighter leading-[1.1] dark:text-white">
-                        Corporate <br className="hidden md:block"/>
-                        <span className="relative inline-block">
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-orange-400 to-cta drop-shadow-sm">
-                                Intelligence
+            <div className="relative z-10 max-w-[1550px] mx-auto px-6 lg:px-12 pt-16">
+                
+                {/* 1. Header & Welcome Area */}
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 mb-12 animate-in slide-up duration-700">
+                    <div>
+                        <div className="flex items-center gap-3 mb-3">
+                            <span className="text-[11px] font-black uppercase tracking-[0.25em] text-primary bg-primary/10 px-4 py-1.5 rounded-full border border-primary/20">
+                                Valyze Command Center
                             </span>
-                            <div className="absolute -bottom-4 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
-                        </span>
-                    </h1>
+                            {user?.role && (
+                                <span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${ROLE_COLORS[user.role] || ROLE_COLORS.analyst}`}>
+                                    {user.role.replace(/_/g, ' ')}
+                                </span>
+                            )}
+                        </div>
+                        <h1 className="text-4xl md:text-5xl font-black text-slate-800 dark:text-white tracking-tight leading-none">
+                            {getGreeting()}, <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-cta">{user?.name || 'Partner'}</span>
+                        </h1>
+                        <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">
+                            Here is what's happening across the system today.
+                        </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={fetchDashboardData}
+                            className="p-4 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-white/10 rounded-2xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all text-slate-500 dark:text-slate-400 shadow-sm"
+                            title="Refresh Dashboard"
+                        >
+                            <Activity size={18} className="animate-pulse" />
+                        </button>
+                        <button
+                            onClick={handleStartNew}
+                            className="py-4 px-6 bg-gradient-to-r from-primary to-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:opacity-90 shadow-lg shadow-primary/20 transition-all flex items-center gap-2"
+                        >
+                            <Plus size={16} /> New Intelligence Report
+                        </button>
+                    </div>
+                </div>
+
+                {/* 2. Operations KPI Stats Grid */}
+                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12 animate-in slide-up duration-1000">
                     
-                    <p className="text-xl md:text-2xl text-slate-600 dark:text-slate-400 max-w-3xl mx-auto font-medium leading-relaxed">
-                        Transform raw financial data into professional credit reports 
-                        with deep analysis and industrial-grade accuracy.
-                    </p>
-                </div>
-
-                {/* Primary Actions Grid */}
-                <div className="grid md:grid-cols-2 gap-8 mb-16 max-w-6xl mx-auto">
-                    {/* Extract Data Card */}
-                    <button
-                        onClick={() => navigate('/extractor')}
-                        className="premium-card group text-left p-12 h-full flex flex-col justify-between min-h-[320px]"
-                    >
-                        <div className="absolute -right-20 -top-20 w-64 h-64 bg-primary/20 rounded-full blur-[64px] group-hover:bg-primary/30 group-hover:scale-110 transition-all duration-700" />
-                        
-                        <div>
-                            <div className="w-20 h-20 bg-gradient-to-br from-white to-primary/5 dark:from-slate-800 dark:to-primary/10 rounded-[24px] flex items-center justify-center mb-10 shadow-lg border border-white/50 dark:border-white/10 group-hover:scale-110 group-hover:rotate-6 transition-transform duration-500 relative z-10">
-                                <Sparkles className="text-primary w-10 h-10 drop-shadow-md" />
+                    {/* Stat: Open Orders */}
+                    <div className="glass-panel p-8 rounded-3xl relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl group-hover:bg-primary/10 transition-colors" />
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="w-12 h-12 bg-primary/10 text-primary rounded-xl flex items-center justify-center border border-primary/20">
+                                <Briefcase size={22} />
                             </div>
-                            <h2 className="text-4xl font-black text-slate-800 dark:text-white mb-4 tracking-tight relative z-10">Extract Data</h2>
-                            <p className="text-lg text-slate-500 dark:text-slate-400 font-medium leading-relaxed relative z-10 max-w-md">Launch the AI extraction tool to process documents and generate credit intelligence dynamically.</p>
+                            {stats.myOrdersCount > 0 && (
+                                <span className="text-[10px] font-black uppercase bg-primary/20 text-primary px-2 py-0.5 rounded-full">
+                                    {stats.myOrdersCount} Mine
+                                </span>
+                            )}
                         </div>
-                        
-                        <div className="mt-12 inline-flex items-center gap-3 text-primary font-black uppercase tracking-widest text-sm group-hover:gap-6 transition-all duration-300 relative z-10">
-                            Initialize AI Engine <ArrowRight className="w-5 h-5" />
+                        <div className="text-4xl font-black text-slate-800 dark:text-white mb-1">
+                            {loadingStats ? <Loader2 className="animate-spin text-slate-300" /> : stats.openOrders}
                         </div>
-                    </button>
-
-                    {/* Rapid Import Card */}
-                    <button
-                        onClick={handleStartEasyWay}
-                        className="premium-card group text-left p-12 h-full flex flex-col justify-between min-h-[320px]"
-                    >
-                        <div className="absolute -right-20 -top-20 w-64 h-64 bg-cta/20 rounded-full blur-[64px] group-hover:bg-cta/30 group-hover:scale-110 transition-all duration-700" />
-                        
-                        <div>
-                            <div className="w-20 h-20 bg-gradient-to-br from-white to-cta/5 dark:from-slate-800 dark:to-cta/10 rounded-[24px] flex items-center justify-center mb-10 shadow-lg border border-white/50 dark:border-white/10 group-hover:scale-110 group-hover:-rotate-6 transition-transform duration-500 relative z-10">
-                                <Zap className="text-cta w-10 h-10 drop-shadow-md" />
-                            </div>
-                            <h2 className="text-4xl font-black text-slate-800 dark:text-white mb-4 tracking-tight relative z-10">Rapid Import</h2>
-                            <p className="text-lg text-slate-500 dark:text-slate-400 font-medium leading-relaxed relative z-10 max-w-md">Paste fully structured JSON data to instantly recreate a validated intelligence report.</p>
-                        </div>
-                        
-                        <div className="mt-12 inline-flex items-center gap-3 text-cta font-black uppercase tracking-widest text-sm group-hover:gap-6 transition-all duration-300 relative z-10">
-                            Execute Flash Import <ArrowRight className="w-5 h-5" />
-                        </div>
-                    </button>
-                </div>
-
-                {/* Secondary Actions Grid */}
-                <div className="grid md:grid-cols-2 gap-8 mb-24 max-w-6xl mx-auto">
-                    {/* Resume Card */}
-                    <div className="glass-panel rounded-3xl p-10 flex flex-col relative overflow-hidden group hover:shadow-xl transition-all duration-500">
-                        <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl flex items-center justify-center mb-8 shadow-sm border border-slate-100 dark:border-white/5 relative z-10">
-                            <History className="text-slate-500 dark:text-slate-400 w-8 h-8" />
-                        </div>
-                        <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-4 tracking-tight relative z-10">Resume Session</h2>
-
-                        {reportId ? (
-                            <div className="flex-1 flex flex-col relative z-10">
-                                <p className="text-slate-500 dark:text-slate-400 mb-8 font-medium text-lg">
-                                    Active Instance: <span className="font-mono text-sm bg-slate-100 dark:bg-slate-800 px-4 py-2 rounded-xl text-slate-700 dark:text-slate-300 ml-2 border border-slate-200 dark:border-slate-700 shadow-inner">{reportId}</span>
-                                </p>
-                                <button
-                                    onClick={() => handleResume(reportId)}
-                                    className="mt-auto w-full py-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95 shadow-xl shadow-slate-900/20 dark:shadow-white/10 transition-all duration-300"
-                                >
-                                    <PlayCircle size={20} /> Continue Processing
-                                </button>
-                            </div>
-                        ) : (
-                            <div className="flex-1 flex flex-col items-center justify-center text-center py-10 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 relative z-10">
-                                <Activity className="w-10 h-10 text-slate-300 dark:text-slate-600 mb-4" />
-                                <p className="text-slate-400 dark:text-slate-500 text-xs font-black uppercase tracking-widest leading-loose">
-                                    No Active Processes Detected
-                                </p>
-                            </div>
-                        )}
+                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Open Orders</h3>
                     </div>
 
-                    {/* Manual Retrieval Card */}
-                    <div className="glass-panel rounded-3xl p-10 flex flex-col relative overflow-hidden group hover:shadow-xl transition-all duration-500">
-                        <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl flex items-center justify-center mb-8 shadow-sm border border-slate-100 dark:border-white/5 relative z-10">
-                            <Search className="text-slate-500 dark:text-slate-400 w-8 h-8" />
+                    {/* Stat: Active Clients */}
+                    <div className="glass-panel p-8 rounded-3xl relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-cta/5 rounded-full blur-2xl group-hover:bg-cta/10 transition-colors" />
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="w-12 h-12 bg-cta/10 text-cta rounded-xl flex items-center justify-center border border-cta/20">
+                                <Users size={22} />
+                            </div>
                         </div>
-                        <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-4 tracking-tight relative z-10">Manual Retrieval</h2>
-                        <div className="flex-1 flex flex-col relative z-10">
-                            <p className="text-slate-500 dark:text-slate-400 mb-8 font-medium text-lg">Inject a specific report UUID to restore state.</p>
-                            <input
-                                type="text"
-                                placeholder="VCR-202X..."
-                                className="w-full px-6 py-5 bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm border border-slate-200 dark:border-slate-700 rounded-2xl mb-6 focus:ring-4 focus:ring-primary/20 focus:border-primary outline-none text-base font-mono dark:text-white transition-all placeholder-slate-400 shadow-inner-soft"
-                                value={resumeId}
-                                onChange={(e) => setResumeId(e.target.value)}
-                                onKeyPress={(e) => e.key === 'Enter' && resumeId && handleResume()}
-                            />
-                            <button
-                                disabled={!resumeId}
-                                onClick={() => handleResume()}
-                                className="mt-auto w-full py-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95 shadow-xl transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed"
-                            >
-                                Fetch Instance <ArrowRight size={18} />
-                            </button>
+                        <div className="text-4xl font-black text-slate-800 dark:text-white mb-1">
+                            {loadingStats ? <Loader2 className="animate-spin text-slate-300" /> : stats.activeClients}
                         </div>
+                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Active Clients</h3>
                     </div>
+
+                    {/* Stat: Outstanding Invoices */}
+                    <div className="glass-panel p-8 rounded-3xl relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-accent/5 rounded-full blur-2xl group-hover:bg-accent/10 transition-colors" />
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="w-12 h-12 bg-accent/10 text-accent rounded-xl flex items-center justify-center border border-accent/20">
+                                <Coins size={22} />
+                            </div>
+                            {stats.pendingInvoicesCount > 0 && (
+                                <span className="text-[10px] font-black uppercase bg-rose-500/10 text-rose-500 px-2.5 py-0.5 rounded-full border border-rose-500/20">
+                                    {stats.pendingInvoicesCount} Pending
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-4xl font-black text-slate-800 dark:text-white mb-1">
+                            {loadingStats ? <Loader2 className="animate-spin text-slate-300" /> : formatCurrency(stats.totalInvoicedAmount)}
+                        </div>
+                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Pending Receivables</h3>
+                    </div>
+
+                    {/* Stat: Total Reports */}
+                    <div className="glass-panel p-8 rounded-3xl relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-colors" />
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="w-12 h-12 bg-emerald-500/10 text-emerald-500 rounded-xl flex items-center justify-center border border-emerald-500/20">
+                                <FileSignature size={22} />
+                            </div>
+                        </div>
+                        <div className="text-4xl font-black text-slate-800 dark:text-white mb-1">
+                            {loadingStats ? <Loader2 className="animate-spin text-slate-300" /> : stats.totalReports}
+                        </div>
+                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Total Reports</h3>
+                    </div>
+
                 </div>
 
-                {/* Dashboard & Pipeline Section */}
-                <div className="max-w-6xl mx-auto mb-24">
-                    <div className="premium-card p-10 md:p-14">
-                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-10">
-                            <div className="flex-1">
-                                <div className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700 text-xs font-black uppercase tracking-widest mb-6 text-slate-700 dark:text-slate-300">
-                                    <ClipboardCheck size={16} className="text-primary" /> Operations Center
-                                </div>
-                                <h3 className="text-4xl font-black text-slate-800 dark:text-white tracking-tight mb-4">Order Pipeline</h3>
-                                <p className="text-lg text-slate-500 dark:text-slate-400 font-medium max-w-md">
-                                    Keep pending and in-progress orders moving without losing track of deadlines.
-                                </p>
-                            </div>
-
-                            <div className="flex gap-4 w-full lg:w-auto">
-                                <div className="flex-1 lg:w-48 rounded-[2rem] bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-900/20 dark:to-amber-900/10 border border-amber-200/50 dark:border-amber-800/30 p-8 flex flex-col items-center justify-center shadow-lg shadow-amber-500/5 transition-transform hover:scale-105">
-                                    <div className="text-5xl font-black text-amber-600 dark:text-amber-400 mb-2">{orderStats.loading ? '...' : orderStats.pending}</div>
-                                    <div className="text-[10px] font-black uppercase tracking-widest text-amber-700/70 dark:text-amber-300/70">Pending</div>
-                                </div>
-                                <div className="flex-1 lg:w-48 rounded-[2rem] bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-900/10 border border-blue-200/50 dark:border-blue-800/30 p-8 flex flex-col items-center justify-center shadow-lg shadow-blue-500/5 transition-transform hover:scale-105">
-                                    <div className="text-5xl font-black text-blue-600 dark:text-blue-400 mb-2">{orderStats.loading ? '...' : orderStats.inProgress}</div>
-                                    <div className="text-[10px] font-black uppercase tracking-widest text-blue-700/70 dark:text-blue-300/70">In Progress</div>
-                                </div>
-                            </div>
-
-                            <div className="flex flex-col justify-center">
-                                <button
-                                    onClick={() => navigate('/orders')}
-                                    className="py-5 px-8 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 hover:scale-105 active:scale-95 transition-all shadow-xl shadow-slate-900/20 dark:shadow-white/10"
-                                >
-                                    Open Dashboard <ArrowRight size={16} />
-                                </button>
-                            </div>
-                        </div>
-
-                        {orderStats.hasUnreadPending && (
-                            <div className="mt-10 p-5 bg-gradient-to-r from-rose-500/10 to-transparent border border-rose-500/20 rounded-2xl flex items-center gap-4 text-rose-600 dark:text-rose-400">
-                                <div className="w-10 h-10 rounded-full bg-rose-500/20 flex items-center justify-center flex-shrink-0">
-                                    <AlertCircle size={20} className="text-rose-500" />
-                                </div>
+                {/* 3. Operations Layout Core */}
+                <div className="grid lg:grid-cols-3 gap-8">
+                    
+                    {/* Left & Middle Column: Assigned Orders & Reports */}
+                    <div className="lg:col-span-2 space-y-8">
+                        
+                        {/* Section: Assigned Orders */}
+                        <div className="glass-panel p-8 rounded-[2rem]">
+                            <div className="flex items-center justify-between mb-6">
                                 <div>
-                                    <div className="font-black uppercase tracking-widest text-xs">Action Required</div>
-                                    <p className="text-sm font-medium mt-1 text-rose-600/80 dark:text-rose-400/80">Pending orders are waiting for review in the dashboard.</p>
+                                    <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
+                                        <Briefcase size={22} className="text-primary" /> 
+                                        {stats.myOrdersCount > 0 ? 'My Active Orders' : 'System Active Orders'}
+                                    </h2>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">
+                                        Monitor due dates and report generation progress.
+                                    </p>
                                 </div>
+                                <button 
+                                    onClick={() => navigate('/orders')}
+                                    className="text-xs font-black uppercase tracking-widest text-primary hover:text-orange-600 transition-colors flex items-center gap-1.5"
+                                >
+                                    View All <ChevronRight size={14} />
+                                </button>
                             </div>
-                        )}
-                    </div>
-                </div>
 
-                {/* Continuous Flow Visualization */}
-                <div className="max-w-6xl mx-auto relative group">
-                    <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-cta/5 to-accent/5 rounded-[3rem] blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
-                    <div className="glass-panel p-12 md:p-16 rounded-[3rem] relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[80px] -mr-48 -mt-48 pointer-events-none" />
-                        
-                        <div className="flex items-center gap-4 mb-16">
-                            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center border border-slate-200 dark:border-slate-700">
-                                <Activity className="text-primary w-6 h-6 animate-pulse" />
-                            </div>
-                            <h3 className="text-sm font-black text-slate-500 dark:text-slate-400 uppercase tracking-[0.3em]">
-                                Continuous Flow Integration
-                            </h3>
+                            {loadingStats ? (
+                                <div className="py-20 flex flex-col items-center justify-center">
+                                    <Loader2 className="animate-spin text-primary mb-4" size={36} />
+                                    <p className="text-slate-400 text-xs font-bold uppercase tracking-wider">Syncing order pipeline...</p>
+                                </div>
+                            ) : assignedOrders.length > 0 ? (
+                                <div className="space-y-4">
+                                    {assignedOrders.map((order) => {
+                                        const total = Number(order.company_count || order.progress?.total || 1)
+                                        const completed = Number(order.completed_count || order.progress?.completed || 0)
+                                        const progress = Math.min(Math.round((completed / total) * 100), 100)
+                                        
+                                        return (
+                                            <div 
+                                                key={order.id}
+                                                onClick={() => navigate(`/orders` /* Routing to orders lists or detail */)}
+                                                className="p-5 bg-white/40 dark:bg-slate-900/30 hover:bg-white/80 dark:hover:bg-slate-900/60 rounded-2xl border border-slate-200/40 dark:border-white/5 transition-all duration-300 cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-4 group"
+                                            >
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-3 mb-1.5">
+                                                        <span className="font-mono text-xs font-black text-primary uppercase">{order.order_number || order.id.slice(0, 8)}</span>
+                                                        <span className={`px-2 py-0.5 border rounded-full text-[9px] font-black uppercase tracking-wider ${STATUS_COLORS[order.status] || STATUS_COLORS.pending}`}>
+                                                            {order.status?.replace('_', ' ')}
+                                                        </span>
+                                                        {order.service_level && (
+                                                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                                                                {order.service_level}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <h3 className="font-black text-slate-800 dark:text-white tracking-tight group-hover:text-primary transition-colors">{order.client_name || 'Corporate client'}</h3>
+                                                </div>
+
+                                                {/* Progress Indicator */}
+                                                <div className="w-full md:w-48">
+                                                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 mb-1">
+                                                        <span>Progress</span>
+                                                        <span className="text-slate-600 dark:text-slate-300">{completed}/{total} Companies</span>
+                                                    </div>
+                                                    <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                                        <div 
+                                                            className="h-full bg-gradient-to-r from-primary to-orange-400 rounded-full transition-all duration-500" 
+                                                            style={{ width: `${progress}%` }} 
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center justify-between md:justify-end gap-6 border-t md:border-t-0 pt-3 md:pt-0 border-slate-200/50">
+                                                    <div className="text-right">
+                                                        <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Due Date</div>
+                                                        <div className="text-xs font-black text-slate-600 dark:text-slate-300">{order.due_date ? new Date(order.due_date).toLocaleDateString() : 'Unscheduled'}</div>
+                                                    </div>
+                                                    <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-400 dark:text-slate-500 flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-all duration-300">
+                                                        <ArrowRight size={16} />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="text-center py-14 bg-slate-50/50 dark:bg-slate-900/10 rounded-2xl border border-dashed border-slate-200 dark:border-white/5">
+                                    <ClipboardCheck className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
+                                    <p className="text-slate-400 text-xs font-black uppercase tracking-wider">No active orders assigned to you</p>
+                                </div>
+                            )}
                         </div>
 
-                        <div className="relative">
-                            {/* Connecting Line */}
-                            <div className="absolute top-8 left-10 right-10 h-[2px] bg-slate-200 dark:bg-slate-800 hidden md:block" />
-                            <div className="absolute top-8 left-10 w-1/3 h-[2px] bg-gradient-to-r from-primary to-cta hidden md:block" />
+                        {/* Section: Recent Reports */}
+                        <div className="glass-panel p-8 rounded-[2rem]">
+                            <div className="flex items-center justify-between mb-6">
+                                <div>
+                                    <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
+                                        <FileSignature size={22} className="text-cta" /> Recent Intelligence Reports
+                                    </h2>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">
+                                        Quickly access recently generated credit assessments and reports.
+                                    </p>
+                                </div>
+                                <button 
+                                    onClick={() => navigate('/reports')}
+                                    className="text-xs font-black uppercase tracking-widest text-cta hover:text-indigo-500 transition-colors flex items-center gap-1.5"
+                                >
+                                    View All <ChevronRight size={14} />
+                                </button>
+                            </div>
 
-                            <div className="grid md:grid-cols-3 gap-12 relative z-10">
-                                {[
-                                    { step: '01', title: 'Raw Data Ingestion', desc: 'Multi-source document upload for RAG-enhanced AI extraction.' },
-                                    { step: '02', title: 'Structured Review', desc: 'Manual verification across 20+ specialized intelligence modules.' },
-                                    { step: '03', title: 'Final Synthesis', desc: 'Automated generation of industrial-grade PDF credit reports.' }
-                                ].map((phase, i) => (
-                                    <div key={i} className="relative group/phase">
-                                        <div className="w-16 h-16 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 flex items-center justify-center mb-8 shadow-lg group-hover/phase:border-primary/50 group-hover/phase:shadow-glow transition-all duration-300">
-                                            <span className="font-black text-xl text-primary">{phase.step}</span>
+                            {loadingStats ? (
+                                <div className="py-20 flex flex-col items-center justify-center">
+                                    <Loader2 className="animate-spin text-cta mb-4" size={36} />
+                                    <p className="text-slate-400 text-xs font-bold uppercase tracking-wider font-mono">Loading reports database...</p>
+                                </div>
+                            ) : recentReports.length > 0 ? (
+                                <div className="grid md:grid-cols-2 gap-4">
+                                    {recentReports.map((report) => (
+                                        <div 
+                                            key={report.report_id || report.id}
+                                            className="p-5 bg-white/40 dark:bg-slate-900/30 rounded-2xl border border-slate-200/40 dark:border-white/5 flex flex-col justify-between hover:border-cta/40 hover:shadow-lg transition-all duration-300 group"
+                                        >
+                                            <div>
+                                                <div className="flex items-center justify-between gap-3 mb-3">
+                                                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-tight">
+                                                        {report.cr_number || 'No CR Key'}
+                                                    </span>
+                                                    <span className="text-[9px] font-black uppercase bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded-full border border-slate-200/30">
+                                                        {report.country || 'Global'}
+                                                    </span>
+                                                </div>
+                                                <h3 className="font-black text-slate-800 dark:text-white tracking-tight text-lg mb-1 group-hover:text-cta transition-colors">
+                                                    {report.company_name || 'Unknown Corporation'}
+                                                </h3>
+                                                <p className="text-[10px] text-slate-400 font-medium">
+                                                    Modified: {report.updated_at ? new Date(report.updated_at).toLocaleDateString() : 'Recently'}
+                                                </p>
+                                            </div>
+
+                                            <div className="flex items-center justify-between pt-6 border-t border-slate-200/30 dark:border-white/5 mt-6">
+                                                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
+                                                    <Clock size={12} />
+                                                    <span>{report.location === 'cloud' ? 'Cloud Synced' : 'Local Draft'}</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleResume(report.report_id || report.id)}
+                                                    className="py-2.5 px-4 bg-cta/10 text-cta dark:bg-cta/25 dark:text-cta-soft hover:bg-cta hover:text-white dark:hover:bg-cta transition-all text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 active:scale-95"
+                                                >
+                                                    Open Editor <PlayCircle size={14} />
+                                                </button>
+                                            </div>
                                         </div>
-                                        <h4 className="font-black text-slate-800 dark:text-white text-2xl mb-4 tracking-tight">{phase.title}</h4>
-                                        <p className="text-base text-slate-500 dark:text-slate-400 font-medium leading-relaxed">{phase.desc}</p>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-center py-14 bg-slate-50/50 dark:bg-slate-900/10 rounded-2xl border border-dashed border-slate-200 dark:border-white/5">
+                                    <FileSignature className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
+                                    <p className="text-slate-400 text-xs font-black uppercase tracking-wider">No generated reports available yet</p>
+                                </div>
+                            )}
+                        </div>
+
+                    </div>
+
+                    {/* Right Column: Invoices & Quick Commands */}
+                    <div className="space-y-8">
+                        
+                        {/* Section: Quick Actions Panel */}
+                        <div className="glass-panel p-8 rounded-[2rem] relative overflow-hidden">
+                            <div className="absolute -right-24 -top-24 w-48 h-48 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
+                            <h2 className="text-xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2 mb-6">
+                                <Sparkles size={20} className="text-primary" /> Command Console
+                            </h2>
+
+                            <div className="grid gap-3.5">
+                                <button
+                                    onClick={() => navigate('/extractor')}
+                                    className="p-4 bg-gradient-to-r from-primary/10 to-orange-400/5 hover:from-primary hover:to-orange-500 border border-primary/20 hover:border-transparent dark:border-primary/25 rounded-2xl text-left transition-all duration-300 group flex items-center justify-between"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 text-primary flex items-center justify-center shadow-md">
+                                            <Zap size={20} />
+                                        </div>
+                                        <div>
+                                            <div className="text-xs font-black uppercase tracking-widest text-slate-800 dark:text-white group-hover:text-white">Run AI Extractor</div>
+                                            <div className="text-[10px] text-slate-500 dark:text-slate-400 group-hover:text-white/80 font-medium">Extract from PDF/Excel</div>
+                                        </div>
                                     </div>
-                                ))}
+                                    <ChevronRight size={16} className="text-primary group-hover:text-white transition-colors" />
+                                </button>
+
+                                <button
+                                    onClick={handleStartEasyWay}
+                                    className="p-4 bg-gradient-to-r from-cta/10 to-indigo-500/5 hover:from-cta hover:to-indigo-600 border border-cta/20 hover:border-transparent dark:border-cta/25 rounded-2xl text-left transition-all duration-300 group flex items-center justify-between"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 text-cta flex items-center justify-center shadow-md">
+                                            <Database size={20} />
+                                        </div>
+                                        <div>
+                                            <div className="text-xs font-black uppercase tracking-widest text-slate-800 dark:text-white group-hover:text-white">Rapid JSON Import</div>
+                                            <div className="text-[10px] text-slate-500 dark:text-slate-400 group-hover:text-white/80 font-medium">Paste parsed JSON data</div>
+                                        </div>
+                                    </div>
+                                    <ChevronRight size={16} className="text-cta group-hover:text-white transition-colors" />
+                                </button>
+
+                                <button
+                                    onClick={() => navigate('/clients')}
+                                    className="p-4 bg-white/40 dark:bg-slate-900/20 hover:bg-slate-900 hover:text-white dark:hover:bg-white dark:hover:text-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-2xl text-left transition-all duration-300 group flex items-center justify-between"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 flex items-center justify-center shadow-md">
+                                            <Users size={20} className="group-hover:text-slate-900" />
+                                        </div>
+                                        <div>
+                                            <div className="text-xs font-black uppercase tracking-widest text-slate-800 dark:text-white group-hover:text-white dark:group-hover:text-slate-900">Manage Clients</div>
+                                            <div className="text-[10px] text-slate-500 dark:text-slate-400 group-hover:text-white/80 dark:group-hover:text-slate-700 font-medium">Register corporate accounts</div>
+                                        </div>
+                                    </div>
+                                    <ChevronRight size={16} className="text-slate-400 group-hover:text-white dark:group-hover:text-slate-900 transition-colors" />
+                                </button>
+
+                                {['admin', 'super_admin'].includes(user?.role) && (
+                                    <button
+                                        onClick={() => navigate('/users')}
+                                        className="p-4 bg-white/40 dark:bg-slate-900/20 hover:bg-slate-900 hover:text-white dark:hover:bg-white dark:hover:text-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-2xl text-left transition-all duration-300 group flex items-center justify-between"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 flex items-center justify-center shadow-md">
+                                                <User size={20} className="group-hover:text-slate-900" />
+                                            </div>
+                                            <div>
+                                                <div className="text-xs font-black uppercase tracking-widest text-slate-800 dark:text-white group-hover:text-white dark:group-hover:text-slate-900">System Users</div>
+                                                <div className="text-[10px] text-slate-500 dark:text-slate-400 group-hover:text-white/80 dark:group-hover:text-slate-700 font-medium">Manage permissions & roles</div>
+                                            </div>
+                                        </div>
+                                        <ChevronRight size={16} className="text-slate-400 group-hover:text-white dark:group-hover:text-slate-900 transition-colors" />
+                                    </button>
+                                )}
                             </div>
                         </div>
+
+                        {/* Section: Recent Invoices */}
+                        <div className="glass-panel p-8 rounded-[2rem]">
+                            <div className="flex items-center justify-between mb-6">
+                                <div>
+                                    <h2 className="text-xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
+                                        <Coins size={20} className="text-accent" /> Recent Invoices
+                                    </h2>
+                                </div>
+                                <button 
+                                    onClick={() => navigate('/invoices')}
+                                    className="text-xs font-black uppercase tracking-widest text-accent hover:text-cyan-500 transition-colors flex items-center gap-1.5"
+                                >
+                                    View All <ChevronRight size={14} />
+                                </button>
+                            </div>
+
+                            {loadingStats ? (
+                                <div className="py-14 flex flex-col items-center justify-center">
+                                    <Loader2 className="animate-spin text-accent mb-4" size={28} />
+                                    <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Loading invoices...</p>
+                                </div>
+                            ) : recentInvoices.length > 0 ? (
+                                <div className="space-y-3.5">
+                                    {recentInvoices.map((inv) => (
+                                        <div 
+                                            key={inv.id}
+                                            onClick={() => navigate('/invoices')}
+                                            className="p-4 bg-white/40 dark:bg-slate-900/30 hover:bg-white/80 dark:hover:bg-slate-900/60 border border-slate-200/40 dark:border-white/5 rounded-2xl flex items-center justify-between transition-all duration-300 cursor-pointer group"
+                                        >
+                                            <div className="truncate pr-3">
+                                                <div className="text-[10px] font-mono text-slate-400 uppercase tracking-tight">{inv.invoice_number || inv.id.slice(0, 8)}</div>
+                                                <h3 className="font-bold text-slate-800 dark:text-white truncate group-hover:text-accent transition-colors text-sm">{inv.client_name || 'Client'}</h3>
+                                            </div>
+                                            <div className="text-right flex-shrink-0">
+                                                <div className="font-black text-slate-800 dark:text-white text-sm">{formatCurrency(inv.amount)}</div>
+                                                <span className={`inline-block px-2 py-0.5 border rounded-full text-[9px] font-black uppercase tracking-wider mt-1.5 ${INVOICE_STATUS_COLORS[inv.status] || INVOICE_STATUS_COLORS.unpaid}`}>
+                                                    {inv.status}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-center py-10 bg-slate-50/50 dark:bg-slate-900/10 rounded-2xl border border-dashed border-slate-200 dark:border-white/5">
+                                    <Coins className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-2" />
+                                    <p className="text-slate-400 text-xs font-black uppercase tracking-wider">No invoice history found</p>
+                                </div>
+                            )}
+                        </div>
+
                     </div>
+
                 </div>
+
             </div>
             
             {/* Modals */}
