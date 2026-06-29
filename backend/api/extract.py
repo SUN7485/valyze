@@ -264,8 +264,8 @@ async def start_extraction(
     errors: list[str] = []
 
     for i, file_row in enumerate(file_rows):
-        file_path = Path(file_row.file_path)
-        fname = file_row.filename
+        file_path = Path(file_row.get("file_path", ""))
+        fname = file_row.get("filename", "")
         print(f"\n[EXTRACT] Processing file {i + 1}/{len(file_rows)}: {fname}")
 
         if not file_path.exists():

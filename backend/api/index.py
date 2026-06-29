@@ -13,7 +13,7 @@ backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -75,6 +75,10 @@ class CORSSafetyMiddleware(BaseHTTPMiddleware):
                 response.headers["access-control-allow-origin"] = origin
             response.headers["access-control-allow-methods"] = "*"
             response.headers["access-control-allow-headers"] = "*"
+        # Baseline security headers on every response.
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         return response
 
 app.add_middleware(CORSSafetyMiddleware)
@@ -171,14 +175,16 @@ async def list_routes():
 # Register routers one-by-one so one failure doesn't block all
 _registered = {}
 
-def _safe_register(name, module_path, prefix=None, tags=None):
+def _safe_register(name, module_path, prefix=None, tags=None, dependencies=None):
     try:
         mod = importlib.import_module(module_path)
         router = getattr(mod, "router")
+        kwargs = {"tags": tags or []}
         if prefix:
-            app.include_router(router, prefix=prefix, tags=tags or [])
-        else:
-            app.include_router(router)
+            kwargs["prefix"] = prefix
+        if dependencies:
+            kwargs["dependencies"] = dependencies
+        app.include_router(router, **kwargs)
         _registered[name] = "OK"
         print(f"[OK] {name}")
     except Exception as e:
@@ -186,17 +192,32 @@ def _safe_register(name, module_path, prefix=None, tags=None):
         print(f"[FAIL] {name}: {e}")
         traceback.print_exc()
 
+
+# Router-level auth: protect the report data layer. These endpoints are all
+# consumed by the frontend through the token-attaching API client (or fetch with
+# an explicit Bearer token), so requiring auth here closes the public hole
+# without breaking any flow.
+# NOTE: pdf + export download endpoints are intentionally left open because the
+# UI opens them as raw browser URLs (window.open / link.href) that cannot send
+# an Authorization header. Securing those needs a query-token scheme (follow-up).
+try:
+    from api.auth import get_current_user as _auth_dep
+    _PROTECTED = [Depends(_auth_dep)]
+except Exception as _e:  # pragma: no cover - defensive
+    print(f"[WARN] could not load auth dependency: {_e}")
+    _PROTECTED = None
+
 # Auth first (critical), then everything else.
 # Routers with their own /api/* prefix are registered without an extra prefix.
 _safe_register("auth", "api.auth")
 _safe_register("portal", "api.portal", prefix="/api/portal", tags=["portal"])
-_safe_register("upload", "api.upload")
-_safe_register("report", "api.report")
+_safe_register("upload", "api.upload", dependencies=_PROTECTED)
+_safe_register("report", "api.report", dependencies=_PROTECTED)
 _safe_register("pdf", "api.pdf")
 _safe_register("export", "api.export")
 _safe_register("invoices", "api.invoices", prefix="/api/invoices", tags=["invoices"])
-_safe_register("search", "api.search")
-_safe_register("cloud", "api.cloud")
+_safe_register("search", "api.search", dependencies=_PROTECTED)
+_safe_register("cloud", "api.cloud", dependencies=_PROTECTED)
 _safe_register("clients", "api.clients", prefix="/api/clients", tags=["clients"])
 _safe_register("orders", "api.orders", prefix="/api/orders", tags=["orders"])
 _safe_register("proxy", "api.proxy")
