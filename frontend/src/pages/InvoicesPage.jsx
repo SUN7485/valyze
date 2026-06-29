@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Download, Eye, Loader2, RefreshCw, FileText, X } from 'lucide-react'
+import { Download, Eye, Loader2, RefreshCw, FileText, X, Wallet, CheckCircle2, Clock } from 'lucide-react'
 import { invoicesAPI } from '../api/client'
 
 const STATUS_STYLES = {
@@ -111,6 +111,18 @@ export default function InvoicesPage() {
         })
     }, [invoices])
 
+    const stats = useMemo(() => {
+        let outstanding = 0, collected = 0, drafts = 0
+        for (const inv of invoices) {
+            const total = Number(getTotal(inv)) || 0
+            const status = String(inv.status || '').toLowerCase()
+            if (status === 'paid') collected += total
+            else outstanding += total
+            if (status === 'draft') drafts += 1
+        }
+        return { total: invoices.length, outstanding, collected, drafts }
+    }, [invoices])
+
     const fetchInvoices = async () => {
         try {
             setLoading(true)
@@ -203,6 +215,26 @@ export default function InvoicesPage() {
                     <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
                     Refresh
                 </button>
+            </div>
+
+            {/* KPI stats */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+                {[
+                    { icon: FileText,     label: 'Total Invoices', value: stats.total,                       tint: 'bg-blue-500/10 text-blue-500' },
+                    { icon: Wallet,       label: 'Outstanding',    value: formatCurrency(stats.outstanding), tint: 'bg-amber-400/15 text-amber-500' },
+                    { icon: CheckCircle2, label: 'Collected',      value: formatCurrency(stats.collected),   tint: 'bg-emerald-500/10 text-emerald-500' },
+                    { icon: Clock,        label: 'Drafts',         value: stats.drafts,                      tint: 'bg-slate-400/15 text-slate-500' },
+                ].map(({ icon: Icon, label, value, tint }) => (
+                    <div key={label} className="flex items-center gap-3 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] px-4 py-3.5">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${tint}`}>
+                            <Icon size={18} />
+                        </div>
+                        <div className="min-w-0">
+                            <div className="text-lg font-black text-slate-800 dark:text-white leading-none truncate">{value}</div>
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mt-1">{label}</div>
+                        </div>
+                    </div>
+                ))}
             </div>
 
             {error && (
