@@ -188,9 +188,22 @@ def get_report_by_client_reference(client_reference: str) -> Optional[Dict[str, 
         return None
 
 
-def get_all_reports() -> List[Dict[str, Any]]:
-    """Get all reports."""
-    url = f"{get_base_url()}/reports"
+# Lightweight column set for report LISTS — never pull the heavy report_json blob
+# when we only need summary fields. (report_json can be hundreds of KB each.)
+REPORT_LIST_COLUMNS = (
+    "id,status,created_at,updated_at,company_name,legal_name,"
+    "cr_number,client_reference,country,analyst"
+)
+
+
+def get_all_reports(limit: int = 1000, offset: int = 0) -> List[Dict[str, Any]]:
+    """Get reports (summary columns only) with pagination, newest first."""
+    url = (
+        f"{get_base_url()}/reports"
+        f"?select={REPORT_LIST_COLUMNS}"
+        f"&order=updated_at.desc.nullslast"
+        f"&limit={int(limit)}&offset={int(offset)}"
+    )
 
     try:
         response = requests.get(url, headers=get_headers(), timeout=30)
@@ -201,13 +214,19 @@ def get_all_reports() -> List[Dict[str, Any]]:
 
 
 def get_reports_count() -> int:
-    """Get the count of reports."""
+    """Get the count of reports using PostgREST's count header (no row transfer)."""
     url = f"{get_base_url()}/reports?select=id"
+    headers = {**get_headers(), "Prefer": "count=exact", "Range-Unit": "items", "Range": "0-0"}
 
     try:
-        response = requests.get(url, headers=get_headers(), timeout=30)
-        results = _handle_response(response)
-        return len(results)
+        response = requests.get(url, headers=headers, timeout=30)
+        content_range = response.headers.get("content-range") or response.headers.get("Content-Range")
+        if content_range and "/" in content_range:
+            total = content_range.rsplit("/", 1)[-1]
+            if total.isdigit():
+                return int(total)
+        # Fallback: count the returned rows (should be at most 1 due to Range)
+        return len(_handle_response(response))
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Get reports count failed: {e}")
         return 0

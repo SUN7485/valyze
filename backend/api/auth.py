@@ -21,9 +21,20 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # Config
 # ---------------------------------------------------------------------------
 
-JWT_SECRET = os.getenv("JWT_SECRET", "valyze-secret-change-in-production-2026")
+_DEFAULT_JWT_SECRET = "valyze-secret-change-in-production-2026"
+JWT_SECRET = os.getenv("JWT_SECRET", _DEFAULT_JWT_SECRET)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24
+
+# Security guard: a hardcoded fallback secret means anyone can forge admin tokens.
+# Warn loudly in production rather than crash (so a misconfig doesn't lock everyone out).
+if JWT_SECRET == _DEFAULT_JWT_SECRET:
+    _is_prod = (os.getenv("ENV", "").lower() == "production") or bool(os.getenv("VERCEL"))
+    _level = "CRITICAL" if _is_prod else "WARNING"
+    print(
+        f"[{_level}] JWT_SECRET is not set — using the public default. "
+        "Set a strong JWT_SECRET env var in your deployment; otherwise tokens can be forged."
+    )
 VALID_ROLES = {"super_admin", "admin", "analyst", "reviewer"}
 ORDER_ASSIGNABLE_ROLES = {"admin", "analyst"}
 
