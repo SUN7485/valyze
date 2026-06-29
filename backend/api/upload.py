@@ -242,10 +242,10 @@ async def upload_status(report_id: str):
     file_rows = await get_uploaded_files(None, report_id)
     files = [
         {
-            "filename": fr.filename,
-            "file_type": fr.file_type,
-            "file_size": fr.file_size,
-            "processed": fr.processed,
+            "filename": fr.get("filename"),
+            "file_type": fr.get("file_type"),
+            "file_size": fr.get("file_size"),
+            "processed": fr.get("processed"),
         }
         for fr in file_rows
     ]
@@ -268,7 +268,7 @@ async def remove_file(
         raise HTTPException(status_code=404, detail="Report not found")
 
     file_rows = await get_uploaded_files(None, report_id)
-    valid_names = {fr.filename for fr in file_rows}
+    valid_names = {fr.get("filename") for fr in file_rows}
 
     sanitized_filename = _sanitize_filename(filename)
     if sanitized_filename not in valid_names:
@@ -316,3 +316,71 @@ async def check_duplicate(body: dict):
 
     # Optional: company name fuzzy match (not implemented for now)
     return {"duplicate": False}
+
+
+# ---------------------------------------------------------------------------
+# Portal File Access
+# ---------------------------------------------------------------------------
+
+
+@router.get("/portal-files/{report_id}")
+async def get_portal_files(report_id: str):
+    """Return uploaded files for a report with download paths."""
+    report = await get_report(None, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    file_rows = await get_uploaded_files(None, report_id)
+    files = [
+        {
+            "filename": fr.get("filename"),
+            "file_type": fr.get("file_type"),
+            "file_size": fr.get("file_size"),
+            "download_path": f"/api/upload/download/{report_id}/{fr.get('filename')}",
+        }
+        for fr in file_rows
+        if fr.get("filename")
+    ]
+    return {"report_id": report_id, "files": files}
+
+
+@router.get("/download/{report_id}/{filename}")
+async def download_file(report_id: str, filename: str):
+    """Download a file uploaded for a report (local disk or Supabase Storage)."""
+    import mimetypes
+    from fastapi.responses import Response as FastAPIResponse
+
+    report = await get_report(None, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    file_rows = await get_uploaded_files(None, report_id)
+    safe_name = _sanitize_filename(filename)
+    fr = next((r for r in file_rows if r.get("filename") == safe_name), None)
+    if not fr:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_path = fr.get("file_path", "")
+
+    if file_path.startswith("storage://"):
+        storage_ref = file_path[len("storage://"):]
+        parts = storage_ref.split("/", 1)
+        if len(parts) != 2:
+            raise HTTPException(status_code=500, detail="Invalid storage path")
+        bucket, path = parts
+        from services.supabase_client import download_from_storage
+        content = download_from_storage(bucket, path)
+        if not content:
+            raise HTTPException(status_code=404, detail="File not found in storage")
+        mime = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+        return FastAPIResponse(
+            content=content,
+            media_type=mime,
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+        )
+
+    local = Path(file_path) if file_path else UPLOAD_DIR / report_id / safe_name
+    if not local.exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+    from fastapi.responses import FileResponse
+    return FileResponse(str(local), filename=safe_name)

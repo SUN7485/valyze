@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_current_user, get_order_assignable_users
 from database.crud import add_uploaded_file, create_report, update_report_field, update_report_status
+from services.pricing_engine import calculate_invoice, generate_invoice_number
 import logging
 from services.supabase_client import (
     create_invoice as sb_create_invoice,
@@ -27,6 +28,7 @@ from services.supabase_client import (
     delete_order as sb_delete_order,
     download_from_storage,
     get_all_orders as sb_get_all_orders,
+    get_all_order_companies as sb_get_all_order_companies,
     get_analyst_workload as sb_get_analyst_workload,
     get_active_order_assignments as sb_get_active_order_assignments,
     get_client,
@@ -458,6 +460,24 @@ def _complete_order_if_ready(order_id: str, companies: Optional[List[Dict[str, A
     return progress
 
 
+@router.get("/companies/")
+async def get_all_order_companies(
+    status: Optional[str] = None,
+    country: Optional[str] = None,
+    search: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Get all order companies (reports) flattened with order and client info."""
+    if status and status not in VALID_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status '{status}'. Valid: {', '.join(sorted(VALID_STATUSES))}")
+
+    try:
+        companies = sb_get_all_order_companies(status=status, country=country, search=search)
+        return companies
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to list order companies: {exc}")
+
+
 @router.get("/", response_model=List[dict])
 async def list_orders(
     status: Optional[str] = None,
@@ -656,49 +676,36 @@ async def start_company_work(order_id: str, company_id: str, user: dict = Depend
         all_portal_files = company_portal_files + [f for f in order_portal_files if not f.get("order_company_id")]
 
         if all_portal_files:
-            logger.info(f"[ORDERS] Copying {len(all_portal_files)} portal file(s) to report {report_id}")
-            report_dir = UPLOAD_DIR / report_id
-            report_dir.mkdir(parents=True, exist_ok=True)
-
+            logger.info(f"[ORDERS] Linking {len(all_portal_files)} portal file(s) to report {report_id}")
+            file_type_map = {
+                ".pdf": "pdf",
+                ".docx": "word",
+                ".doc": "word",
+                ".png": "image",
+                ".jpg": "image",
+                ".jpeg": "image",
+                ".tiff": "image",
+                ".xlsx": "spreadsheet",
+                ".xls": "spreadsheet",
+                ".csv": "spreadsheet",
+                ".txt": "text",
+            }
             for pf in all_portal_files:
                 file_path = pf.get("file_path", "")
-                # Download file from storage if it's a storage:// path
-                if file_path.startswith("storage://"):
-                    storage_ref = file_path[len("storage://"):]
-                    parts = storage_ref.split("/", 1)
-                    if len(parts) == 2:
-                        bucket, path = parts
-                        file_content = download_from_storage(bucket, path)
-                        if file_content:
-                            safe_name = _sanitize_filename(pf.get("filename", "portal_file"))
-                            file_type_map = {
-                                ".pdf": "pdf",
-                                ".docx": "word",
-                                ".doc": "word",
-                                ".png": "image",
-                                ".jpg": "image",
-                                ".jpeg": "image",
-                                ".tiff": "image",
-                                ".xlsx": "spreadsheet",
-                                ".xls": "spreadsheet",
-                                ".csv": "spreadsheet",
-                                ".txt": "text",
-                            }
-                            ext = Path(safe_name).suffix.lower()
-                            file_type = file_type_map.get(ext, "unknown")
-
-                            # Save file locally for extraction engine
-                            local_path = report_dir / safe_name
-                            local_path.write_bytes(file_content)
-
-                            await add_uploaded_file(
-                                None,
-                                report_id=report_id,
-                                filename=safe_name,
-                                file_path=str(local_path),
-                                file_type=file_type,
-                                file_size=len(file_content),
-                            )
+                if not file_path:
+                    continue
+                safe_name = _sanitize_filename(pf.get("filename", "portal_file"))
+                ext = Path(safe_name).suffix.lower()
+                file_type = file_type_map.get(ext, "unknown")
+                # Store the storage path directly — served via /api/upload/download
+                await add_uploaded_file(
+                    None,
+                    report_id=report_id,
+                    filename=safe_name,
+                    file_path=file_path,
+                    file_type=file_type,
+                    file_size=pf.get("file_size", 0),
+                )
 
         # Step b: Link report to company
         updated_company = sb_update_order_company(
@@ -803,3 +810,100 @@ async def delete_order(order_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Failed to delete order")
 
     return {"deleted": True, "order_id": order_id}
+
+
+@router.post("/{order_id}/reassign")
+async def reassign_order(
+    order_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+):
+    """Reassign an order (all companies) to a different analyst."""
+    order = _get_order_or_404(order_id)
+    analyst = body.get("analyst")
+    if not analyst:
+        raise HTTPException(status_code=400, detail="Analyst email is required")
+
+    # Update all companies in the order
+    companies = sb_get_order_companies(order_id)
+    for company in companies:
+        sb_update_order_company(company["id"], {
+            "analyst_assigned": analyst,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    # Update order's auto_assigned_analyst
+    sb_update_order(order_id, {
+        "auto_assigned_analyst": analyst,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return {
+        "order_id": order_id,
+        "reassigned_to": analyst,
+        "companies_updated": len(companies),
+        "message": f"Order reassigned to {analyst}",
+    }
+
+
+@router.post("/{order_id}/cancel")
+async def cancel_order(
+    order_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Cancel an order. Sets status to 'cancelled'."""
+    order = _get_order_or_404(order_id)
+    if order.get("status") in ("completed", "invoiced", "cancelled"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot cancel order with status '{order.get('status')}'",
+        )
+
+    sb_update_order(order_id, {
+        "status": "cancelled",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # Also cancel all pending companies
+    companies = sb_get_order_companies(order_id)
+    for company in companies:
+        if company.get("status") in ("pending", "in_progress"):
+            sb_update_order_company(company["id"], {
+                "status": "cancelled",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+    return {
+        "order_id": order_id,
+        "status": "cancelled",
+        "message": "Order has been cancelled",
+    }
+
+
+@router.post("/{order_id}/reassign-company/{company_id}")
+async def reassign_company(
+    order_id: str,
+    company_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+):
+    """Reassign a single company/report to a different analyst."""
+    _get_order_or_404(order_id)
+    analyst = body.get("analyst")
+    if not analyst:
+        raise HTTPException(status_code=400, detail="Analyst email is required")
+
+    updated = sb_update_order_company(company_id, {
+        "analyst_assigned": analyst,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    if not updated:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    return {
+        "company_id": company_id,
+        "reassigned_to": analyst,
+        "message": f"Company reassigned to {analyst}",
+    }
+
+

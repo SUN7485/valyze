@@ -126,6 +126,14 @@ export const ordersAPI = {
         return api.get('/orders/', { params })
     },
 
+    getAllOrderCompanies: (filters = {}) => {
+        const params = new URLSearchParams()
+        if (filters.status && filters.status !== 'all') params.set('status', filters.status)
+        if (filters.country) params.set('country', filters.country)
+        if (filters.search) params.set('search', filters.search)
+        return api.get('/orders/companies/', { params })
+    },
+
     getOne: (id) =>
         api.get(`/orders/${id}`),
 
@@ -140,6 +148,15 @@ export const ordersAPI = {
 
     completeCompany: (orderId, companyId) =>
         api.post(`/orders/${orderId}/companies/${companyId}/complete`),
+
+    reassign: (orderId, analyst) =>
+        api.post(`/orders/${orderId}/reassign`, { analyst }),
+
+    reassignCompany: (orderId, companyId, analyst) =>
+        api.post(`/orders/${orderId}/reassign-company/${companyId}`, { analyst }),
+
+    cancel: (orderId) =>
+        api.post(`/orders/${orderId}/cancel`),
 }
 
 // ---------------------------------------------------------------------------

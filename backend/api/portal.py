@@ -41,6 +41,60 @@ security = HTTPBearer(auto_error=False)
 
 SERVICE_LEVELS = {"basic", "standard", "express", "urgent"}
 REPORT_TYPES = {"standard", "full"}
+
+# Speed-to-service-level mapping
+SPEED_TIER_MAP = {
+    "7_days": "basic",
+    "5_days": "standard",
+    "3_days": "express",
+    "2_days": "express",
+    "1_day": "urgent",
+    "24_hours": "urgent",
+}
+VALID_SPEEDS = set(SPEED_TIER_MAP.keys())
+VALID_REPORT_TYPES_ARRAY = {"credit_report", "registration", "owners", "ubo", "legal", "analysis_financial"}
+
+# Working days per country (weekend days)
+# Most MENA: Friday-Saturday weekend
+# UAE: Saturday-Sunday weekend
+COUNTRY_WORKING_DAYS = {
+    "egypt": {"fri", "sat"},
+    "saudi arabia": {"fri", "sat"},
+    "uae": {"sat", "sun"},
+    "jordan": {"fri", "sat"},
+    "qatar": {"fri", "sat"},
+    "bahrain": {"fri", "sat"},
+    "oman": {"fri", "sat"},
+}
+
+# Speed in working days
+SPEED_DURATION_DAYS = {
+    "7_days": 7,
+    "5_days": 5,
+    "3_days": 3,
+    "2_days": 2,
+    "1_day": 1,
+    "24_hours": 0,  # Same day
+}
+
+def _calculate_due_date(speed: str, country: Optional[str] = None) -> str:
+    """Calculate due date based on speed duration and country working days."""
+    working_days = SPEED_DURATION_DAYS.get(speed, 5)
+    weekend_days = COUNTRY_WORKING_DAYS.get(country.lower().strip() if country else "", {"fri", "sat"})
+
+    now = datetime.now(timezone.utc)
+    current = now
+    days_added = 0
+
+    while days_added < working_days:
+        current += timedelta(days=1)
+        # Skip weekends
+        day_name = current.strftime("%a").lower()[:3]
+        if day_name not in weekend_days:
+            days_added += 1
+
+    return current.isoformat()
+
 PORTAL_UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads")) / "portal"
 MAX_PORTAL_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "100"))
 MAX_PORTAL_FILE_SIZE_BYTES = MAX_PORTAL_FILE_SIZE_MB * 1024 * 1024
@@ -93,9 +147,11 @@ class OrderCompanyRequest(BaseModel):
 
 class SubmitOrderRequest(BaseModel):
     client_ref: Optional[str] = None
-    service_level: Literal["basic", "standard", "express", "urgent"]
-    report_type: Literal["standard", "full"] = "standard"
-    due_date: date
+    service_level: Optional[Literal["basic", "standard", "express", "urgent"]] = None
+    report_type: Optional[Literal["standard", "full"]] = None
+    speed: Optional[str] = None
+    report_types: Optional[List[str]] = None
+    due_date: Optional[date] = None
     notes: Optional[str] = None
     companies: List[OrderCompanyRequest]
 
@@ -501,10 +557,36 @@ async def _submit_order_payload(
 ) -> Dict[str, Any]:
     if not body.companies:
         raise HTTPException(status_code=400, detail="At least one company is required")
-    if body.service_level not in SERVICE_LEVELS:
-        raise HTTPException(status_code=400, detail="Invalid service_level")
-    if body.report_type not in REPORT_TYPES:
-        raise HTTPException(status_code=400, detail="Invalid report_type")
+
+    # Support both old and new field names for backward compatibility
+    if body.speed:
+        if body.speed not in VALID_SPEEDS:
+            raise HTTPException(status_code=400, detail=f"Invalid speed. Valid: {', '.join(sorted(VALID_SPEEDS))}")
+        resolved_service_level = SPEED_TIER_MAP[body.speed]
+    elif body.service_level:
+        if body.service_level not in SERVICE_LEVELS:
+            raise HTTPException(status_code=400, detail="Invalid service_level")
+        resolved_service_level = body.service_level
+    else:
+        resolved_service_level = "standard"
+
+    if body.report_types:
+        for rt in body.report_types:
+            if rt not in VALID_REPORT_TYPES_ARRAY:
+                raise HTTPException(status_code=400, detail=f"Invalid report_type: {rt}")
+        resolved_report_types = body.report_types
+    elif body.report_type:
+        resolved_report_types = [body.report_type]
+    else:
+        resolved_report_types = ["credit_report"]
+
+    # Auto-calculate due date from speed + country
+    first_country = body.companies[0].country if body.companies else None
+    resolved_speed = body.speed or "5_days"
+    if body.due_date:
+        due_date_str = f"{body.due_date.isoformat()}T00:00:00Z"
+    else:
+        due_date_str = _calculate_due_date(resolved_speed, first_country)
 
     session = await _load_portal_session(portal_client)
     max_uses = session.get("max_uses")
@@ -520,9 +602,10 @@ async def _submit_order_payload(
         "client_id": portal_client["client_id"],
         "client_ref": body.client_ref,
         "date_received": now,
-        "service_level": body.service_level,
-        "due_date": f"{body.due_date.isoformat()}T00:00:00Z",
-        "report_type": body.report_type,
+        "service_level": resolved_service_level,
+        "speed": resolved_speed,
+        "due_date": due_date_str,
+        "report_type": ",".join(resolved_report_types),
         "status": "pending",
         "company_count": len(body.companies),
         "completed_count": 0,
@@ -559,7 +642,7 @@ async def _submit_order_payload(
         "order_id": order.get("id"),
         "order_number": order.get("order_number", order_number),
         "company_count": len(body.companies),
-        "due_date": body.due_date.isoformat(),
+        "due_date": due_date_str,
         "files": [_public_order_file(file) for file in uploaded_files],
         "message": "Order submitted successfully",
     }

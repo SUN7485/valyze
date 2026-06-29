@@ -59,13 +59,25 @@ export default function Layout({ children }) {
                         <Link
                             to="/orders"
                             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${
-                                location.pathname.startsWith('/orders')
+                                location.pathname.startsWith('/orders') && !location.pathname.startsWith('/orderds')
                                     ? 'bg-primary text-white shadow-md shadow-primary/20'
                                     : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary'
                             }`}
                         >
                             <ClipboardList size={14} />
                             Orders
+                        </Link>
+
+                        <Link
+                            to="/orderds"
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${
+                                location.pathname.startsWith('/orderds')
+                                    ? 'bg-primary text-white shadow-md shadow-primary/20'
+                                    : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary'
+                            }`}
+                        >
+                            <ClipboardList size={14} />
+                            Reports
                         </Link>
 
                         <Link

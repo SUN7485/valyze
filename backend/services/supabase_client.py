@@ -503,6 +503,31 @@ def get_completed_order_companies_count(order_ids: List[str]) -> int:
         return 0
 
 
+
+def get_session(session_id: str) -> Optional[Dict[str, Any]]:
+    """Get a single client session by ID."""
+    url = f"{get_base_url()}/client_sessions?id=eq.{quote(session_id, safe='')}"
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        results = _handle_response(response)
+        return results[0] if results else None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get session request failed: {e}")
+        return None
+
+
+def update_session(session_id: str, data: Dict[str, Any]) -> bool:
+    """Update a client session."""
+    url = f"{get_base_url()}/client_sessions?id=eq.{quote(session_id, safe='')}"
+    try:
+        response = requests.patch(url, json=data, headers=get_headers(), timeout=30)
+        return response.status_code in [200, 204]
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Update session request failed: {e}")
+        return False
+
+
+
 def delete_session(session_id: str) -> bool:
     """Delete a client session."""
     url = f"{get_base_url()}/client_sessions?id=eq.{quote(session_id, safe='')}"
@@ -1205,3 +1230,76 @@ def get_max_order_number(year: int) -> Optional[int]:
     except (requests.exceptions.RequestException, ValueError, IndexError) as e:
         logger.error(f"[Supabase] Get max order number failed: {e}")
         return 0
+
+
+# ---------------------------------------------------------------------------
+# Order Company (flattened) Operations - for Orderds page
+# ---------------------------------------------------------------------------
+
+
+def get_all_order_companies(
+    status: Optional[str] = None,
+    country: Optional[str] = None,
+    search: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Get all order companies flattened with order and client info.
+    Each row represents one report (order_company) with joined order/client data.
+    """
+    # Select with joins to get order and client data
+    select = "*,order:orders!inner(*),client:clients!inner(client_name,valyze_id,email)"
+    query_parts = [f"select={quote(select, safe='(),*')}"]
+    
+    # Apply status filter on order company
+    if status:
+        query_parts.append(f"status=eq.{quote(status, safe='')}")
+    
+    # Apply country filter on order company
+    if country:
+        query_parts.append(f"country=eq.{quote(country, safe='')}")
+    
+    # Apply search filter
+    if search:
+        search_term = search.strip()
+        if search_term:
+            encoded = quote(search_term, safe="")
+            query_parts.append(f"or=(company_name.ilike.%{encoded}%,registration_no.ilike.%{encoded}%)")
+    
+    query_parts.append("order=created_at.desc.nullslast")
+    
+    full_url = f"{get_base_url()}/order_companies?{'&'.join(query_parts)}"
+    
+    try:
+        response = requests.get(full_url, headers=get_headers(), timeout=30)
+        results = _handle_response(response)
+        
+        # Flatten the data - merge order/client into each company record
+        flattened = []
+        for row in results:
+            order_data = row.get('order', {})
+            client_data = row.get('client', {})
+            
+            flattened.append({
+                'id': row.get('id'),
+                'order_id': row.get('order_id'),
+                'order_number': order_data.get('order_number'),
+                'client_name': client_data.get('client_name') or order_data.get('client_name'),
+                'client_id': order_data.get('client_id'),
+                'company_name': row.get('company_name'),
+                'country': row.get('country'),
+                'registration_no': row.get('registration_no'),
+                'report_id': row.get('report_id'),
+                'status': row.get('status'),
+                'analyst_assigned': row.get('analyst_assigned'),
+                'date_received': order_data.get('date_received'),
+                'due_date': order_data.get('due_date'),
+                'service_level': order_data.get('service_level'),
+                'report_type': order_data.get('report_type'),
+                'created_at': row.get('created_at'),
+                'updated_at': row.get('updated_at'),
+                'files': [],
+            })
+        
+        return flattened
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get all order companies failed: {e}")
+        return []

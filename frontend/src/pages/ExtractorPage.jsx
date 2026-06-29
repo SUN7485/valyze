@@ -272,6 +272,7 @@ export default function ExtractorPage() {
   }, [])
 
   const [files, setFiles]               = useState([]);
+  const [filesLoading, setFilesLoading] = useState(false);
   const [status, setStatus]             = useState("idle");
   const [stage, setStage]               = useState(0);
   const [elapsed, setElapsed]           = useState(0);
@@ -291,6 +292,44 @@ export default function ExtractorPage() {
   const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem("valyze_api_key"));
 
   useEffect(() => { if (apiKey) localStorage.setItem("valyze_api_key", apiKey); }, [apiKey]);
+
+  useEffect(() => {
+    if (!reportId) return
+    const loadPortalFiles = async () => {
+      setFilesLoading(true)
+      try {
+        const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
+        const token = localStorage.getItem('valyze_token') || ''
+        const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
+        const res = await fetch(`${baseUrl}/api/upload/portal-files/${reportId}`, { headers: authHeaders })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!data.files?.length) return
+        const fetched = []
+        for (const f of data.files) {
+          if (!f.download_path) continue
+          try {
+            const fileRes = await fetch(`${baseUrl}${f.download_path}`, { headers: authHeaders })
+            if (!fileRes.ok) continue
+            const blob = await fileRes.blob()
+            const mimeMap = {
+              pdf: 'application/pdf',
+              word: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+              image: 'image/jpeg',
+              spreadsheet: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              text: 'text/plain',
+            }
+            const mimeType = mimeMap[f.file_type] || 'application/octet-stream'
+            fetched.push(new File([blob], f.filename, { type: mimeType }))
+          } catch {}
+        }
+        if (fetched.length) setFiles(fetched)
+      } catch {} finally {
+        setFilesLoading(false)
+      }
+    }
+    loadPortalFiles()
+  }, [reportId])
 
   const fileRef  = useRef();
   const abortRef = useRef(null);
@@ -759,6 +798,11 @@ export default function ExtractorPage() {
             <div className="text-sm text-[var(--color-text-secondary)]">PDF · Word · Images · Excel · CSV · TXT — up to 5 files</div>
             <div className="text-xs text-[var(--color-text-muted)] mt-2">Text pages → text · Scanned pages → vision</div>
           </div>
+          {filesLoading && (
+            <div className="text-center text-sm text-[var(--color-text-secondary)] py-2 mb-2">
+              ⏳ Loading portal files…
+            </div>
+          )}
           {files.map((f,i)=>(
             <div key={i} className="flex items-center justify-between gap-4 bg-white/70 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 mb-2">
               <span className="text-sm text-[var(--color-text-secondary)] truncate">{fIcon(f)} {f.name} <span className="text-[var(--color-text-muted)]">({(f.size/1024).toFixed(0)} KB)</span></span>

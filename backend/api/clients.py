@@ -318,3 +318,78 @@ async def delete_client_session(
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"deleted": True, "session_id": session_id}
+
+
+@router.post("/sessions/{session_id}/reset-password")
+async def reset_session_password(
+    session_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Reset the password for a portal session without changing the link."""
+    from services.supabase_client import get_session as sb_get_session
+    session = sb_get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    password_plain = _generate_password_plain()
+    new_hash = _hash_password(password_plain)
+
+    from services.supabase_client import update_session as sb_update_session
+    sb_update_session(session_id, {
+        "password_hash": new_hash,
+        "password_plain_temp": password_plain,
+    })
+
+    return {
+        "session_id": session_id,
+        "new_password": password_plain,
+        "message": "Password has been reset",
+    }
+
+
+@router.post("/sessions/{session_id}/toggle-disable")
+async def toggle_disable_session(
+    session_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+):
+    """Enable or disable a portal session temporarily without deleting the link."""
+    from services.supabase_client import get_session as sb_get_session
+    session = sb_get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    disabled = body.get("disabled", True)
+
+    from services.supabase_client import update_session as sb_update_session
+    sb_update_session(session_id, {"disabled": disabled})
+
+    return {
+        "session_id": session_id,
+        "disabled": disabled,
+        "message": f"Session has been {'disabled' if disabled else 'enabled'}",
+    }
+
+
+@router.post("/sessions/{session_id}/set-no-expiry")
+async def set_session_no_expiry(
+    session_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+):
+    """Set/unset no-expiry flag on session."""
+    from services.supabase_client import get_session as sb_get_session
+    session = sb_get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    no_expiry = body.get("no_expiry", True)
+
+    from services.supabase_client import update_session as sb_update_session
+    sb_update_session(session_id, {"no_expiry": no_expiry})
+
+    return {
+        "session_id": session_id,
+        "no_expiry": no_expiry,
+        "message": f"No-expiry set to {no_expiry}",
+    }
