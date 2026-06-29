@@ -204,17 +204,27 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
 
   const selectedTier = SPEED_TIERS[speed]
 
-  // Per-step gating — only the company NAME is ever mandatory.
+  // Per-step gating — company NAME and COUNTRY are mandatory.
   const canAdvance = () => {
     if (step === 0) return reportTypes.length > 0
-    if (step === 1) return namedCompanies.length > 0
+    if (step === 1) return namedCompanies.length > 0 && namedCompanies.every(c => c.country)
     return true
   }
 
   const goNext = () => {
-    if (!canAdvance()) {
-      setError(step === 0 ? 'Select at least one report type.' : 'At least one company name is required.')
+    if (step === 0 && reportTypes.length === 0) {
+      setError('Select at least one report type.')
       return
+    }
+    if (step === 1) {
+      if (namedCompanies.length === 0) {
+        setError('At least one company name is required.')
+        return
+      }
+      if (namedCompanies.some(c => !c.country)) {
+        setError('Please select a country for each company.')
+        return
+      }
     }
     setError(''); setStep(s => Math.min(s + 1, WIZARD_STEPS.length - 1))
   }
@@ -222,6 +232,7 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
 
   const handleSubmit = async () => {
     if (!namedCompanies.length) { setError('At least one company name is required.'); setStep(1); return }
+    if (namedCompanies.some(c => !c.country)) { setError('Please select a country for each company.'); setStep(1); return }
     setLoading(true); setError('')
     try {
       const formData = new FormData()
@@ -352,7 +363,7 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
         {step === 1 && (
           <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
             <div className="flex items-center justify-between">
-              <p className="text-white/50 text-xs">Only the <span className="text-amber-400 font-bold">company name</span> is required. The more details you add, the faster and more accurate your report.</p>
+              <p className="text-white/50 text-xs"><span className="text-amber-400 font-bold">Company name</span> and <span className="text-amber-400 font-bold">country</span> are required. The more details you add, the faster and more accurate your report.</p>
               <button type="button" onClick={addCompany} className="flex items-center gap-1 px-3 py-1.5 bg-amber-400/10 text-amber-400 rounded-lg text-xs font-bold hover:bg-amber-400/20 transition-all flex-shrink-0 ml-3">
                 <Plus size={14} /> Add
               </button>
@@ -381,8 +392,12 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-white/70 text-xs font-bold mb-1.5">Country</label>
-                      <select value={company.country} onChange={e => updateCompany(i, 'country', e.target.value)} className={FIELD_CLS}>
+                      <label className="block text-white/70 text-xs font-bold mb-1.5">Country <span className="text-amber-400">*</span></label>
+                      <select
+                        value={company.country}
+                        onChange={e => updateCompany(i, 'country', e.target.value)}
+                        className={`${FIELD_CLS} ${!company.country ? 'border-amber-400/40' : ''}`}
+                      >
                         {SUPPORTED_COUNTRIES.map(c => <option key={c.value} value={c.value} className="bg-gray-900">{c.label}</option>)}
                       </select>
                     </div>

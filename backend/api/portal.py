@@ -560,6 +560,10 @@ async def _submit_order_payload(
     if not body.companies:
         raise HTTPException(status_code=400, detail="At least one company is required")
 
+    # Country is mandatory for every company submitted through the portal.
+    if any(not (c.country and str(c.country).strip()) for c in body.companies):
+        raise HTTPException(status_code=400, detail="Country is required for every company")
+
     # Support both old and new field names for backward compatibility
     if body.speed:
         if body.speed not in VALID_SPEEDS:
