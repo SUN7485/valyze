@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -62,53 +63,66 @@ def _verify(password: str, stored: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# User Store  (hardcoded)
+# User Store  (persisted in Supabase `app_users`, seeded from these accounts)
 # ---------------------------------------------------------------------------
 
-USERS = {
-    "superadmin@valyze.com": {
-        "id": "usr_000",
-        "email": "superadmin@valyze.com",
-        "name": "Super Admin",
-        "role": "super_admin",
-        "password_hash": _hash("Superadmin@123"),
-    },
-    "waleed@valyze.com": {
-        "id": "usr_001",
-        "email": "waleed@valyze.com",
-        "name": "Waleed",
-        "role": "admin",
-        "password_hash": _hash("Waleed@123"),
-    },
-    "mohamed@valyze.com": {
-        "id": "usr_002",
-        "email": "mohamed@valyze.com",
-        "name": "Mohamed",
-        "role": "admin",
-        "password_hash": _hash("Mohamed@123"),
-    },
-    "mahmoud@valyze.com": {
-        "id": "usr_003",
-        "email": "mahmoud@valyze.com",
-        "name": "Mahmoud",
-        "role": "admin",
-        "password_hash": _hash("Mahmoud@123"),
-    },
-    "amani@valyze.com": {
-        "id": "usr_004",
-        "email": "amani@valyze.com",
-        "name": "Amani",
-        "role": "admin",
-        "password_hash": _hash("Amani@123"),
-    },
-    "sally@valyze.com": {
-        "id": "usr_005",
-        "email": "sally@valyze.com",
-        "name": "Sally",
-        "role": "admin",
-        "password_hash": _hash("Sally@123"),
-    },
-}
+# Bootstrap accounts. On first run (empty app_users table) these are written to
+# the database. After that, the database is the source of truth and the Users
+# page can add/edit/remove accounts that persist across deploys and instances.
+SEED_USERS = [
+    {"id": "usr_000", "email": "superadmin@valyze.com", "name": "Super Admin", "role": "super_admin", "password": "Superadmin@123"},
+    {"id": "usr_001", "email": "waleed@valyze.com",     "name": "Waleed",      "role": "admin",       "password": "Waleed@123"},
+    {"id": "usr_002", "email": "mohamed@valyze.com",    "name": "Mohamed",     "role": "admin",       "password": "Mohamed@123"},
+    {"id": "usr_003", "email": "mahmoud@valyze.com",    "name": "Mahmoud",     "role": "admin",       "password": "Mahmoud@123"},
+    {"id": "usr_004", "email": "amani@valyze.com",      "name": "Amani",       "role": "admin",       "password": "Amani@123"},
+    {"id": "usr_005", "email": "sally@valyze.com",      "name": "Sally",       "role": "admin",       "password": "Sally@123"},
+]
+
+# Short in-process cache so we don't hit the DB on every assign/login.
+_USERS_TTL = 30.0
+_users_cache: dict = {"data": None, "ts": 0.0}
+
+
+def _seed_rows() -> list[dict]:
+    """Hash the seed accounts into storable rows."""
+    return [
+        {"id": s["id"], "email": s["email"], "name": s["name"], "role": s["role"], "password_hash": _hash(s["password"])}
+        for s in SEED_USERS
+    ]
+
+
+def _invalidate_users_cache() -> None:
+    _users_cache["data"] = None
+    _users_cache["ts"] = 0.0
+
+
+def _load_users(force: bool = False) -> dict:
+    """Return {email_lower: user_row}. Loads from Supabase, seeding on first run.
+    Falls back to in-memory seed accounts if the database is unreachable so the
+    core team can always log in."""
+    now = time.time()
+    cached = _users_cache["data"]
+    if not force and cached is not None and (now - _users_cache["ts"]) < _USERS_TTL:
+        return cached
+
+    rows: list[dict] = []
+    try:
+        from services.supabase_client import get_all_app_users, bulk_insert_app_users
+        rows = get_all_app_users()
+        if not rows:
+            # First run — seed the table, then re-read.
+            bulk_insert_app_users(_seed_rows())
+            rows = get_all_app_users()
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"[WARNING] Could not load users from Supabase ({e}); using in-memory seeds")
+
+    if not rows:
+        rows = _seed_rows()
+
+    by_email = {(r.get("email") or "").lower(): r for r in rows}
+    _users_cache["data"] = by_email
+    _users_cache["ts"] = now
+    return by_email
 
 
 # ---------------------------------------------------------------------------
@@ -129,15 +143,21 @@ def public_user(user: dict) -> dict:
 
 
 def list_users() -> list[dict]:
-    return [public_user(user) for user in USERS.values()]
+    return [public_user(user) for user in _load_users().values()]
 
 
 def get_user_by_id(user_id: str) -> Optional[dict]:
-    return next((user for user in USERS.values() if user["id"] == user_id), None)
+    return next((user for user in _load_users().values() if user["id"] == user_id), None)
 
 
 def _next_user_id() -> str:
-    return f"usr_{len(USERS) + 1:03d}"
+    users = _load_users()
+    max_n = 0
+    for u in users.values():
+        suffix = str(u.get("id") or "").rsplit("_", 1)[-1]
+        if suffix.isdigit():
+            max_n = max(max_n, int(suffix))
+    return f"usr_{max_n + 1:03d}"
 
 
 def require_super_admin(user: dict) -> None:
@@ -148,7 +168,7 @@ def require_super_admin(user: dict) -> None:
 def get_order_assignable_users() -> list[str]:
     return [
         email
-        for email, user in USERS.items()
+        for email, user in _load_users().items()
         if user.get("role") in ORDER_ASSIGNABLE_ROLES
     ]
 
@@ -157,7 +177,7 @@ def create_user(email: str, name: str, role: str, password: str) -> dict:
     normalized_email = _normalize_email(email)
     if not normalized_email:
         raise HTTPException(status_code=400, detail="Email is required")
-    if normalized_email in USERS:
+    if normalized_email in _load_users():
         raise HTTPException(status_code=409, detail="User already exists")
     if role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail=f"Invalid role. Valid: {', '.join(sorted(VALID_ROLES))}")
@@ -171,7 +191,11 @@ def create_user(email: str, name: str, role: str, password: str) -> dict:
         "role": role,
         "password_hash": _hash(password),
     }
-    USERS[normalized_email] = user
+    from services.supabase_client import insert_app_user
+    created = insert_app_user(user)
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create user")
+    _invalidate_users_cache()
     return public_user(user)
 
 
@@ -180,18 +204,19 @@ def update_user(user_id: str, updates: dict) -> dict:
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    normalized_email = None
-    new_role = None
+    patch: dict = {}
 
     if "email" in updates:
         normalized_email = _normalize_email(updates.get("email") or "")
         if not normalized_email:
             raise HTTPException(status_code=400, detail="Email is required")
-        if normalized_email != user["email"] and normalized_email in USERS:
+        existing = _load_users()
+        if normalized_email != user["email"] and normalized_email in existing:
             raise HTTPException(status_code=409, detail="Email already exists")
+        patch["email"] = normalized_email
 
     if "name" in updates:
-        user["name"] = (updates.get("name") or "").strip() or user["email"].split("@", 1)[0]
+        patch["name"] = (updates.get("name") or "").strip() or user["email"].split("@", 1)[0]
 
     if "role" in updates:
         role = updates.get("role") or ""
@@ -199,23 +224,24 @@ def update_user(user_id: str, updates: dict) -> dict:
             raise HTTPException(status_code=400, detail=f"Invalid role. Valid: {', '.join(sorted(VALID_ROLES))}")
         if user["role"] == "super_admin" and role != "super_admin":
             raise HTTPException(status_code=409, detail="Cannot demote the super admin")
-        new_role = role
+        patch["role"] = role
 
     if "password" in updates:
         password = updates.get("password") or ""
         if len(password) < 8:
             raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-        user["password_hash"] = _hash(password)
+        patch["password_hash"] = _hash(password)
 
-    if normalized_email is not None:
-        del USERS[user["email"]]
-        user["email"] = normalized_email
-        USERS[normalized_email] = user
+    if not patch:
+        return public_user(user)
 
-    if new_role is not None:
-        user["role"] = new_role
-
-    return public_user(user)
+    patch["updated_at"] = datetime.now(timezone.utc).isoformat()
+    from services.supabase_client import update_app_user as sb_update_app_user
+    updated = sb_update_app_user(user_id, patch)
+    if updated is None:
+        raise HTTPException(status_code=500, detail="Failed to update user")
+    _invalidate_users_cache()
+    return public_user({**user, **patch})
 
 
 def delete_user(user_id: str) -> dict:
@@ -224,7 +250,10 @@ def delete_user(user_id: str) -> dict:
         raise HTTPException(status_code=404, detail="User not found")
     if user["role"] == "super_admin":
         raise HTTPException(status_code=409, detail="Cannot delete the super admin")
-    del USERS[user["email"]]
+    from services.supabase_client import delete_app_user as sb_delete_app_user
+    if not sb_delete_app_user(user_id):
+        raise HTTPException(status_code=500, detail="Failed to delete user")
+    _invalidate_users_cache()
     return {"deleted": True, "user_id": user_id}
 
 def create_token(user: dict) -> str:
@@ -285,7 +314,7 @@ class UpdateUserRequest(BaseModel):
 @router.post("/login")
 async def login(body: LoginRequest):
     """Authenticate user and return JWT token."""
-    user = USERS.get(_normalize_email(body.email))
+    user = _load_users().get(_normalize_email(body.email))
     if not user or not _verify(body.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
 
