@@ -51,13 +51,17 @@ function GeneratePortalModal({ clientId, onDone }) {
   const [loading, setLoading]     = useState(false)
   const [result, setResult]       = useState(null)
   const [copied, setCopied]       = useState({})
+  const [forever, setForever]     = useState(true)
   const [form, setForm]           = useState({ max_uses: 10, expiry_days: 30 })
   const [error, setError]         = useState('')
 
   const generate = async () => {
     setLoading(true); setError('')
     try {
-      const res = await clientsAPI.generatePortalLink(clientId, form)
+      const payload = forever
+        ? { no_expiry: true }
+        : { no_expiry: false, max_uses: form.max_uses, expiry_days: form.expiry_days }
+      const res = await clientsAPI.generatePortalLink(clientId, payload)
       setResult(res.data)
     } catch (e) { setError(e.message || 'Failed') } finally { setLoading(false) }
   }
@@ -79,16 +83,25 @@ function GeneratePortalModal({ clientId, onDone }) {
         {!result ? (
           <div className="space-y-4">
             {error && <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-600 text-xs font-semibold">{error}</div>}
-            <div className="grid grid-cols-2 gap-4">
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 cursor-pointer">
+              <input type="checkbox" checked={forever} onChange={e => setForever(e.target.checked)} className="w-4 h-4 accent-primary" />
               <div>
-                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Max Uses</label>
-                <input type="number" min="1" value={form.max_uses} onChange={e => setForm(p => ({ ...p, max_uses: Number(e.target.value) }))} className="w-full px-3 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white" />
+                <div className="text-xs font-bold text-slate-700 dark:text-slate-200">Never expires (recommended)</div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">Link stays active until you revoke it from this dashboard.</div>
               </div>
-              <div>
-                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Expiry (days)</label>
-                <input type="number" min="1" value={form.expiry_days} onChange={e => setForm(p => ({ ...p, expiry_days: Number(e.target.value) }))} className="w-full px-3 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white" />
+            </label>
+            {!forever && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Max Uses</label>
+                  <input type="number" min="1" value={form.max_uses} onChange={e => setForm(p => ({ ...p, max_uses: Number(e.target.value) }))} className="w-full px-3 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Expiry (days)</label>
+                  <input type="number" min="1" value={form.expiry_days} onChange={e => setForm(p => ({ ...p, expiry_days: Number(e.target.value) }))} className="w-full px-3 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white" />
+                </div>
               </div>
-            </div>
+            )}
             <div className="flex gap-3 pt-2">
               <button onClick={() => setOpen(false)} className="flex-1 py-3 px-4 border border-slate-200 dark:border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 dark:hover:bg-white/5">Cancel</button>
               <button onClick={generate} disabled={loading} className="flex-1 py-3 px-4 bg-primary text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:opacity-90 shadow-lg shadow-primary/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
@@ -370,7 +383,13 @@ export default function ClientDetailPage() {
                     {sessions.map(session => {
                       const used = session.used ?? session.used_count ?? 0
                       const maxUses = session.max_uses ?? session.maxUses ?? 0
-                      const status = session.revoked_at ? 'revoked' : (new Date(session.expires_at).getTime() < Date.now() ? 'expired' : (used >= maxUses ? 'full' : 'active'))
+                      const neverExpires = session.no_expiry || (session.expires_at && new Date(session.expires_at).getFullYear() >= 2999)
+                      const unlimited = maxUses >= 1000000
+                      const status = session.disabled ? 'disabled'
+                        : session.revoked_at ? 'revoked'
+                        : (!neverExpires && new Date(session.expires_at).getTime() < Date.now()) ? 'expired'
+                        : (!unlimited && used >= maxUses) ? 'full'
+                        : 'active'
                       return (
                         <tr key={session.id} className="group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all">
                           <td className="px-4 py-3">
@@ -380,10 +399,10 @@ export default function ClientDetailPage() {
                             </div>
                           </td>
                           <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{session.created_at ? new Date(session.created_at).toLocaleDateString('en-US') : '-'}</td>
-                          <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{session.expires_at ? new Date(session.expires_at).toLocaleDateString('en-US') : '-'}</td>
-                          <td className="px-4 py-3 text-xs font-bold text-slate-600 dark:text-slate-300">{used != null && maxUses ? `${used}/${maxUses}` : '-'}</td>
+                          <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{neverExpires ? <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Never</span> : (session.expires_at ? new Date(session.expires_at).toLocaleDateString('en-US') : '-')}</td>
+                          <td className="px-4 py-3 text-xs font-bold text-slate-600 dark:text-slate-300">{unlimited ? '∞' : (used != null && maxUses ? `${used}/${maxUses}` : '-')}</td>
                           <td className="px-4 py-3">
-                            {status === 'active' ? <Pill color="green">Active</Pill> : status === 'expired' ? <Pill color="rose">Expired</Pill> : status === 'full' ? <Pill color="amber">Full</Pill> : <Pill>{status}</Pill>}
+                            {status === 'active' ? <Pill color="green">Active</Pill> : status === 'expired' ? <Pill color="rose">Expired</Pill> : status === 'full' ? <Pill color="amber">Full</Pill> : status === 'disabled' ? <Pill color="rose">Disabled</Pill> : <Pill>{status}</Pill>}
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-2">

@@ -2,7 +2,7 @@ import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useDarkMode } from '../hooks/useDarkMode'
 import { useAuth } from '../context/AuthContext'
-import { Sun, Moon, Info, Shield, FileText, ClipboardList, Receipt, LogOut, Building2, Users } from 'lucide-react'
+import { Sun, Moon, Info, Shield, FileText, ClipboardList, ListChecks, Receipt, LogOut, Building2, Users } from 'lucide-react'
 
 export default function Layout({ children }) {
     const { darkMode, toggleDarkMode } = useDarkMode()
@@ -76,8 +76,8 @@ export default function Layout({ children }) {
                                     : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary'
                             }`}
                         >
-                            <ClipboardList size={14} />
-                            Reports
+                            <ListChecks size={14} />
+                            Work Queue
                         </Link>
 
                         <Link

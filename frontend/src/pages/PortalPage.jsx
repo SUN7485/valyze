@@ -1,6 +1,10 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Loader2, X, Plus, Trash2, CheckCircle, Paperclip } from 'lucide-react'
+import {
+  Loader2, X, Plus, Trash2, CheckCircle, Paperclip,
+  ChevronLeft, ChevronRight, Check, Building2, FileText,
+  ClipboardCheck, Gauge, Zap, AlertCircle, Send,
+} from 'lucide-react'
 
 const API_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000')
 
@@ -46,6 +50,46 @@ const REPORT_TYPE_OPTIONS = [
   { value: 'legal', label: 'Legal' },
   { value: 'analysis_financial', label: 'Analysis & Financial' },
 ]
+
+/* Per-company detail fields. Only company_name is mandatory — the rest are
+   "guided": optional but strongly encouraged, and they drive the completeness meter. */
+const COMPANY_FIELDS = [
+  { key: 'registration_no', label: 'Registration / CR Number', placeholder: 'e.g. 1010xxxxxx' },
+  { key: 'address', label: 'Registered Address', placeholder: 'Street, city' },
+  { key: 'requested_limit', label: 'Requested Credit Limit', placeholder: 'e.g. SAR 500,000' },
+  { key: 'vat_no', label: 'VAT Number', placeholder: 'Optional' },
+  { key: 'phone', label: 'Phone', placeholder: 'Optional' },
+]
+
+/* Documents we recommend the client attaches for the most accurate report.
+   Informational only — never blocks submission. */
+const DOC_CHECKLIST = [
+  'Commercial Registration (CR)',
+  'Latest Financial Statements',
+  'VAT / Tax Certificate',
+  'Trade License',
+]
+
+const EMPTY_COMPANY = {
+  company_name: '', country: '', registration_no: '',
+  address: '', requested_limit: '', vat_no: '', phone: '', comments: '',
+}
+
+const WIZARD_STEPS = [
+  { id: 'service',   label: 'Service',   icon: Zap },
+  { id: 'companies', label: 'Companies', icon: Building2 },
+  { id: 'documents', label: 'Documents', icon: FileText },
+  { id: 'review',    label: 'Review',    icon: ClipboardCheck },
+]
+
+/* Completeness for a single company: 1 (name) + filled optional fields, out of total. */
+function companyCompleteness(company) {
+  const optionalKeys = [...COMPANY_FIELDS.map(f => f.key), 'country', 'comments']
+  const total = optionalKeys.length + 1 // +1 for the mandatory name
+  let filled = company.company_name.trim() ? 1 : 0
+  optionalKeys.forEach(k => { if (String(company[k] || '').trim()) filled += 1 })
+  return { filled, total, pct: Math.round((filled / total) * 100) }
+}
 
 /* Login Screen */
 function LoginScreen({ token, onAuthenticated }) {
@@ -98,15 +142,19 @@ function LoginScreen({ token, onAuthenticated }) {
   )
 }
 
-/* Order Form */
+/* Shared input styling */
+const FIELD_CLS = 'w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none text-sm transition-all'
+
+/* Order Form — guided multi-step wizard */
 function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
+  const [step, setStep] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [speed, setSpeed] = useState('5_days')
   const [reportTypes, setReportTypes] = useState(['credit_report'])
   const [notes, setNotes] = useState('')
   const [clientRef, setClientRef] = useState('')
-  const [companies, setCompanies] = useState([{ company_name: '', country: '', comments: '' }])
+  const [companies, setCompanies] = useState([{ ...EMPTY_COMPANY }])
   const [filesPerCompany, setFilesPerCompany] = useState([[]])
 
   const MAX_FILES_PER_COMPANY = 5
@@ -114,30 +162,66 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
   const ALLOWED_EXTENSIONS = new Set(['.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg', '.tiff', '.xlsx', '.xls', '.csv', '.txt'])
 
   const addCompany = () => {
-    setCompanies(prev => [...prev, { company_name: '', country: '', comments: '' }])
+    setCompanies(prev => [...prev, { ...EMPTY_COMPANY }])
     setFilesPerCompany(prev => [...prev, []])
   }
-
   const removeCompany = (i) => {
     setCompanies(prev => prev.filter((_, idx) => idx !== i))
     setFilesPerCompany(prev => prev.filter((_, idx) => idx !== i))
   }
-
   const updateCompany = (i, field, value) =>
     setCompanies(prev => prev.map((c, idx) => idx === i ? { ...c, [field]: value } : c))
+  const toggleReportType = (value) =>
+    setReportTypes(prev => prev.includes(value) ? prev.filter(t => t !== value) : [...prev, value])
 
-  const toggleReportType = (value) => {
-    setReportTypes(prev =>
-      prev.includes(value) ? prev.filter(t => t !== value) : [...prev, value]
-    )
+  const addFiles = (i, fileList) => {
+    const files = Array.from(fileList || [])
+    const ext = files.map(f => f.name.slice(f.name.lastIndexOf('.')).toLowerCase())
+    if (ext.some(x => !ALLOWED_EXTENSIONS.has(x))) {
+      setError(`Invalid file type. Allowed: ${[...ALLOWED_EXTENSIONS].join(', ')}`); return
+    }
+    if (files.some(f => f.size > MAX_FILE_SIZE_MB * 1024 * 1024)) {
+      setError(`Files must be under ${MAX_FILE_SIZE_MB}MB each`); return
+    }
+    if ((filesPerCompany[i]?.length || 0) + files.length > MAX_FILES_PER_COMPANY) {
+      setError(`Maximum ${MAX_FILES_PER_COMPANY} files per company`); return
+    }
+    setError('')
+    setFilesPerCompany(prev => prev.map((ef, idx) => idx === i ? [...ef, ...files] : ef))
+  }
+  const removeFile = (i, fi) =>
+    setFilesPerCompany(prev => prev.map((ef, idx) => idx === i ? ef.filter((_, fj) => fj !== fi) : ef))
+
+  const namedCompanies = companies.filter(c => c.company_name.trim())
+  const totalFiles = filesPerCompany.reduce((s, f) => s + f.length, 0)
+
+  // Overall completeness across all companies (drives the meter).
+  const overall = useMemo(() => {
+    if (!companies.length) return 0
+    const sum = companies.reduce((s, c) => s + companyCompleteness(c).pct, 0)
+    return Math.round(sum / companies.length)
+  }, [companies])
+
+  const selectedTier = SPEED_TIERS[speed]
+
+  // Per-step gating — only the company NAME is ever mandatory.
+  const canAdvance = () => {
+    if (step === 0) return reportTypes.length > 0
+    if (step === 1) return namedCompanies.length > 0
+    return true
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    const validCompanies = companies.filter(c => c.company_name.trim())
-    if (!validCompanies.length) { setError('At least one company name is required.'); return }
-    if (!reportTypes.length) { setError('Select at least one report type.'); return }
+  const goNext = () => {
+    if (!canAdvance()) {
+      setError(step === 0 ? 'Select at least one report type.' : 'At least one company name is required.')
+      return
+    }
+    setError(''); setStep(s => Math.min(s + 1, WIZARD_STEPS.length - 1))
+  }
+  const goBack = () => { setError(''); setStep(s => Math.max(s - 1, 0)) }
 
+  const handleSubmit = async () => {
+    if (!namedCompanies.length) { setError('At least one company name is required.'); setStep(1); return }
     setLoading(true); setError('')
     try {
       const formData = new FormData()
@@ -146,17 +230,18 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
         report_types: reportTypes,
         client_ref: clientRef || undefined,
         notes: notes || undefined,
-        companies: validCompanies,
+        companies: namedCompanies,
       }
       formData.append('order_data', JSON.stringify(orderData))
-
-      filesPerCompany.forEach((files, companyIndex) => {
-        files.forEach(file => {
+      // Only attach files for companies that have a name (indexes must map to named list).
+      companies.forEach((c, idx) => {
+        if (!c.company_name.trim()) return
+        const mappedIndex = namedCompanies.findIndex(nc => nc === c)
+        ;(filesPerCompany[idx] || []).forEach(file => {
           formData.append('files', file)
-          formData.append('file_company_indexes', String(companyIndex))
+          formData.append('file_company_indexes', String(mappedIndex))
         })
       })
-
       const result = await portalRequest('/api/portal/submit-order-with-files', {
         method: 'POST',
         headers: { Authorization: `Bearer ${portalToken}` },
@@ -168,220 +253,260 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
     } finally { setLoading(false) }
   }
 
-  const selectedTier = SPEED_TIERS[speed]
-
   return (
-    <div className="min-h-screen p-6" style={{ background: 'linear-gradient(135deg, #08111c 0%, #0D1B2A 48%, #07101a 100%)' }}>
+    <div className="min-h-screen p-4 md:p-6" style={{ background: 'linear-gradient(135deg, #08111c 0%, #0D1B2A 48%, #07101a 100%)' }}>
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
+        {/* Header */}
+        <div className="flex items-end justify-between mb-6">
           <div>
             <div className="text-amber-400 font-extrabold text-lg tracking-[0.3em] mb-1">VALYZE</div>
             <h1 className="text-white text-2xl font-black">New Order</h1>
             <p className="text-white/50 text-sm mt-1">Welcome, {clientName}</p>
           </div>
+          <div className="flex items-center gap-2 text-right">
+            <Gauge size={16} className="text-amber-400" />
+            <div>
+              <div className="text-white font-black text-lg leading-none">{overall}%</div>
+              <div className="text-white/40 text-[10px] uppercase tracking-wider">Complete</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Stepper */}
+        <div className="flex items-center mb-6">
+          {WIZARD_STEPS.map((s, idx) => {
+            const Icon = s.icon
+            const active = idx === step
+            const done = idx < step
+            return (
+              <React.Fragment key={s.id}>
+                <button
+                  type="button"
+                  onClick={() => idx < step && setStep(idx)}
+                  disabled={idx > step}
+                  className={`flex flex-col items-center gap-1.5 ${idx <= step ? 'cursor-pointer' : 'cursor-default'}`}
+                >
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${
+                    active ? 'bg-amber-400 border-amber-400 text-gray-900 scale-110 shadow-lg shadow-amber-400/30'
+                    : done ? 'bg-emerald-400/20 border-emerald-400 text-emerald-400'
+                    : 'bg-white/5 border-white/15 text-white/40'
+                  }`}>
+                    {done ? <Check size={18} /> : <Icon size={16} />}
+                  </div>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${active ? 'text-amber-400' : done ? 'text-emerald-400/80' : 'text-white/40'}`}>{s.label}</span>
+                </button>
+                {idx < WIZARD_STEPS.length - 1 && (
+                  <div className={`flex-1 h-0.5 mx-1 mb-5 rounded transition-all ${idx < step ? 'bg-emerald-400/50' : 'bg-white/10'}`} />
+                )}
+              </React.Fragment>
+            )
+          })}
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-center gap-2">
-            <X size={16} />{error}
+          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-center gap-2">
+            <AlertCircle size={16} className="flex-shrink-0" />{error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Speed Section */}
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-            <label className="block text-white/70 text-sm font-bold mb-3">Service Speed</label>
-            <select
-              value={speed}
-              onChange={(e) => setSpeed(e.target.value)}
-              className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:border-amber-400 outline-none text-sm mb-3"
-            >
-              {Object.entries(SPEED_TIERS).map(([key, val]) => (
-                <option key={key} value={key} className="bg-gray-900 text-white">{val.label}</option>
-              ))}
-            </select>
-            <div className="flex items-center gap-2">
-              <span className="text-white/50 text-xs">Tier:</span>
-              <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-bold ${selectedTier?.tierClass || ''}`}>
-                {selectedTier?.tier || 'Standard'}
-              </span>
-            </div>
-          </div>
-
-          {/* Details */}
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 space-y-4">
-            {/* Report Types */}
-            <div>
-              <label className="block text-white/70 text-sm font-bold mb-3">Report Types</label>
-              <div className="grid grid-cols-2 gap-2">
-                {REPORT_TYPE_OPTIONS.map(opt => (
-                  <label
-                    key={opt.value}
-                    className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-medium cursor-pointer transition-all ${
-                      reportTypes.includes(opt.value)
-                        ? 'bg-amber-400/10 border-amber-400/40 text-amber-300'
-                        : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={reportTypes.includes(opt.value)}
-                      onChange={() => toggleReportType(opt.value)}
-                      className="accent-amber-400 w-4 h-4"
-                    />
-                    {opt.label}
-                  </label>
+        {/* ---------- STEP 0: SERVICE ---------- */}
+        {step === 0 && (
+          <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
+              <label className="block text-white/70 text-sm font-bold mb-3">Service Speed</label>
+              <select value={speed} onChange={e => setSpeed(e.target.value)} className={FIELD_CLS + ' mb-3'}>
+                {Object.entries(SPEED_TIERS).map(([key, val]) => (
+                  <option key={key} value={key} className="bg-gray-900 text-white">{val.label}</option>
                 ))}
+              </select>
+              <div className="flex items-center gap-2">
+                <span className="text-white/50 text-xs">Tier:</span>
+                <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-bold ${selectedTier?.tierClass || ''}`}>{selectedTier?.tier || 'Standard'}</span>
+                <span className="text-white/30 text-xs ml-auto">Due date auto-calculated</span>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 space-y-4">
               <div>
-                <label className="block text-white/70 text-sm font-bold mb-2">Your Reference</label>
-                <input
-                  type="text"
-                  value={clientRef}
-                  onChange={e => setClientRef(e.target.value)}
-                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:border-amber-400 outline-none text-sm"
-                  placeholder="e.g., PO-12345"
-                />
-              </div>
-              <div>
-                <label className="block text-white/70 text-sm font-bold mb-2">Due Date</label>
-                <div className="px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white/50 text-sm">
-                  Auto-calculated after submission
+                <label className="block text-white/70 text-sm font-bold mb-3">Report Types <span className="text-amber-400/70 font-normal">· pick at least one</span></label>
+                <div className="grid grid-cols-2 gap-2">
+                  {REPORT_TYPE_OPTIONS.map(opt => (
+                    <label key={opt.value} className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-medium cursor-pointer transition-all ${
+                      reportTypes.includes(opt.value) ? 'bg-amber-400/10 border-amber-400/40 text-amber-300' : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10'
+                    }`}>
+                      <input type="checkbox" checked={reportTypes.includes(opt.value)} onChange={() => toggleReportType(opt.value)} className="accent-amber-400 w-4 h-4" />
+                      {opt.label}
+                    </label>
+                  ))}
                 </div>
               </div>
-            </div>
-
-            <div>
-              <label className="block text-white/70 text-sm font-bold mb-2">Notes</label>
-              <textarea
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                rows={2}
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:border-amber-400 outline-none text-sm resize-none"
-                placeholder="Any additional instructions..."
-              />
+              <div>
+                <label className="block text-white/70 text-sm font-bold mb-2">Your Reference <span className="text-white/30 font-normal">· optional</span></label>
+                <input type="text" value={clientRef} onChange={e => setClientRef(e.target.value)} className={FIELD_CLS} placeholder="e.g., PO-12345" />
+              </div>
             </div>
           </div>
+        )}
 
-          {/* Companies */}
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-white font-bold text-sm">Companies</h2>
-              <button
-                type="button"
-                onClick={addCompany}
-                className="flex items-center gap-1 px-3 py-1.5 bg-amber-400/10 text-amber-400 rounded-lg text-xs font-bold hover:bg-amber-400/20 transition-all"
-              >
-                <Plus size={14} /> Add Company
+        {/* ---------- STEP 1: COMPANIES ---------- */}
+        {step === 1 && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+            <div className="flex items-center justify-between">
+              <p className="text-white/50 text-xs">Only the <span className="text-amber-400 font-bold">company name</span> is required. The more details you add, the faster and more accurate your report.</p>
+              <button type="button" onClick={addCompany} className="flex items-center gap-1 px-3 py-1.5 bg-amber-400/10 text-amber-400 rounded-lg text-xs font-bold hover:bg-amber-400/20 transition-all flex-shrink-0 ml-3">
+                <Plus size={14} /> Add
               </button>
             </div>
-            <div className="space-y-3">
-              {companies.map((company, i) => (
-                <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+            {companies.map((company, i) => {
+              const comp = companyCompleteness(company)
+              return (
+                <div key={i} className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-white/50 text-xs font-bold">Company {i + 1}</span>
-                    {companies.length > 1 && (
-                      <button type="button" onClick={() => removeCompany(i)} className="text-red-400 hover:text-red-300">
-                        <Trash2 size={14} />
-                      </button>
-                    )}
+                    <span className="text-white font-bold text-sm flex items-center gap-2"><Building2 size={14} className="text-amber-400" /> Company {i + 1}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-bold text-white/40">{comp.filled}/{comp.total} details</span>
+                      {companies.length > 1 && (
+                        <button type="button" onClick={() => removeCompany(i)} className="text-red-400 hover:text-red-300"><Trash2 size={14} /></button>
+                      )}
+                    </div>
                   </div>
-                  <input
-                    type="text"
-                    value={company.company_name}
-                    onChange={e => updateCompany(i, 'company_name', e.target.value)}
-                    placeholder="Company name *"
-                    required
-                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:border-amber-400 outline-none text-sm"
-                  />
-                  <div className="grid grid-cols-2 gap-3">
-                    <select
-                      value={company.country}
-                      onChange={e => updateCompany(i, 'country', e.target.value)}
-                      className="px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white focus:border-amber-400 outline-none text-sm"
-                    >
-                      {SUPPORTED_COUNTRIES.map(c => (
-                        <option key={c.value} value={c.value} className="bg-gray-900">{c.label}</option>
-                      ))}
-                    </select>
-                    <input
-                      type="text"
-                      value={company.comments}
-                      onChange={e => updateCompany(i, 'comments', e.target.value)}
-                      placeholder="Comments"
-                      className="px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:border-amber-400 outline-none text-sm"
-                    />
+                  {/* completeness bar */}
+                  <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-500" style={{ width: `${comp.pct}%` }} />
                   </div>
 
-                  {/* File attachments */}
-                  <div className="pt-2">
-                    <label className="block text-white/70 text-xs font-bold mb-2">Documents</label>
-                    <label
-                      htmlFor={`files-${i}`}
-                      className="flex items-center justify-center gap-2 px-3 py-2 bg-white/5 border border-dashed border-white/10 rounded-xl text-white/50 text-xs font-medium cursor-pointer hover:border-amber-400/50 transition-all"
-                    >
-                      <Paperclip size={12} />
-                      <span>{filesPerCompany[i]?.length ? `${filesPerCompany[i].length} file(s) selected` : 'Attach files'}</span>
-                      <input
-                        id={`files-${i}`}
-                        type="file"
-                        multiple
-                        accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.tiff,.xlsx,.xls,.csv,.txt"
-                        onChange={e => {
-                          const files = Array.from(e.target.files || [])
-                          const ext = files.map(f => f.name.slice(f.name.lastIndexOf('.')).toLowerCase())
-                          if (ext.some(x => !ALLOWED_EXTENSIONS.has(x))) {
-                            setError(`Invalid file type. Allowed: ${[...ALLOWED_EXTENSIONS].join(', ')}`)
-                            return
-                          }
-                          if (files.some(f => f.size > MAX_FILE_SIZE_MB * 1024 * 1024)) {
-                            setError(`Files must be under ${MAX_FILE_SIZE_MB}MB each`)
-                            return
-                          }
-                          if ((filesPerCompany[i]?.length || 0) + files.length > MAX_FILES_PER_COMPANY) {
-                            setError(`Maximum ${MAX_FILES_PER_COMPANY} files per company`)
-                            return
-                          }
-                          setFilesPerCompany(prev => prev.map((ef, idx) => idx === i ? [...ef, ...files] : ef))
-                          e.target.value = ''
-                        }}
-                        className="hidden"
-                      />
-                    </label>
-                    {filesPerCompany[i]?.length > 0 && (
-                      <ul className="mt-2 space-y-1">
-                        {filesPerCompany[i].map((f, fi) => (
-                          <li key={fi} className="flex items-center justify-between text-xs text-white/70 bg-white/5 rounded-lg px-2 py-1">
-                            <span className="truncate">{f.name}</span>
-                            <button
-                              type="button"
-                              onClick={() => setFilesPerCompany(prev => prev.map((ef, idx) => idx === i ? ef.filter((_, fj) => fj !== fi) : ef))}
-                              className="text-red-400 hover:text-red-300 text-xs ml-2"
-                            >
-                              X
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                  <div>
+                    <label className="block text-white/70 text-xs font-bold mb-1.5">Company Name <span className="text-amber-400">*</span></label>
+                    <input type="text" value={company.company_name} onChange={e => updateCompany(i, 'company_name', e.target.value)} placeholder="Legal company name" className={FIELD_CLS} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-white/70 text-xs font-bold mb-1.5">Country</label>
+                      <select value={company.country} onChange={e => updateCompany(i, 'country', e.target.value)} className={FIELD_CLS}>
+                        {SUPPORTED_COUNTRIES.map(c => <option key={c.value} value={c.value} className="bg-gray-900">{c.label}</option>)}
+                      </select>
+                    </div>
+                    {COMPANY_FIELDS.map(f => (
+                      <div key={f.key}>
+                        <label className="block text-white/70 text-xs font-bold mb-1.5">{f.label}</label>
+                        <input type="text" value={company[f.key]} onChange={e => updateCompany(i, f.key, e.target.value)} placeholder={f.placeholder} className={FIELD_CLS} />
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <label className="block text-white/70 text-xs font-bold mb-1.5">Comments</label>
+                    <input type="text" value={company.comments} onChange={e => updateCompany(i, 'comments', e.target.value)} placeholder="Anything we should know about this company" className={FIELD_CLS} />
                   </div>
                 </div>
-              ))}
+              )
+            })}
+          </div>
+        )}
+
+        {/* ---------- STEP 2: DOCUMENTS ---------- */}
+        {step === 2 && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+            <div className="bg-amber-400/5 border border-amber-400/20 rounded-2xl p-4">
+              <div className="flex items-center gap-2 text-amber-300 text-xs font-bold mb-2"><ClipboardCheck size={14} /> Recommended documents</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {DOC_CHECKLIST.map(d => (
+                  <div key={d} className="flex items-center gap-1.5 text-white/60 text-xs"><Check size={12} className="text-emerald-400/70 flex-shrink-0" />{d}</div>
+                ))}
+              </div>
+              <p className="text-white/30 text-[11px] mt-2">Optional — but attaching these speeds up your report significantly.</p>
+            </div>
+
+            {namedCompanies.length === 0 && (
+              <div className="text-white/40 text-sm text-center py-6">Add a company in the previous step to attach documents.</div>
+            )}
+
+            {companies.map((company, i) => {
+              if (!company.company_name.trim()) return null
+              return (
+                <div key={i} className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-white font-bold text-sm flex items-center gap-2"><Building2 size={14} className="text-amber-400" /> {company.company_name}</span>
+                    <span className="text-[10px] font-bold text-white/40">{filesPerCompany[i]?.length || 0}/{MAX_FILES_PER_COMPANY} files</span>
+                  </div>
+                  <label htmlFor={`files-${i}`} className="flex items-center justify-center gap-2 px-3 py-4 bg-white/5 border border-dashed border-white/15 rounded-xl text-white/50 text-xs font-medium cursor-pointer hover:border-amber-400/50 hover:text-amber-300 transition-all">
+                    <Paperclip size={14} />
+                    <span>Click to attach documents</span>
+                    <input id={`files-${i}`} type="file" multiple accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.tiff,.xlsx,.xls,.csv,.txt"
+                      onChange={e => { addFiles(i, e.target.files); e.target.value = '' }} className="hidden" />
+                  </label>
+                  {filesPerCompany[i]?.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {filesPerCompany[i].map((f, fi) => (
+                        <li key={fi} className="flex items-center justify-between text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2">
+                          <span className="truncate flex items-center gap-2"><FileText size={12} className="text-amber-400/70 flex-shrink-0" />{f.name}</span>
+                          <button type="button" onClick={() => removeFile(i, fi)} className="text-red-400 hover:text-red-300 ml-2"><X size={14} /></button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ---------- STEP 3: REVIEW ---------- */}
+        {step === 3 && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 space-y-4">
+              <h2 className="text-white font-black text-sm uppercase tracking-wider">Review your order</h2>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><div className="text-white/40 text-xs">Speed</div><div className="text-white font-bold">{selectedTier?.label} · {selectedTier?.tier}</div></div>
+                <div><div className="text-white/40 text-xs">Report Types</div><div className="text-white font-bold">{reportTypes.map(t => REPORT_TYPE_OPTIONS.find(o => o.value === t)?.label || t).join(', ')}</div></div>
+                {clientRef && <div><div className="text-white/40 text-xs">Your Reference</div><div className="text-white font-bold">{clientRef}</div></div>}
+                <div><div className="text-white/40 text-xs">Documents</div><div className="text-white font-bold">{totalFiles} file(s)</div></div>
+              </div>
+              <div>
+                <div className="text-white/40 text-xs mb-2">Companies ({namedCompanies.length})</div>
+                <div className="space-y-2">
+                  {namedCompanies.map((c, idx) => {
+                    const realIdx = companies.findIndex(cc => cc === c)
+                    return (
+                      <div key={idx} className="bg-white/5 rounded-xl px-3 py-2 flex items-center justify-between">
+                        <div>
+                          <div className="text-white font-bold text-sm">{c.company_name}</div>
+                          <div className="text-white/40 text-xs">{[c.country, c.registration_no, c.requested_limit].filter(Boolean).join(' · ') || 'No extra details'}</div>
+                        </div>
+                        <span className="text-[10px] text-white/40 font-bold">{(filesPerCompany[realIdx]?.length || 0)} files</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
+              <label className="block text-white/70 text-sm font-bold mb-2">Notes <span className="text-white/30 font-normal">· optional</span></label>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className={FIELD_CLS + ' resize-none'} placeholder="Any additional instructions for the analyst..." />
             </div>
           </div>
+        )}
 
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-4 bg-gradient-to-r from-amber-400 to-amber-300 text-gray-900 font-extrabold rounded-xl hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-sm uppercase tracking-wider"
-          >
-            {loading ? <><Loader2 size={18} className="animate-spin" /> Submitting...</> : 'Submit Order'}
-          </button>
-        </form>
+        {/* ---------- NAV ---------- */}
+        <div className="flex items-center gap-3 mt-6">
+          {step > 0 && (
+            <button type="button" onClick={goBack} disabled={loading}
+              className="px-5 py-3.5 bg-white/5 border border-white/10 text-white/70 rounded-xl text-sm font-bold hover:bg-white/10 transition-all flex items-center gap-2 disabled:opacity-50">
+              <ChevronLeft size={16} /> Back
+            </button>
+          )}
+          {step < WIZARD_STEPS.length - 1 ? (
+            <button type="button" onClick={goNext}
+              className="flex-1 py-3.5 bg-gradient-to-r from-amber-400 to-amber-300 text-gray-900 font-extrabold rounded-xl hover:opacity-90 transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider">
+              Continue <ChevronRight size={16} />
+            </button>
+          ) : (
+            <button type="button" onClick={handleSubmit} disabled={loading}
+              className="flex-1 py-3.5 bg-gradient-to-r from-emerald-400 to-emerald-300 text-gray-900 font-extrabold rounded-xl hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-sm uppercase tracking-wider">
+              {loading ? <><Loader2 size={18} className="animate-spin" /> Submitting...</> : <><Send size={16} /> Submit Order</>}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

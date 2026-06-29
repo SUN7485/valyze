@@ -324,6 +324,8 @@ async def _load_portal_session(portal_client: Dict[str, str]) -> Dict[str, Any]:
     session = await _get_session(portal_client["session_id"])
     if not session or session.get("client_id") != portal_client["client_id"]:
         raise HTTPException(status_code=401, detail="Invalid portal session")
+    if session.get("disabled"):
+        raise HTTPException(status_code=401, detail="This portal link has been disabled")
     return session
 
 
@@ -657,9 +659,14 @@ async def portal_auth(body: PortalAuthRequest):
     if not session:
         raise HTTPException(status_code=401, detail="Invalid portal token")
 
-    expires_at = _parse_datetime(session.get("expires_at"))
-    if expires_at and expires_at <= datetime.now(timezone.utc):
-        raise HTTPException(status_code=401, detail="Portal session expired")
+    if session.get("disabled"):
+        raise HTTPException(status_code=401, detail="This portal link has been disabled")
+
+    # Forever links (no_expiry) skip the expiry check.
+    if not session.get("no_expiry"):
+        expires_at = _parse_datetime(session.get("expires_at"))
+        if expires_at and expires_at <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=401, detail="Portal session expired")
 
     max_uses = session.get("max_uses")
     used_count = int(session.get("used_count") or 0)

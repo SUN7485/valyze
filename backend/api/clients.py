@@ -46,6 +46,8 @@ SESSION_FIELDS = (
     "used_count",
     "max_uses",
     "created_at",
+    "no_expiry",
+    "disabled",
 )
 
 ACTIVE_SESSION_FIELDS = (
@@ -84,8 +86,16 @@ class ClientUpdate(BaseModel):
 
 
 class PortalLinkRequest(BaseModel):
-    max_uses: int = Field(default=10, ge=1, le=1000)
-    expiry_days: int = Field(default=30, ge=1, le=3650)
+    # By default a portal link never expires and has unlimited uses.
+    # It stays active until an admin revokes/disables it from the dashboard.
+    no_expiry: bool = True
+    max_uses: Optional[int] = Field(default=None, ge=1, le=1000000)
+    expiry_days: Optional[int] = Field(default=None, ge=1, le=3650)
+
+
+# Sentinels for "forever" links
+FOREVER_EXPIRES_AT = "2999-12-31T23:59:59+00:00"
+UNLIMITED_USES = 1_000_000
 
 
 def _model_dump(model: BaseModel) -> Dict[str, Any]:
@@ -124,13 +134,23 @@ def _generate_password_plain() -> str:
 
 
 def _is_valid_session(session: Dict[str, Any]) -> bool:
-    expires_at = _parse_datetime(session.get("expires_at"))
-    if expires_at is None:
+    # An admin-disabled session is never valid.
+    if session.get("disabled"):
         return False
 
     used_count = int(session.get("used_count") or 0)
     max_uses = int(session.get("max_uses") or 0)
-    return datetime.now(timezone.utc) < expires_at and used_count < max_uses
+    if max_uses and used_count >= max_uses:
+        return False
+
+    # Forever links skip the expiry check entirely.
+    if session.get("no_expiry"):
+        return True
+
+    expires_at = _parse_datetime(session.get("expires_at"))
+    if expires_at is None:
+        return False
+    return datetime.now(timezone.utc) < expires_at
 
 
 def _public_order(order: Dict[str, Any]) -> Dict[str, Any]:
@@ -270,8 +290,17 @@ async def generate_portal_link(
     request = body or PortalLinkRequest()
     token = secrets.token_hex(16)
     password_plain = _generate_password_plain()
-    expires_at = datetime.now(timezone.utc) + timedelta(days=request.expiry_days)
     portal_url = f"{PORTAL_URL}/portal?token={token}"
+
+    # A link is "forever" when no_expiry is set or no expiry_days was provided.
+    no_expiry = request.no_expiry or request.expiry_days is None
+    if no_expiry:
+        expires_at_iso = FOREVER_EXPIRES_AT
+    else:
+        expires_at_iso = (datetime.now(timezone.utc) + timedelta(days=request.expiry_days)).isoformat()
+
+    # None max_uses means unlimited.
+    max_uses = request.max_uses if request.max_uses is not None else UNLIMITED_USES
 
     session = create_client_session_record(
         {
@@ -280,9 +309,11 @@ async def generate_portal_link(
             "password_hash": _hash_password(password_plain),
             "password_plain_temp": password_plain,
             "portal_url": portal_url,
-            "expires_at": expires_at.isoformat(),
+            "expires_at": expires_at_iso,
+            "no_expiry": no_expiry,
+            "disabled": False,
             "used_count": 0,
-            "max_uses": request.max_uses,
+            "max_uses": max_uses,
         }
     )
     if not session:
@@ -292,7 +323,8 @@ async def generate_portal_link(
         "token": session.get("token"),
         "password_plain": password_plain,
         "portal_url": portal_url,
-        "expires_at": session.get("expires_at") or expires_at.isoformat(),
+        "expires_at": None if no_expiry else (session.get("expires_at") or expires_at_iso),
+        "no_expiry": no_expiry,
         "session_id": session.get("id"),
     }
 
