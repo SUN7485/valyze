@@ -307,7 +307,7 @@ export default function OrderdsPage() {
         <div className="py-8 px-6 max-w-7xl mx-auto">
             <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Work Queue</h1>
+                    <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Orders</h1>
                     <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
                         Individual reports sorted by due date. Each row represents one company report.
                     </p>

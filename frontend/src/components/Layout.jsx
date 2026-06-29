@@ -65,7 +65,7 @@ export default function Layout({ children }) {
                             }`}
                         >
                             <ClipboardList size={14} />
-                            Orders
+                            Batch
                         </Link>
 
                         <Link
@@ -77,7 +77,7 @@ export default function Layout({ children }) {
                             }`}
                         >
                             <ListChecks size={14} />
-                            Work Queue
+                            Orders
                         </Link>
 
                         <Link

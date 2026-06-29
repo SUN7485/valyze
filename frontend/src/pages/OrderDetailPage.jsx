@@ -135,7 +135,7 @@ function NotesModal({ order, isOpen, onClose, onSave, saving }) {
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-300">
                 <div className="p-6 border-b border-slate-100 dark:border-white/5 flex items-start justify-between gap-4">
                     <div>
-                        <h3 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Edit Order Notes</h3>
+                        <h3 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Edit Batch Notes</h3>
                         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">{order?.order_number || 'Order notes'}</p>
                     </div>
                     <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500" aria-label="Close notes modal">
@@ -455,7 +455,7 @@ function CompaniesSection({ orderId, companies, onStarted, onCompleted }) {
         <section>
             <div className="flex items-center justify-between mb-4">
                 <div>
-                    <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">Companies in this Order</h2>
+                    <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">Companies in this Batch</h2>
                     <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">{companies.length} companies attached to this order</p>
                 </div>
             </div>
@@ -621,7 +621,7 @@ export default function OrderDetailPage() {
                 onClick={() => navigate('/orders')}
                 className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-primary transition-colors"
             >
-                <ArrowLeft size={16} /> Back to Orders
+                <ArrowLeft size={16} /> Back to Batches
             </button>
 
             {error && (
@@ -647,7 +647,7 @@ export default function OrderDetailPage() {
                 <>
                     <div className="flex items-center justify-between mb-6">
                         <div>
-                            <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Order Detail</h1>
+                            <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Batch Detail</h1>
                             <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Manage companies, reports, and invoice generation.</p>
                         </div>
                         <button

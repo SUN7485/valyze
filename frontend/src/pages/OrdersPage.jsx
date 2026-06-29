@@ -245,9 +245,9 @@ export default function OrdersPage() {
         <div className="py-8 px-6 max-w-7xl mx-auto">
             <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
                 <div>
-                    <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Orders Management</h1>
+                    <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Batches</h1>
                     <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-                        Track client orders, company progress, deadlines, and invoice readiness.
+                        Track client batches, company progress, deadlines, and invoice readiness.
                     </p>
                 </div>
                 <button
@@ -262,7 +262,7 @@ export default function OrdersPage() {
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
                 {[
-                    { label: 'Total Orders', value: counts.total, className: 'bg-slate-900 dark:bg-white text-white dark:text-slate-900' },
+                    { label: 'Total Batches', value: counts.total, className: 'bg-slate-900 dark:bg-white text-white dark:text-slate-900' },
                     { label: 'Pending', value: counts.pending, className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
                     { label: 'In Progress', value: counts.inProgress, className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
                     { label: 'Completed', value: counts.completed, className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' },
@@ -342,7 +342,7 @@ export default function OrdersPage() {
                     <div className="w-16 h-16 bg-slate-100 dark:bg-white/5 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-4">
                         <AlertCircle size={32} />
                     </div>
-                    <h3 className="text-lg font-black text-slate-600 dark:text-slate-300 mb-2">No Orders Found</h3>
+                    <h3 className="text-lg font-black text-slate-600 dark:text-slate-300 mb-2">No Batches Found</h3>
                     <p className="text-slate-400 text-sm">Try changing the status, analyst, or search filter.</p>
                 </div>
             ) : (
