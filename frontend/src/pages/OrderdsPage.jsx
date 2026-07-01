@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, CalendarClock, Loader2, RefreshCw, Search, X, ChevronDown, ChevronUp } from 'lucide-react'
-import { ordersAPI } from '../api/client'
+import { clientsAPI, ordersAPI } from '../api/client'
 
 const STATUS_TABS = [
     { value: 'all', label: 'All' },
@@ -39,6 +39,15 @@ const SUPPORTED_COUNTRIES = [
     { value: 'Qatar', label: 'Qatar' },
     { value: 'Bahrain', label: 'Bahrain' },
     { value: 'Oman', label: 'Oman' },
+]
+
+const ANALYST_FILTERS = [
+    { value: 'all', label: 'All Researchers' },
+    { value: 'waleed@valyze.com', label: 'Waleed' },
+    { value: 'mohamed@valyze.com', label: 'Mohamed' },
+    { value: 'mahmoud@valyze.com', label: 'Mahmoud' },
+    { value: 'amani@valyze.com', label: 'Amani' },
+    { value: 'sally@valyze.com', label: 'Sally' },
 ]
 
 function useDebounce(value, delay) {
@@ -226,13 +235,17 @@ function OrderRow({ order }) {
 export default function OrderdsPage() {
     const navigate = useNavigate()
     const [orders, setOrders] = useState([])
+    const [clients, setClients] = useState([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [searchInput, setSearchInput] = useState('')
     const [statusFilter, setStatusFilter] = useState('all')
     const [countryFilter, setCountryFilter] = useState('')
+    const [clientFilter, setClientFilter] = useState('all')
     const [researcherFilter, setResearcherFilter] = useState('all')
     const [reportTypeFilter, setReportTypeFilter] = useState('all')
+    const [dateFrom, setDateFrom] = useState('')
+    const [dateTo, setDateTo] = useState('')
     const [sortBy, setSortBy] = useState('due_date')
     const [sortDir, setSortDir] = useState('asc')
 
@@ -255,8 +268,49 @@ export default function OrderdsPage() {
         fetchOrderCompanies()
     }, [fetchOrderCompanies])
 
+    useEffect(() => {
+        clientsAPI.getAll().then(res => {
+            const data = Array.isArray(res.data) ? res.data : res.data?.clients || []
+            setClients(data)
+        }).catch(() => {})
+    }, [])
+
+    const clientOptions = useMemo(() => {
+        const sorted = [...clients].sort((a, b) => (a.client_name || '').localeCompare(b.client_name || ''))
+        return [
+            { value: 'all', label: 'All Clients' },
+            ...sorted.map(c => ({ value: c.id, label: c.client_name || c.id })),
+        ]
+    }, [clients])
+
+    const reportTypeOptions = useMemo(() => {
+        const types = new Set()
+        orders.forEach(o => {
+            String(o.report_types || o.report_type || '').split(',').map(t => t.trim()).filter(Boolean).forEach(t => types.add(t))
+        })
+        return [{ value: 'all', label: 'All Report Types' }, ...[...types].sort().map(t => ({ value: t, label: t.replace('_', ' ') }))]
+    }, [orders])
+
+    const filteredOrders = useMemo(() => {
+        return orders.filter(order => {
+            if (clientFilter !== 'all' && order.client_id !== clientFilter) return false
+            if (researcherFilter !== 'all' && order.analyst_assigned !== researcherFilter && order.auto_assigned_analyst !== researcherFilter) return false
+            if (reportTypeFilter !== 'all') {
+                const types = String(order.report_types || order.report_type || '').split(',').map(t => t.trim())
+                if (!types.includes(reportTypeFilter)) return false
+            }
+            if (dateFrom || dateTo) {
+                const due = order.due_date ? new Date(order.due_date) : null
+                if (!due || Number.isNaN(due.getTime())) return false
+                if (dateFrom && due < new Date(dateFrom)) return false
+                if (dateTo && due > new Date(`${dateTo}T23:59:59`)) return false
+            }
+            return true
+        })
+    }, [orders, clientFilter, researcherFilter, reportTypeFilter, dateFrom, dateTo])
+
     const sortedOrders = useMemo(() => {
-        return [...orders].sort((a, b) => {
+        return [...filteredOrders].sort((a, b) => {
             let aVal = a[sortBy] || ''
             let bVal = b[sortBy] || ''
             
@@ -269,18 +323,18 @@ export default function OrderdsPage() {
             if (aVal > bVal) return sortDir === 'asc' ? 1 : -1
             return 0
         })
-    }, [orders, sortBy, sortDir])
+    }, [filteredOrders, sortBy, sortDir])
 
     const counts = useMemo(() => ({
-        total: orders.length,
-        pending: orders.filter(o => normalizeStatus(o.status) === 'pending').length,
-        inProgress: orders.filter(o => normalizeStatus(o.status) === 'in_progress').length,
-        completed: orders.filter(o => normalizeStatus(o.status) === 'completed').length,
-        overdue: orders.filter(o => {
+        total: filteredOrders.length,
+        pending: filteredOrders.filter(o => normalizeStatus(o.status) === 'pending').length,
+        inProgress: filteredOrders.filter(o => normalizeStatus(o.status) === 'in_progress').length,
+        completed: filteredOrders.filter(o => normalizeStatus(o.status) === 'completed').length,
+        overdue: filteredOrders.filter(o => {
             const due = o.due_date ? new Date(o.due_date) : null
             return due && due < new Date() && normalizeStatus(o.status) !== 'completed'
         }).length,
-    }), [orders])
+    }), [filteredOrders])
 
     const SortableHeader = ({ column, label }) => (
         <th className="px-4 py-4">
@@ -385,6 +439,72 @@ export default function OrderdsPage() {
                         </div>
                     </div>
                 </div>
+
+                <div className="flex flex-col xl:flex-row gap-4 mt-4">
+                    <div className="w-full xl:w-56">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Client</label>
+                        <select
+                            value={clientFilter}
+                            onChange={(e) => setClientFilter(e.target.value)}
+                            className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white"
+                            aria-label="Filter orders by client"
+                        >
+                            {clientOptions.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="w-full xl:w-56">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Researcher</label>
+                        <select
+                            value={researcherFilter}
+                            onChange={(e) => setResearcherFilter(e.target.value)}
+                            className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white"
+                            aria-label="Filter orders by researcher"
+                        >
+                            {ANALYST_FILTERS.map(a => (
+                                <option key={a.value} value={a.value}>{a.label}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="w-full xl:w-56">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Report Type</label>
+                        <select
+                            value={reportTypeFilter}
+                            onChange={(e) => setReportTypeFilter(e.target.value)}
+                            className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white"
+                            aria-label="Filter orders by report type"
+                        >
+                            {reportTypeOptions.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="w-full xl:w-44">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Due From</label>
+                        <input
+                            type="date"
+                            value={dateFrom}
+                            onChange={(e) => setDateFrom(e.target.value)}
+                            className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white"
+                            aria-label="Filter by due date from"
+                        />
+                    </div>
+
+                    <div className="w-full xl:w-44">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Due To</label>
+                        <input
+                            type="date"
+                            value={dateTo}
+                            onChange={(e) => setDateTo(e.target.value)}
+                            className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white"
+                            aria-label="Filter by due date to"
+                        />
+                    </div>
+                </div>
             </div>
 
             {error && (
@@ -398,7 +518,7 @@ export default function OrderdsPage() {
                     <Loader2 size={32} className="text-primary animate-spin" />
                     <span className="ml-4 text-slate-500">Loading reports...</span>
                 </div>
-            ) : orders.length === 0 ? (
+            ) : sortedOrders.length === 0 ? (
                 <div className="glass-card p-12 text-center">
                     <div className="w-16 h-16 bg-slate-100 dark:bg-white/5 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-4">
                         <AlertCircle size={32} />
