@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, ArrowRight, CalendarClock, CheckCircle2, Loader2, RefreshCw, Search, User, X } from 'lucide-react'
-import { ordersAPI } from '../api/client'
+import { clientsAPI, ordersAPI } from '../api/client'
 
 const STATUS_TABS = [
     { value: 'all', label: 'All' },
@@ -191,6 +191,7 @@ function OrderCard({ order }) {
 export default function OrdersPage() {
     const navigate = useNavigate()
     const [orders, setOrders] = useState([])
+    const [clients, setClients] = useState([])
     const [statusFilter, setStatusFilter] = useState('all')
     const [analystFilter, setAnalystFilter] = useState('all')
     const [clientFilter, setClientFilter] = useState('all')
@@ -218,16 +219,26 @@ export default function OrdersPage() {
         fetchOrders()
     }, [fetchOrders])
 
+    useEffect(() => {
+        clientsAPI.getAll().then(res => {
+            const data = Array.isArray(res.data) ? res.data : res.data?.clients || []
+            setClients(data)
+        }).catch(() => {})
+    }, [])
+
     const clientOptions = useMemo(() => {
-        const names = [...new Set(orders.map(o => o.client_name).filter(Boolean))].sort()
-        return [{ value: 'all', label: 'All clients' }, ...names.map(n => ({ value: n, label: n }))]
-    }, [orders])
+        const sorted = [...clients].sort((a, b) => (a.client_name || '').localeCompare(b.client_name || ''))
+        return [
+            { value: 'all', label: 'All clients' },
+            ...sorted.map(c => ({ value: c.id, label: c.client_name || c.id })),
+        ]
+    }, [clients])
 
     const filteredOrders = useMemo(() => {
         let result = orders
 
         if (clientFilter !== 'all') {
-            result = result.filter(o => o.client_name === clientFilter)
+            result = result.filter(o => o.client_id === clientFilter)
         }
 
         if (!search.trim()) return result
@@ -239,6 +250,7 @@ export default function OrdersPage() {
                 order.client_name,
                 order.client_id,
                 order.id,
+                order.client_ref,
             ].filter(Boolean).join(' ').toLowerCase()
 
             return searchable.includes(query)
