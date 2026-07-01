@@ -64,7 +64,7 @@ def _sanitize_filename(filename: str) -> str:
 
 router = APIRouter(tags=["orders"])
 
-VALID_STATUSES = {"pending", "in_progress", "completed", "invoiced"}
+VALID_STATUSES = {"pending", "in_progress", "completed", "invoiced", "cancelled"}
 VALID_COMPANY_STATUSES = {"pending", "in_progress", "completed"}
 VALID_SERVICE_LEVELS = {"basic", "standard", "express", "urgent"}
 VALID_REPORT_TYPES = {"standard", "full"}

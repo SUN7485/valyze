@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, CalendarClock, CheckCircle2, Clock, Download, Edit3, ExternalLink, FileCheck, FileText, Loader2, PlayCircle, PencilLine, RefreshCw, User, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Ban, CalendarClock, CheckCircle2, Clock, Download, Edit3, ExternalLink, FileCheck, FileText, Loader2, PlayCircle, PencilLine, RefreshCw, User, UserCheck, X } from 'lucide-react'
 import { invoicesAPI, ordersAPI } from '../api/client'
 
 const STATUS_LABELS = {
@@ -8,13 +8,31 @@ const STATUS_LABELS = {
     in_progress: 'In Progress',
     completed: 'Completed',
     invoiced: 'Invoiced',
+    cancelled: 'Cancelled',
 }
+
+const ANALYST_OPTIONS = [
+    { value: '', label: 'Unassigned' },
+    { value: 'waleed@valyze.com', label: 'Waleed' },
+    { value: 'mohamed@valyze.com', label: 'Mohamed' },
+    { value: 'mahmoud@valyze.com', label: 'Mahmoud' },
+    { value: 'amani@valyze.com', label: 'Amani' },
+    { value: 'sally@valyze.com', label: 'Sally' },
+]
+
+const SERVICE_LEVEL_OPTIONS = [
+    { value: 'basic', label: 'Basic' },
+    { value: 'standard', label: 'Standard' },
+    { value: 'express', label: 'Express' },
+    { value: 'urgent', label: 'Urgent' },
+]
 
 const STATUS_COLORS = {
     pending: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800/40',
     in_progress: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/40',
     completed: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800/40',
     invoiced: 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800/40',
+    cancelled: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800/40',
 }
 
 const SERVICE_LEVELS = {
@@ -532,6 +550,134 @@ function BottomActionBar({ order, onGenerateInvoice, generating }) {
     )
 }
 
+function AdminActionsPanel({ order, onUpdated }) {
+    const [serviceLevel, setServiceLevel] = useState(order?.service_level || 'standard')
+    const [analyst, setAnalyst] = useState(order?.auto_assigned_analyst || '')
+    const [saving, setSaving] = useState(null)
+    const [confirmCancel, setConfirmCancel] = useState(false)
+    const [error, setError] = useState('')
+
+    const isCancelled = order?.status === 'cancelled'
+
+    async function applyUpdate(data, field) {
+        setSaving(field)
+        setError('')
+        try {
+            await ordersAPI.update(order.id, data)
+            onUpdated(data)
+        } catch (e) {
+            setError(e.message || 'Update failed')
+        } finally {
+            setSaving(null)
+        }
+    }
+
+    return (
+        <div className="glass-card p-6 mb-6 cursor-default">
+            <h2 className="text-xl font-black text-slate-800 dark:text-white tracking-tight mb-1">Order Management</h2>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mb-5">Reassign analyst, change service level, or cancel this order.</p>
+
+            {error && (
+                <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-500 text-xs flex items-center gap-2">
+                    <X size={14} /> {error}
+                </div>
+            )}
+
+            <div className="grid sm:grid-cols-3 gap-4">
+                {/* Analyst reassignment */}
+                <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 p-4">
+                    <div className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">
+                        <UserCheck size={12} /> Assigned Analyst
+                    </div>
+                    <select
+                        value={analyst}
+                        onChange={e => setAnalyst(e.target.value)}
+                        disabled={isCancelled}
+                        className="w-full px-3 py-2 bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg text-sm dark:text-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary mb-3 disabled:opacity-50"
+                    >
+                        {ANALYST_OPTIONS.map(a => (
+                            <option key={a.value} value={a.value} className="bg-white dark:bg-slate-900">{a.label}</option>
+                        ))}
+                    </select>
+                    <button
+                        onClick={() => applyUpdate({ auto_assigned_analyst: analyst || null }, 'analyst')}
+                        disabled={saving === 'analyst' || isCancelled}
+                        className="w-full py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg font-black text-[10px] uppercase tracking-widest hover:opacity-80 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                    >
+                        {saving === 'analyst' ? <Loader2 size={12} className="animate-spin" /> : <UserCheck size={12} />}
+                        Reassign
+                    </button>
+                </div>
+
+                {/* Service level */}
+                <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 p-4">
+                    <div className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">
+                        <CalendarClock size={12} /> Service Level
+                    </div>
+                    <select
+                        value={serviceLevel}
+                        onChange={e => setServiceLevel(e.target.value)}
+                        disabled={isCancelled}
+                        className="w-full px-3 py-2 bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg text-sm dark:text-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary mb-3 disabled:opacity-50"
+                    >
+                        {SERVICE_LEVEL_OPTIONS.map(s => (
+                            <option key={s.value} value={s.value} className="bg-white dark:bg-slate-900">{s.label}</option>
+                        ))}
+                    </select>
+                    <button
+                        onClick={() => applyUpdate({ service_level: serviceLevel }, 'service_level')}
+                        disabled={saving === 'service_level' || isCancelled}
+                        className="w-full py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg font-black text-[10px] uppercase tracking-widest hover:opacity-80 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                    >
+                        {saving === 'service_level' ? <Loader2 size={12} className="animate-spin" /> : <Edit3 size={12} />}
+                        Update
+                    </button>
+                </div>
+
+                {/* Cancel order */}
+                <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 p-4">
+                    <div className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">
+                        <Ban size={12} /> Cancel Order
+                    </div>
+                    {isCancelled ? (
+                        <div className="text-sm font-bold text-rose-500 dark:text-rose-400 mb-3">This order has been cancelled.</div>
+                    ) : (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Permanently cancel this order. This cannot be undone.</p>
+                    )}
+                    {!confirmCancel && !isCancelled && (
+                        <button
+                            onClick={() => setConfirmCancel(true)}
+                            className="w-full py-2 bg-rose-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all flex items-center justify-center gap-2"
+                        >
+                            <Ban size={12} /> Cancel Order
+                        </button>
+                    )}
+                    {confirmCancel && (
+                        <div className="space-y-2">
+                            <p className="text-xs font-bold text-rose-500">Are you sure?</p>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => { setConfirmCancel(false) }}
+                                    className="flex-1 py-2 border border-slate-200 dark:border-white/10 rounded-lg font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 transition-all"
+                                >
+                                    No
+                                </button>
+                                <button
+                                    onClick={() => { setConfirmCancel(false); applyUpdate({ status: 'cancelled' }, 'cancel') }}
+                                    disabled={saving === 'cancel'}
+                                    className="flex-1 py-2 bg-rose-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
+                                >
+                                    {saving === 'cancel' ? <Loader2 size={12} className="animate-spin" /> : 'Yes, Cancel'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export default function OrderDetailPage() {
     const navigate = useNavigate()
     const { orderId } = useParams()
@@ -682,6 +828,11 @@ export default function OrderDetailPage() {
                     </div>
 
                     <OrderHeaderCard order={order} onEditNotes={() => setNotesOpen(true)} savingNotes={savingNotes} />
+
+                    <AdminActionsPanel
+                        order={order}
+                        onUpdated={(patch) => setOrder(current => ({ ...current, ...patch }))}
+                    />
 
                     <OrderFilesSection files={order.files || []} />
 
