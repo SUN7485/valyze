@@ -193,6 +193,7 @@ export default function OrdersPage() {
     const [orders, setOrders] = useState([])
     const [statusFilter, setStatusFilter] = useState('all')
     const [analystFilter, setAnalystFilter] = useState('all')
+    const [clientFilter, setClientFilter] = useState('all')
     const [searchInput, setSearchInput] = useState('')
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -217,11 +218,22 @@ export default function OrdersPage() {
         fetchOrders()
     }, [fetchOrders])
 
+    const clientOptions = useMemo(() => {
+        const names = [...new Set(orders.map(o => o.client_name).filter(Boolean))].sort()
+        return [{ value: 'all', label: 'All clients' }, ...names.map(n => ({ value: n, label: n }))]
+    }, [orders])
+
     const filteredOrders = useMemo(() => {
-        if (!search.trim()) return orders
+        let result = orders
+
+        if (clientFilter !== 'all') {
+            result = result.filter(o => o.client_name === clientFilter)
+        }
+
+        if (!search.trim()) return result
 
         const query = search.toLowerCase()
-        return orders.filter(order => {
+        return result.filter(order => {
             const searchable = [
                 order.order_number,
                 order.client_name,
@@ -231,7 +243,7 @@ export default function OrdersPage() {
 
             return searchable.includes(query)
         })
-    }, [orders, search])
+    }, [orders, search, clientFilter])
 
     const counts = useMemo(() => ({
         total: orders.length,
@@ -293,6 +305,20 @@ export default function OrdersPage() {
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    <div className="w-full xl:w-56">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Client</label>
+                        <select
+                            value={clientFilter}
+                            onChange={(e) => setClientFilter(e.target.value)}
+                            className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white"
+                            aria-label="Filter orders by client"
+                        >
+                            {clientOptions.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
                     </div>
 
                     <div className="w-full xl:w-56">

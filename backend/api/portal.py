@@ -600,30 +600,35 @@ async def _submit_order_payload(
     if max_uses is not None and used_count >= int(max_uses):
         raise HTTPException(status_code=401, detail="Portal session has reached its usage limit")
 
-    order_number = _next_order_number()
     now = datetime.now(timezone.utc).isoformat()
     analyst = await asyncio.to_thread(assign_analyst)
-    order_payload = {
-        "order_number": order_number,
-        "client_id": portal_client["client_id"],
-        "client_ref": body.client_ref,
-        "date_received": now,
-        "service_level": resolved_service_level,
-        "speed": resolved_speed,
-        "due_date": due_date_str,
-        "report_type": ",".join(resolved_report_types),
-        "status": "pending",
-        "company_count": len(body.companies),
-        "completed_count": 0,
-        "auto_assigned_analyst": analyst,
-        "submitted_via_portal": True,
-        "notes": body.notes,
-        "created_at": now,
-        "updated_at": now,
-    }
 
-    order_result = await asyncio.to_thread(sb_create_order, order_payload)
-    order = _first_result(order_result)
+    order = None
+    for attempt in range(5):
+        order_number = generate_order_number(extra_offset=attempt)
+        order_payload = {
+            "order_number": order_number,
+            "client_id": portal_client["client_id"],
+            "client_ref": body.client_ref,
+            "date_received": now,
+            "service_level": resolved_service_level,
+            "speed": resolved_speed,
+            "due_date": due_date_str,
+            "report_type": "full" if "analysis_financial" in resolved_report_types else "standard",
+            "status": "pending",
+            "company_count": len(body.companies),
+            "completed_count": 0,
+            "auto_assigned_analyst": analyst,
+            "submitted_via_portal": True,
+            "notes": body.notes,
+            "created_at": now,
+            "updated_at": now,
+        }
+        order_result = await asyncio.to_thread(sb_create_order, order_payload)
+        order = _first_result(order_result)
+        if order:
+            break
+
     if not order:
         raise HTTPException(status_code=500, detail="Failed to create order")
 

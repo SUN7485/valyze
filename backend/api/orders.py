@@ -217,11 +217,11 @@ def _get_rotation_anchor(assignable_users: List[str]) -> Optional[str]:
         return None
 
 
-def generate_order_number() -> str:
+def generate_order_number(extra_offset: int = 0) -> str:
     now = datetime.now(timezone.utc)
     year = now.year
     max_seq = get_max_order_number(year) or 0
-    return f"ORD-{year}-{max_seq + 1:04d}"
+    return f"ORD-{year}-{max_seq + 1 + extra_offset:04d}"
 
 
 def _client_name_from_order(order: Dict[str, Any]) -> Optional[str]:

@@ -146,7 +146,8 @@ function LoginScreen({ token, onAuthenticated }) {
 const FIELD_CLS = 'w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none text-sm transition-all'
 
 /* Order Form — guided multi-step wizard */
-function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
+function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
+  const isBatch = orderMode === 'batch'
   const [step, setStep] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -162,6 +163,7 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
   const ALLOWED_EXTENSIONS = new Set(['.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg', '.tiff', '.xlsx', '.xls', '.csv', '.txt'])
 
   const addCompany = () => {
+    if (!isBatch) return
     setCompanies(prev => [...prev, { ...EMPTY_COMPANY }])
     setFilesPerCompany(prev => [...prev, []])
   }
@@ -271,7 +273,7 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
         <div className="flex items-end justify-between mb-6">
           <div>
             <div className="text-amber-400 font-extrabold text-lg tracking-[0.3em] mb-1">VALYZE</div>
-            <h1 className="text-white text-2xl font-black">New Order</h1>
+            <h1 className="text-white text-2xl font-black">{isBatch ? 'Batch Order' : 'Single Order'}</h1>
             <p className="text-white/50 text-sm mt-1">Welcome, {clientName}</p>
           </div>
           <div className="flex items-center gap-2 text-right">
@@ -337,23 +339,17 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
               </div>
             </div>
 
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 space-y-4">
-              <div>
-                <label className="block text-white/70 text-sm font-bold mb-3">Report Types <span className="text-amber-400/70 font-normal">· pick at least one</span></label>
-                <div className="grid grid-cols-2 gap-2">
-                  {REPORT_TYPE_OPTIONS.map(opt => (
-                    <label key={opt.value} className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-medium cursor-pointer transition-all ${
-                      reportTypes.includes(opt.value) ? 'bg-amber-400/10 border-amber-400/40 text-amber-300' : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10'
-                    }`}>
-                      <input type="checkbox" checked={reportTypes.includes(opt.value)} onChange={() => toggleReportType(opt.value)} className="accent-amber-400 w-4 h-4" />
-                      {opt.label}
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-white/70 text-sm font-bold mb-2">Your Reference <span className="text-white/30 font-normal">· optional</span></label>
-                <input type="text" value={clientRef} onChange={e => setClientRef(e.target.value)} className={FIELD_CLS} placeholder="e.g., PO-12345" />
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
+              <label className="block text-white/70 text-sm font-bold mb-3">Report Types <span className="text-amber-400/70 font-normal">· pick at least one</span></label>
+              <div className="grid grid-cols-2 gap-2">
+                {REPORT_TYPE_OPTIONS.map(opt => (
+                  <label key={opt.value} className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-medium cursor-pointer transition-all ${
+                    reportTypes.includes(opt.value) ? 'bg-amber-400/10 border-amber-400/40 text-amber-300' : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10'
+                  }`}>
+                    <input type="checkbox" checked={reportTypes.includes(opt.value)} onChange={() => toggleReportType(opt.value)} className="accent-amber-400 w-4 h-4" />
+                    {opt.label}
+                  </label>
+                ))}
               </div>
             </div>
           </div>
@@ -362,11 +358,17 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess }) {
         {/* ---------- STEP 1: COMPANIES ---------- */}
         {step === 1 && (
           <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5">
+              <label className="block text-white/70 text-sm font-bold mb-2">Your Reference <span className="text-white/30 font-normal">· optional</span></label>
+              <input type="text" value={clientRef} onChange={e => setClientRef(e.target.value)} className={FIELD_CLS} placeholder="e.g., PO-12345" />
+            </div>
             <div className="flex items-center justify-between">
               <p className="text-white/50 text-xs"><span className="text-amber-400 font-bold">Company name</span> and <span className="text-amber-400 font-bold">country</span> are required. The more details you add, the faster and more accurate your report.</p>
-              <button type="button" onClick={addCompany} className="flex items-center gap-1 px-3 py-1.5 bg-amber-400/10 text-amber-400 rounded-lg text-xs font-bold hover:bg-amber-400/20 transition-all flex-shrink-0 ml-3">
-                <Plus size={14} /> Add
-              </button>
+              {isBatch && (
+                <button type="button" onClick={addCompany} className="flex items-center gap-1 px-3 py-1.5 bg-amber-400/10 text-amber-400 rounded-lg text-xs font-bold hover:bg-amber-400/20 transition-all flex-shrink-0 ml-3">
+                  <Plus size={14} /> Add
+                </button>
+              )}
             </div>
             {companies.map((company, i) => {
               const comp = companyCompleteness(company)
@@ -565,6 +567,45 @@ function SuccessScreen({ result, clientName }) {
   )
 }
 
+/* Order Type Selection Screen */
+function OrderTypeScreen({ clientName, onSelect }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #08111c 0%, #0D1B2A 48%, #07101a 100%)' }}>
+      <div className="w-full max-w-lg">
+        <div className="text-center mb-8">
+          <div className="text-amber-400 font-extrabold text-xl tracking-[0.3em] mb-2">VALYZE</div>
+          <h1 className="text-white text-2xl font-black mb-1">New Order</h1>
+          <p className="text-white/50 text-sm">Welcome, {clientName} — choose your order type</p>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <button
+            type="button"
+            onClick={() => onSelect('single')}
+            className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-7 text-left hover:border-amber-400/50 hover:bg-amber-400/5 transition-all group"
+          >
+            <div className="w-12 h-12 rounded-xl bg-amber-400/10 flex items-center justify-center mb-4 group-hover:bg-amber-400/20 transition-all">
+              <FileText size={22} className="text-amber-400" />
+            </div>
+            <div className="text-white font-black text-lg mb-1">Single Order</div>
+            <p className="text-white/40 text-sm">Request a credit report for one company.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => onSelect('batch')}
+            className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-7 text-left hover:border-amber-400/50 hover:bg-amber-400/5 transition-all group"
+          >
+            <div className="w-12 h-12 rounded-xl bg-amber-400/10 flex items-center justify-center mb-4 group-hover:bg-amber-400/20 transition-all">
+              <ClipboardCheck size={22} className="text-amber-400" />
+            </div>
+            <div className="text-white font-black text-lg mb-1">Batch Order</div>
+            <p className="text-white/40 text-sm">Request reports for multiple companies in one submission.</p>
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* Main Portal Page */
 export default function PortalPage() {
   const [searchParams] = useSearchParams()
@@ -572,6 +613,7 @@ export default function PortalPage() {
   const [state, setState] = useState('login')
   const [portalToken, setPortalToken] = useState('')
   const [clientName, setClientName] = useState('Client')
+  const [orderMode, setOrderMode] = useState('single')
   const [lastResult, setLastResult] = useState(null)
 
   if (!token) {
@@ -593,14 +635,21 @@ export default function PortalPage() {
           onAuthenticated={({ portalToken: pt, clientName: cn }) => {
             setPortalToken(pt)
             setClientName(cn)
-            setState('form')
+            setState('type-select')
           }}
+        />
+      )}
+      {state === 'type-select' && (
+        <OrderTypeScreen
+          clientName={clientName}
+          onSelect={(mode) => { setOrderMode(mode); setState('form') }}
         />
       )}
       {state === 'form' && (
         <OrderForm
           portalToken={portalToken}
           clientName={clientName}
+          orderMode={orderMode}
           onSubmitSuccess={(result) => { setLastResult(result); setState('success') }}
         />
       )}

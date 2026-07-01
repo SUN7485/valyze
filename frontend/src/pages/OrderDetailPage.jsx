@@ -650,13 +650,35 @@ export default function OrderDetailPage() {
                             <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Batch Detail</h1>
                             <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Manage companies, reports, and invoice generation.</p>
                         </div>
-                        <button
-                            onClick={() => fetchOrder()}
-                            className="p-3 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
-                            aria-label="Refresh order"
-                        >
-                            <RefreshCw size={18} />
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => {
+                                    const companies = order.companies || []
+                                    const firstCompany = companies[0]?.company_name || 'Order'
+                                    const name = order.client_ref || firstCompany
+                                    const safe = name.replace(/[^\w\-\s]/g, '_').trim()
+                                    const blob = new Blob([JSON.stringify(order, null, 2)], { type: 'application/json' })
+                                    const url = URL.createObjectURL(blob)
+                                    const a = document.createElement('a')
+                                    a.href = url
+                                    a.download = `${safe}.json`
+                                    a.click()
+                                    URL.revokeObjectURL(url)
+                                }}
+                                className="p-3 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-xl transition-all flex items-center gap-2 text-xs font-bold"
+                                aria-label="Download order as JSON"
+                                title="Download order"
+                            >
+                                <Download size={18} />
+                            </button>
+                            <button
+                                onClick={() => fetchOrder()}
+                                className="p-3 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
+                                aria-label="Refresh order"
+                            >
+                                <RefreshCw size={18} />
+                            </button>
+                        </div>
                     </div>
 
                     <OrderHeaderCard order={order} onEditNotes={() => setNotesOpen(true)} savingNotes={savingNotes} />
