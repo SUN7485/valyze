@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, CalendarClock, Download, Loader2, RefreshCw, Search, Settings2, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { clientsAPI, ordersAPI } from '../api/client'
-import OrderDrawer from '../components/OrderDrawer'
 
 const STATUS_TABS = [
     { value: 'all', label: 'All' },
@@ -272,12 +271,11 @@ export default function OrderdsPage() {
     const [dateTo, setDateTo] = useState('')
     const [sortBy, setSortBy] = useState('due_date')
     const [sortDir, setSortDir] = useState('asc')
-    const [drawerOrderId, setDrawerOrderId] = useState(null)
     const [downloadingId, setDownloadingId] = useState(null)
 
     const search = useDebounce(searchInput, 300)
 
-    const handleManage = useCallback((orderId) => setDrawerOrderId(orderId), [])
+    const handleManage = useCallback((orderId) => navigate(`/orders/${orderId}`), [navigate])
 
     const handleDownload = useCallback(async (orderId, orderNumber) => {
         setDownloadingId(orderId)
@@ -605,13 +603,6 @@ export default function OrderdsPage() {
                     </table>
                 </div>
             )}
-
-            <OrderDrawer
-                orderId={drawerOrderId}
-                open={Boolean(drawerOrderId)}
-                onClose={() => setDrawerOrderId(null)}
-                onChanged={fetchOrderCompanies}
-            />
         </div>
     )
 }

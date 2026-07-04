@@ -84,11 +84,6 @@ function formatFileSize(value) {
     return `${size} B`
 }
 
-function getPortalFileUrl(file) {
-    if (!file?.order_id || !file?.filename) return '#'
-    return `/uploads/portal/${encodeURIComponent(file.order_id)}/${encodeURIComponent(file.filename)}`
-}
-
 function getCountryFlag(country) {
     if (!country) return '🌍'
     const key = String(country).trim().toLowerCase()
@@ -290,27 +285,32 @@ function OrderHeaderCard({ order, onEditNotes, savingNotes }) {
     )
 }
 
-function OrderFilesSection({ files }) {
+function OrderFilesSection({ files, onDownloadAll, downloading }) {
     const safeFiles = Array.isArray(files) ? files : []
     if (!safeFiles.length) return null
 
     return (
         <section className="glass-card p-6 mb-6 cursor-default">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <div>
                     <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">Client Attachments</h2>
                     <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">{safeFiles.length} file{safeFiles.length === 1 ? '' : 's'} submitted through the client portal.</p>
                 </div>
+                <button
+                    onClick={onDownloadAll}
+                    disabled={downloading}
+                    className="py-2.5 px-4 bg-primary text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:opacity-90 shadow-lg shadow-primary/20 transition-all disabled:opacity-50 flex items-center gap-2"
+                >
+                    {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    Download All
+                </button>
             </div>
 
             <div className="grid gap-3">
                 {safeFiles.map((file) => (
-                    <a
+                    <div
                         key={file.id}
-                        href={getPortalFileUrl(file)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 dark:border-white/10 bg-white/60 dark:bg-white/5 p-4 hover:border-primary/40 hover:bg-primary/5 transition-all"
+                        className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 dark:border-white/10 bg-white/60 dark:bg-white/5 p-4"
                     >
                         <div className="flex items-center gap-3 min-w-0">
                             <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
@@ -324,10 +324,7 @@ function OrderFilesSection({ files }) {
                                 </p>
                             </div>
                         </div>
-                        <span className="text-primary font-black text-xs uppercase tracking-widest flex items-center gap-1 flex-shrink-0">
-                            Open <Download size={14} />
-                        </span>
-                    </a>
+                    </div>
                 ))}
             </div>
         </section>
@@ -688,6 +685,7 @@ export default function OrderDetailPage() {
     const [notesOpen, setNotesOpen] = useState(false)
     const [generatingInvoice, setGeneratingInvoice] = useState(false)
     const [companyActions, setCompanyActions] = useState({})
+    const [downloading, setDownloading] = useState(false)
 
     const fetchOrder = useCallback(async () => {
         if (!orderId) return
@@ -741,6 +739,26 @@ export default function OrderDetailPage() {
             setError(e.message || 'Failed to save order notes')
         } finally {
             setSavingNotes(false)
+        }
+    }
+
+    const handleDownloadSubmission = async () => {
+        if (!order) return
+        try {
+            setDownloading(true)
+            setError('')
+            const response = await ordersAPI.downloadOrder(order.id)
+            const blob = new Blob([response.data], { type: 'application/zip' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `${order.order_number || order.id}.zip`
+            a.click()
+            URL.revokeObjectURL(url)
+        } catch (e) {
+            setError(e.message || 'Failed to download submission')
+        } finally {
+            setDownloading(false)
         }
     }
 
@@ -798,24 +816,14 @@ export default function OrderDetailPage() {
                         </div>
                         <div className="flex items-center gap-2">
                             <button
-                                onClick={() => {
-                                    const companies = order.companies || []
-                                    const firstCompany = companies[0]?.company_name || 'Order'
-                                    const name = order.client_ref || firstCompany
-                                    const safe = name.replace(/[^\w\-\s]/g, '_').trim()
-                                    const blob = new Blob([JSON.stringify(order, null, 2)], { type: 'application/json' })
-                                    const url = URL.createObjectURL(blob)
-                                    const a = document.createElement('a')
-                                    a.href = url
-                                    a.download = `${safe}.json`
-                                    a.click()
-                                    URL.revokeObjectURL(url)
-                                }}
-                                className="p-3 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-xl transition-all flex items-center gap-2 text-xs font-bold"
-                                aria-label="Download order as JSON"
-                                title="Download order"
+                                onClick={handleDownloadSubmission}
+                                disabled={downloading}
+                                className="px-4 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl transition-all flex items-center gap-2 text-[10px] font-black uppercase tracking-widest hover:opacity-90 disabled:opacity-50"
+                                aria-label="Download client submission and files"
+                                title="Download the client's submitted details + all attached files (ZIP)"
                             >
-                                <Download size={18} />
+                                {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                                Download Submission
                             </button>
                             <button
                                 onClick={() => fetchOrder()}
@@ -834,7 +842,7 @@ export default function OrderDetailPage() {
                         onUpdated={(patch) => setOrder(current => ({ ...current, ...patch }))}
                     />
 
-                    <OrderFilesSection files={order.files || []} />
+                    <OrderFilesSection files={order.files || []} onDownloadAll={handleDownloadSubmission} downloading={downloading} />
 
                     <CompaniesSection
                         orderId={order.id}
