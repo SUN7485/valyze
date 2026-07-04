@@ -1264,8 +1264,10 @@ def get_all_order_companies(
     """Get all order companies flattened with order and client info.
     Each row represents one report (order_company) with joined order/client data.
     """
-    # Select with joins to get order and client data
-    select = "*,order:orders!inner(*),client:clients!inner(client_name,valyze_id,email)"
+    # Select with joins to get order and client data. `order_companies` has no
+    # FK to `clients` (client lives on `orders`), so the client must be embedded
+    # through the order — embedding it directly here 400s and drops every row.
+    select = "*,order:orders!inner(*,client:clients(client_name,valyze_id,email))"
     query_parts = [f"select={quote(select, safe='(),*')}"]
     
     # Apply status filter on order company
@@ -1294,9 +1296,10 @@ def get_all_order_companies(
         # Flatten the data - merge order/client into each company record
         flattened = []
         for row in results:
-            order_data = row.get('order', {})
-            client_data = row.get('client', {})
-            
+            order_data = row.get('order') or {}
+            client_data = order_data.get('client') if isinstance(order_data.get('client'), dict) else {}
+            client_data = client_data or {}
+
             flattened.append({
                 'id': row.get('id'),
                 'order_id': row.get('order_id'),

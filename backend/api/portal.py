@@ -400,6 +400,24 @@ def _sanitize_portal_filename(filename: str) -> str:
     return filename
 
 
+def _storage_safe_key_name(filename: str, ext: str) -> str:
+    """Build an ASCII-safe object key for Supabase Storage.
+
+    Supabase validates storage keys with a JS `\\w` (ASCII-only) regex, so
+    non-ASCII characters (e.g. Arabic) or spaces in a filename produce an
+    "Invalid key" 400 and the upload fails. We collapse the stem to an ASCII
+    slug (always appending a short uuid so distinct non-ASCII names don't
+    collide on the same key) and preserve a clean extension. The human-readable
+    original name is kept separately as the DB `filename` for display.
+    """
+    stem = Path(filename).stem
+    ascii_stem = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip("-._")
+    if not ascii_stem:
+        ascii_stem = "file"
+    safe_ext = ext if re.fullmatch(r"\.[A-Za-z0-9]+", ext or "") else ""
+    return f"{ascii_stem}-{uuid.uuid4().hex[:8]}{safe_ext}"
+
+
 def _unique_portal_filename(directory: Path, filename: str) -> str:
     if not (directory / filename).exists():
         return filename
@@ -516,8 +534,11 @@ async def _save_portal_files(
             )
 
         safe_name = _sanitize_portal_filename(original_name)
-        # Use unique name if needed (append short uuid for uniqueness)
-        storage_path = f"{order_id}/{safe_name}"
+        # The storage object key must be ASCII-safe (Supabase rejects non-ASCII
+        # keys). Keep `safe_name` as the display filename in the DB, but use an
+        # ASCII-slugged, collision-proof key for the actual storage path.
+        storage_key_name = _storage_safe_key_name(safe_name, ext)
+        storage_path = f"{order_id}/{storage_key_name}"
         content_type = MIME_TYPE_MAP.get(ext, "application/octet-stream")
 
         # Upload to Supabase Storage

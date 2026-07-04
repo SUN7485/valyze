@@ -171,7 +171,10 @@ function OrderRow({ order }) {
     const dueDate = getDueDateState(order.due_date)
 
     return (
-        <tr className="group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all duration-200 cursor-default">
+        <tr
+            onClick={() => order.order_id && navigate(`/orders/${order.order_id}`)}
+            className={`group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all duration-200 ${order.order_id ? 'cursor-pointer' : 'cursor-default'}`}
+        >
             <td className="px-4 py-4">
                 <span className="font-mono text-sm font-black text-primary">
                     {order.order_number || order.id?.slice(0, 8)}
