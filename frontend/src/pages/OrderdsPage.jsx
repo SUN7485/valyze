@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, CalendarClock, Loader2, RefreshCw, Search, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { AlertCircle, CalendarClock, Download, Loader2, RefreshCw, Search, Settings2, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { clientsAPI, ordersAPI } from '../api/client'
+import OrderDrawer from '../components/OrderDrawer'
 
 const STATUS_TABS = [
     { value: 'all', label: 'All' },
@@ -166,17 +167,17 @@ function ReportTypeBadge({ type }) {
     )
 }
 
-function OrderRow({ order }) {
-    const navigate = useNavigate()
+function OrderRow({ order, onManage, onDownload, downloading }) {
     const dueDate = getDueDateState(order.due_date)
+    const clickable = Boolean(order.order_id)
 
     return (
         <tr
-            onClick={() => order.order_id && navigate(`/orders/${order.order_id}`)}
-            className={`group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all duration-200 ${order.order_id ? 'cursor-pointer' : 'cursor-default'}`}
+            onClick={() => clickable && onManage(order.order_id)}
+            className={`group hover:bg-primary/[0.04] dark:hover:bg-white/5 transition-all duration-200 ${clickable ? 'cursor-pointer' : 'cursor-default'}`}
         >
             <td className="px-4 py-4">
-                <span className="font-mono text-sm font-black text-primary">
+                <span className="font-mono text-sm font-black text-primary group-hover:underline">
                     {order.order_number || order.id?.slice(0, 8)}
                 </span>
             </td>
@@ -231,6 +232,26 @@ function OrderRow({ order }) {
             <td className="px-4 py-4">
                 <SpeedBadge level={order.service_level} dueDate={order.due_date} />
             </td>
+            <td className="px-4 py-4">
+                <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <button
+                        onClick={() => clickable && onManage(order.order_id)}
+                        disabled={!clickable}
+                        title="Manage order"
+                        className="p-2 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-30"
+                    >
+                        <Settings2 size={15} />
+                    </button>
+                    <button
+                        onClick={() => clickable && onDownload(order.order_id, order.order_number)}
+                        disabled={!clickable || downloading}
+                        title="Download submitted details + files"
+                        className="p-2 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-30"
+                    >
+                        {downloading ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+                    </button>
+                </div>
+            </td>
         </tr>
     )
 }
@@ -251,8 +272,30 @@ export default function OrderdsPage() {
     const [dateTo, setDateTo] = useState('')
     const [sortBy, setSortBy] = useState('due_date')
     const [sortDir, setSortDir] = useState('asc')
+    const [drawerOrderId, setDrawerOrderId] = useState(null)
+    const [downloadingId, setDownloadingId] = useState(null)
 
     const search = useDebounce(searchInput, 300)
+
+    const handleManage = useCallback((orderId) => setDrawerOrderId(orderId), [])
+
+    const handleDownload = useCallback(async (orderId, orderNumber) => {
+        setDownloadingId(orderId)
+        try {
+            const res = await ordersAPI.downloadOrder(orderId)
+            const blob = new Blob([res.data], { type: 'application/zip' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `${orderNumber || orderId}.zip`
+            a.click()
+            URL.revokeObjectURL(url)
+        } catch (e) {
+            alert(e.message || 'Failed to download order')
+        } finally {
+            setDownloadingId(null)
+        }
+    }, [])
 
     const fetchOrderCompanies = useCallback(async () => {
         try {
@@ -545,16 +588,30 @@ export default function OrderdsPage() {
                                 <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Report Type</th>
                                 <SortableHeader column="analyst_assigned" label="Researcher" />
                                 <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Speed</th>
+                                <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                             {sortedOrders.map(order => (
-                                <OrderRow key={order.id} order={order} />
+                                <OrderRow
+                                    key={order.id}
+                                    order={order}
+                                    onManage={handleManage}
+                                    onDownload={handleDownload}
+                                    downloading={downloadingId === order.order_id}
+                                />
                             ))}
                         </tbody>
                     </table>
                 </div>
             )}
+
+            <OrderDrawer
+                orderId={drawerOrderId}
+                open={Boolean(drawerOrderId)}
+                onClose={() => setDrawerOrderId(null)}
+                onChanged={fetchOrderCompanies}
+            />
         </div>
     )
 }

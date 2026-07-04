@@ -157,6 +157,9 @@ export const ordersAPI = {
 
     cancel: (orderId) =>
         api.post(`/orders/${orderId}/cancel`),
+
+    downloadOrder: (orderId) =>
+        api.get(`/orders/${orderId}/download`, { responseType: 'blob' }),
 }
 
 // ---------------------------------------------------------------------------

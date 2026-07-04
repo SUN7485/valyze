@@ -7,8 +7,11 @@ Each order_company becomes one Valyze report.
 
 from __future__ import annotations
 
+import io
+import json
 import uuid
 import re
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -16,6 +19,7 @@ from urllib.parse import quote
 import os
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from api.auth import get_current_user, get_order_assignable_users
@@ -546,6 +550,107 @@ async def create_order(body: CreateOrderRequest, user: dict = Depends(get_curren
 async def get_order_detail(order_id: str, user: dict = Depends(get_current_user)):
     order = _get_order_or_404(order_id)
     return _build_order_detail(order)
+
+
+def _order_summary_text(order: Dict[str, Any], companies: List[Dict[str, Any]], client: Dict[str, Any]) -> str:
+    """Human-readable summary of everything the client submitted for this order."""
+    lines: List[str] = []
+    lines.append("VALYZE — CLIENT ORDER SUBMISSION")
+    lines.append("=" * 48)
+    lines.append(f"Order Number : {order.get('order_number') or order.get('id')}")
+    lines.append(f"Status       : {order.get('status')}")
+    lines.append(f"Client       : {client.get('client_name') or order.get('client_name') or '-'}")
+    if client.get("valyze_id"):
+        lines.append(f"Client ID    : {client.get('valyze_id')}")
+    if order.get("client_ref"):
+        lines.append(f"Client Ref   : {order.get('client_ref')}")
+    lines.append(f"Service Level: {order.get('service_level')}")
+    lines.append(f"Report Type  : {order.get('report_type')}")
+    lines.append(f"Date Received: {order.get('date_received')}")
+    lines.append(f"Due Date     : {order.get('due_date')}")
+    lines.append(f"Analyst      : {order.get('auto_assigned_analyst') or '-'}")
+    lines.append(f"Submitted via portal: {order.get('submitted_via_portal', False)}")
+    if order.get("notes"):
+        lines.append("")
+        lines.append("Notes:")
+        lines.append(str(order.get("notes")))
+    lines.append("")
+    lines.append(f"COMPANIES ({len(companies)})")
+    lines.append("-" * 48)
+    for idx, company in enumerate(companies, start=1):
+        lines.append(f"{idx}. {company.get('company_name') or 'Unnamed company'}")
+        for label, key in (
+            ("Country", "country"),
+            ("Registration No", "registration_no"),
+            ("VAT No", "vat_no"),
+            ("Phone", "phone"),
+            ("Address", "address"),
+            ("Requested Limit", "requested_limit"),
+            ("Status", "status"),
+            ("Comments", "comments"),
+        ):
+            value = company.get(key)
+            if value:
+                lines.append(f"     {label}: {value}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+@router.get("/{order_id}/download")
+async def download_order(order_id: str, user: dict = Depends(get_current_user)):
+    """Download everything the client submitted for an order as a single ZIP:
+    a readable summary, the raw JSON, and every attached file (pulled from
+    Supabase Storage — no reliance on the ephemeral local disk)."""
+    order = _get_order_or_404(order_id)
+    companies = sb_get_order_companies(order_id)
+    client = get_client(order.get("client_id", "")) or {}
+    files = get_order_files(order_id)
+
+    order_label = order.get("order_number") or order.get("id") or "order"
+    safe_label = re.sub(r"[^\w\-]+", "_", str(order_label)).strip("_") or "order"
+
+    detail = _build_order_detail(order, companies=companies)
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(f"{safe_label}/order-summary.txt", _order_summary_text(order, companies, client))
+        archive.writestr(f"{safe_label}/order.json", json.dumps(detail, indent=2, default=str))
+
+        used_names: Dict[str, int] = {}
+        for file in files:
+            file_path = file.get("file_path", "") or ""
+            filename = file.get("filename") or "attachment"
+            content: Optional[bytes] = None
+            if file_path.startswith("storage://"):
+                storage_ref = file_path[len("storage://"):]
+                parts = storage_ref.split("/", 1)
+                if len(parts) == 2:
+                    content = download_from_storage(parts[0], parts[1])
+            elif file_path:
+                try:
+                    disk_path = Path(file_path)
+                    if disk_path.exists():
+                        content = disk_path.read_bytes()
+                except OSError:
+                    content = None
+            if not content:
+                continue
+            # Avoid collisions when two companies submit the same filename.
+            arc_name = filename
+            if arc_name in used_names:
+                used_names[arc_name] += 1
+                stem, suffix = Path(arc_name).stem, Path(arc_name).suffix
+                arc_name = f"{stem} ({used_names[filename]}){suffix}"
+            else:
+                used_names[arc_name] = 0
+            archive.writestr(f"{safe_label}/files/{arc_name}", content)
+
+    buffer.seek(0)
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe_label}.zip"'},
+    )
 
 
 @router.patch("/{order_id}")
