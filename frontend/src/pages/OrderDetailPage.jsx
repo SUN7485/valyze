@@ -782,10 +782,10 @@ export default function OrderDetailPage() {
     return (
         <div className="py-8 px-6 max-w-7xl mx-auto pb-36">
             <button
-                onClick={() => navigate('/orders')}
+                onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/orderds'))}
                 className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-primary transition-colors"
             >
-                <ArrowLeft size={16} /> Back to Batches
+                <ArrowLeft size={16} /> Back
             </button>
 
             {error && (
@@ -805,13 +805,13 @@ export default function OrderDetailPage() {
                         <AlertTriangle size={32} />
                     </div>
                     <h3 className="text-lg font-black text-slate-600 dark:text-slate-300 mb-2">Order Not Found</h3>
-                    <button onClick={() => navigate('/orders')} className="mt-4 text-primary font-black uppercase tracking-widest text-xs">Return to Orders</button>
+                    <button onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/orderds'))} className="mt-4 text-primary font-black uppercase tracking-widest text-xs">Go Back</button>
                 </div>
             ) : (
                 <>
                     <div className="flex items-center justify-between mb-6">
                         <div>
-                            <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Batch Detail</h1>
+                            <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Order Detail</h1>
                             <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Manage companies, reports, and invoice generation.</p>
                         </div>
                         <div className="flex items-center gap-2">
