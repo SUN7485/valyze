@@ -134,6 +134,13 @@ export const ordersAPI = {
         return api.get('/orders/companies/', { params })
     },
 
+    // Focused single report (one order_company) for the Orders page
+    getCompany: (companyId) =>
+        api.get(`/orders/companies/${companyId}`),
+
+    deleteCompany: (companyId) =>
+        api.delete(`/orders/companies/${companyId}`),
+
     getOne: (id) =>
         api.get(`/orders/${id}`),
 

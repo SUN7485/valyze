@@ -889,6 +889,18 @@ def delete_order(order_id: str) -> bool:
         return False
 
 
+def delete_order_company(company_id: str) -> bool:
+    """Delete a single order_company (one focused report) by ID."""
+    url = f"{get_base_url()}/order_companies?id=eq.{quote(company_id, safe='')}"
+
+    try:
+        response = requests.delete(url, headers=get_headers(), timeout=30)
+        return response.status_code in [200, 204]
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Delete order company failed: {e}")
+        return False
+
+
 def get_order_companies(order_id: str) -> List[Dict[str, Any]]:
     """Get all companies for an order, sorted by sort_order."""
     url = f"{get_base_url()}/order_companies?order_id=eq.{quote(order_id, safe='')}&order=sort_order.asc"

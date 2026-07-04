@@ -15,6 +15,7 @@ const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const OrdersPage = lazy(() => import('./pages/OrdersPage'))
 const OrderDetailPage = lazy(() => import('./pages/OrderDetailPage'))
 const OrderdsPage = lazy(() => import('./pages/OrderdsPage'))
+const OrderFocusPage = lazy(() => import('./pages/OrderFocusPage'))
 const InvoicesPage = lazy(() => import('./pages/InvoicesPage'))
 const InvoiceDetailPage = lazy(() => import('./pages/InvoiceDetailPage'))
 const ClientsPage = lazy(() => import('./pages/ClientsPage'))
@@ -55,6 +56,7 @@ function AppRoutes() {
 <Route path="/orders" element={<ProtectedRoute><OrdersPage /></ProtectedRoute>} />
                         <Route path="/orders/:orderId" element={<ProtectedRoute><OrderDetailPage /></ProtectedRoute>} />
                         <Route path="/orderds" element={<ProtectedRoute><OrderdsPage /></ProtectedRoute>} />
+                        <Route path="/orderds/:companyId" element={<ProtectedRoute><OrderFocusPage /></ProtectedRoute>} />
         <Route path="/clients" element={<ProtectedRoute><ClientsPage /></ProtectedRoute>} />
         <Route path="/clients/:clientId" element={<ProtectedRoute><ClientDetailPage /></ProtectedRoute>} />
         <Route path="/invoices" element={<ProtectedRoute><InvoicesPage /></ProtectedRoute>} />

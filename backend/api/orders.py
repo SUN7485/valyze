@@ -30,6 +30,7 @@ from services.supabase_client import (
     create_invoice as sb_create_invoice,
     create_order as sb_create_order,
     delete_order as sb_delete_order,
+    delete_order_company as sb_delete_order_company,
     download_from_storage,
     get_all_orders as sb_get_all_orders,
     get_all_order_companies as sb_get_all_order_companies,
@@ -480,6 +481,101 @@ async def get_all_order_companies(
         return companies
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to list order companies: {exc}")
+
+
+def _build_company_focus(company: Dict[str, Any]) -> Dict[str, Any]:
+    """Focused detail for a single order_company (one report), with its parent
+    order + client context and the files relevant to it."""
+    order = sb_get_order(company.get("order_id", "")) or {}
+    client = order.get("client") if isinstance(order.get("client"), dict) else {}
+    company_files = get_order_files(company.get("order_id", ""), company.get("id"))
+    order_level_files = [f for f in get_order_files(company.get("order_id", "")) if not f.get("order_company_id")]
+
+    return {
+        "id": company.get("id"),
+        "order_id": company.get("order_id"),
+        "company_name": company.get("company_name"),
+        "country": company.get("country"),
+        "registration_no": company.get("registration_no"),
+        "vat_no": company.get("vat_no"),
+        "phone": company.get("phone"),
+        "fax": company.get("fax"),
+        "address": company.get("address"),
+        "requested_limit": company.get("requested_limit"),
+        "comments": company.get("comments"),
+        "status": company.get("status"),
+        "analyst_assigned": company.get("analyst_assigned"),
+        "report_id": company.get("report_id"),
+        "sort_order": company.get("sort_order", 0),
+        "date_assigned": company.get("date_assigned"),
+        "created_at": company.get("created_at"),
+        "updated_at": company.get("updated_at"),
+        "order": {
+            "id": order.get("id"),
+            "order_number": order.get("order_number"),
+            "client_id": order.get("client_id"),
+            "service_level": order.get("service_level"),
+            "report_type": order.get("report_type"),
+            "due_date": order.get("due_date"),
+            "date_received": order.get("date_received"),
+            "status": order.get("status"),
+            "notes": order.get("notes"),
+            "submitted_via_portal": order.get("submitted_via_portal", False),
+            "company_count": order.get("company_count"),
+        },
+        "client": {
+            "client_name": client.get("client_name") or order.get("client_name"),
+            "valyze_id": client.get("valyze_id"),
+            "email": client.get("email"),
+        },
+        "files": [_public_order_file(f) for f in (company_files + order_level_files)],
+    }
+
+
+@router.get("/companies/{company_id}")
+async def get_company_focus(company_id: str, user: dict = Depends(get_current_user)):
+    """Focused single-report view for the Orders page."""
+    company = sb_get_order_company(company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return _build_company_focus(company)
+
+
+@router.delete("/companies/{company_id}")
+async def delete_company_focus(company_id: str, user: dict = Depends(get_current_user)):
+    """Delete a single focused report (order_company). Completed reports are
+    protected; a linked report row is cleaned up and the parent order counts
+    are recomputed from the remaining companies."""
+    company = sb_get_order_company(company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if str(company.get("status") or "").lower() == "completed":
+        raise HTTPException(status_code=409, detail="Completed reports cannot be deleted")
+
+    order_id = company.get("order_id")
+    report_id = company.get("report_id")
+
+    deleted = sb_delete_order_company(company_id)
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Failed to delete order")
+
+    if report_id:
+        try:
+            from services.supabase_client import delete_report as sb_delete_report
+            sb_delete_report(report_id)
+        except Exception as exc:
+            logger.warning(f"[ORDERS] Could not clean up report {report_id} for deleted company {company_id}: {exc}")
+
+    if order_id:
+        remaining = sb_get_order_companies(order_id)
+        progress = _progress_from_companies(remaining)
+        sb_update_order(order_id, {
+            "company_count": progress["total"],
+            "completed_count": progress["completed"],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    return {"deleted": True, "company_id": company_id, "order_id": order_id}
 
 
 @router.get("/", response_model=List[dict])

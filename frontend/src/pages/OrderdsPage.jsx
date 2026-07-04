@@ -168,11 +168,11 @@ function ReportTypeBadge({ type }) {
 
 function OrderRow({ order, onManage, onDownload, downloading }) {
     const dueDate = getDueDateState(order.due_date)
-    const clickable = Boolean(order.order_id)
+    const clickable = Boolean(order.id)
 
     return (
         <tr
-            onClick={() => clickable && onManage(order.order_id)}
+            onClick={() => clickable && onManage(order.id)}
             className={`group hover:bg-primary/[0.04] dark:hover:bg-white/5 transition-all duration-200 ${clickable ? 'cursor-pointer' : 'cursor-default'}`}
         >
             <td className="px-4 py-4">
@@ -234,16 +234,16 @@ function OrderRow({ order, onManage, onDownload, downloading }) {
             <td className="px-4 py-4">
                 <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                     <button
-                        onClick={() => clickable && onManage(order.order_id)}
+                        onClick={() => clickable && onManage(order.id)}
                         disabled={!clickable}
-                        title="Manage order"
+                        title="Open focused report"
                         className="p-2 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-30"
                     >
                         <Settings2 size={15} />
                     </button>
                     <button
-                        onClick={() => clickable && onDownload(order.order_id, order.order_number)}
-                        disabled={!clickable || downloading}
+                        onClick={() => order.order_id && onDownload(order.order_id, order.order_number)}
+                        disabled={!order.order_id || downloading}
                         title="Download submitted details + files"
                         className="p-2 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-30"
                     >
@@ -275,7 +275,7 @@ export default function OrderdsPage() {
 
     const search = useDebounce(searchInput, 300)
 
-    const handleManage = useCallback((orderId) => navigate(`/orders/${orderId}`), [navigate])
+    const handleManage = useCallback((companyId) => navigate(`/orderds/${companyId}`), [navigate])
 
     const handleDownload = useCallback(async (orderId, orderNumber) => {
         setDownloadingId(orderId)
