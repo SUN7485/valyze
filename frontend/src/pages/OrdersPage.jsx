@@ -13,6 +13,7 @@ const STATUS_TABS = [
 
 const ANALYST_FILTERS = [
     { value: 'all', label: 'All analysts' },
+    { value: 'unassigned', label: 'Unassigned' },
     { value: 'waleed@valyze.com', label: 'Waleed' },
     { value: 'mohamed@valyze.com', label: 'Mohamed' },
     { value: 'mahmoud@valyze.com', label: 'Mahmoud' },

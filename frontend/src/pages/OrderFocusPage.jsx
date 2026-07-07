@@ -2,9 +2,18 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
     AlertTriangle, ArrowLeft, Ban, CalendarClock, CheckCircle2, Clock, Download,
-    FileText, Loader2, PencilLine, PlayCircle, RefreshCw, Trash2, User, UserCheck,
+    FileText, Gauge, History, Loader2, MapPin, PencilLine, Phone, PlayCircle,
+    RefreshCw, Trash2, User, UserCheck,
 } from 'lucide-react'
-import { ordersAPI } from '../api/client'
+import { ordersAPI, searchAPI } from '../api/client'
+import { useAuth } from '../context/AuthContext'
+
+const SERVICE_LEVEL_OPTIONS = [
+    { value: 'basic', label: 'Basic' },
+    { value: 'standard', label: 'Standard' },
+    { value: 'express', label: 'Express' },
+    { value: 'urgent', label: 'Urgent' },
+]
 
 const ANALYST_OPTIONS = [
     { value: '', label: 'Unassigned' },
@@ -58,15 +67,43 @@ function Fact({ label, value, icon }) {
     )
 }
 
+// A Fact-styled box that renders arbitrary children instead of a plain value.
+function FactBox({ label, icon, children }) {
+    return (
+        <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 p-4 min-w-0">
+            <div className="flex items-center gap-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">{icon} {label}</div>
+            {children}
+        </div>
+    )
+}
+
+function ReportTypeBadges({ value }) {
+    const types = String(value || '').split(',').map(t => t.trim()).filter(Boolean)
+    if (types.length === 0) return <div className="text-sm font-bold text-slate-700 dark:text-slate-200">-</div>
+    return (
+        <div className="flex flex-wrap gap-1">
+            {types.map((t, i) => (
+                <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary">
+                    {t.replace(/_/g, ' ')}
+                </span>
+            ))}
+        </div>
+    )
+}
+
 export default function OrderFocusPage() {
     const navigate = useNavigate()
     const { companyId } = useParams()
+    const { user } = useAuth()
+    const isAdmin = ['admin', 'super_admin'].includes(user?.role)
     const [data, setData] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [busy, setBusy] = useState(null)
     const [analyst, setAnalyst] = useState('')
     const [confirmDelete, setConfirmDelete] = useState(false)
+    const [prevReports, setPrevReports] = useState([])
+    const [prevLoading, setPrevLoading] = useState(false)
 
     const fetchData = useCallback(async () => {
         if (!companyId) return
@@ -80,6 +117,35 @@ export default function OrderFocusPage() {
     }, [companyId])
 
     useEffect(() => { fetchData() }, [fetchData])
+
+    // Previous-reports check: after the main fetch, look up whether this company
+    // already exists in the reports database (by name, falling back to CR number).
+    useEffect(() => {
+        const name = data?.company_name
+        const cr = data?.registration_no
+        if (!name && !cr) { setPrevReports([]); return undefined }
+
+        let cancelled = false
+        setPrevLoading(true)
+        searchAPI.search(name ? { company_name: name } : { cr_number: cr })
+            .then(res => {
+                if (cancelled) return
+                const reports = res.data?.reports || []
+                setPrevReports(reports.filter(r => r.id && r.id !== data?.report_id))
+            })
+            .catch(() => { if (!cancelled) setPrevReports([]) })
+            .finally(() => { if (!cancelled) setPrevLoading(false) })
+        return () => { cancelled = true }
+    }, [data?.company_name, data?.registration_no, data?.report_id])
+
+    const updateServiceLevel = async (level) => {
+        setBusy('service_level')
+        setError('')
+        try {
+            await ordersAPI.updateOrder(data.order_id, { service_level: level })
+            await fetchData()
+        } catch (e) { setError(e.message || 'Failed to update service level') } finally { setBusy(null) }
+    }
 
     const order = data?.order || {}
     const client = data?.client || {}
@@ -221,14 +287,71 @@ export default function OrderFocusPage() {
                     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
                         <Fact label="Due Date" value={formatDate(order.due_date)} icon={<Clock size={11} />} />
                         <Fact label="Date Received" value={formatDate(order.date_received)} icon={<CalendarClock size={11} />} />
-                        <Fact label="Service Level" value={order.service_level} icon={<CalendarClock size={11} />} />
-                        <Fact label="Report Type" value={order.report_type} icon={<FileText size={11} />} />
+                        {isAdmin ? (
+                            <FactBox label="Service Level" icon={<CalendarClock size={11} />}>
+                                <select
+                                    value={order.service_level || 'standard'}
+                                    disabled={busy === 'service_level'}
+                                    onChange={e => updateServiceLevel(e.target.value)}
+                                    className="w-full px-2 py-1.5 bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg text-sm font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
+                                >
+                                    {SERVICE_LEVEL_OPTIONS.map(o => <option key={o.value} value={o.value} className="bg-white dark:bg-slate-900">{o.label}</option>)}
+                                </select>
+                            </FactBox>
+                        ) : (
+                            <Fact label="Service Level" value={order.service_level} icon={<CalendarClock size={11} />} />
+                        )}
+                        <Fact label="Speed" value={order.speed} icon={<Gauge size={11} />} />
+                        <FactBox label="Report Types" icon={<FileText size={11} />}>
+                            <ReportTypeBadges value={order.report_types || order.report_type} />
+                        </FactBox>
                         <Fact label="Analyst" value={ANALYST_OPTIONS.find(a => a.value === (data.analyst_assigned || ''))?.label || data.analyst_assigned || order.auto_assigned_analyst} icon={<User size={11} />} />
+                        <Fact label="Client Ref" value={order.client_ref} icon={<FileText size={11} />} />
                         <Fact label="Report ID" value={reportId} icon={<FileText size={11} />} />
                         <Fact label="Registration No" value={data.registration_no} icon={<FileText size={11} />} />
                         <Fact label="VAT No" value={data.vat_no} icon={<FileText size={11} />} />
                         <Fact label="Requested Limit" value={data.requested_limit} icon={<FileText size={11} />} />
+                        <Fact label="Address" value={data.address} icon={<MapPin size={11} />} />
+                        <Fact label="Phone" value={data.phone} icon={<Phone size={11} />} />
+                        <Fact label="Submitted via portal" value={order.submitted_via_portal ? 'Yes' : 'No'} icon={<FileText size={11} />} />
                     </div>
+
+                    {/* Previous reports for this company */}
+                    <div className="glass-card p-5 mb-6 cursor-default">
+                        <div className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">
+                            <History size={12} /> Previous Reports
+                        </div>
+                        {prevLoading ? (
+                            <div className="flex items-center gap-2 text-sm text-slate-400"><Loader2 size={14} className="animate-spin" /> Checking the database…</div>
+                        ) : prevReports.length === 0 ? (
+                            <p className="text-sm text-slate-400">No previous reports found for this company.</p>
+                        ) : (
+                            <div className="grid gap-2">
+                                {prevReports.map(r => (
+                                    <Link
+                                        key={r.id}
+                                        to={`/editor/${r.id}`}
+                                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3 hover:border-primary/40 transition-all"
+                                    >
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-bold text-slate-800 dark:text-white truncate">{r.company_name || r.legal_name || 'Untitled report'}</p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                {formatDate(r.created_at)}{r.analyst ? ` · ${r.analyst}` : ''}{r.cr_number ? ` · CR ${r.cr_number}` : ''}
+                                            </p>
+                                        </div>
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex-shrink-0">{r.status || '-'}</span>
+                                    </Link>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {order.notes && (
+                        <div className="glass-card p-5 mb-6 cursor-default">
+                            <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Order Notes</div>
+                            <p className="text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{order.notes}</p>
+                        </div>
+                    )}
 
                     {data.comments && (
                         <div className="glass-card p-5 mb-6 cursor-default">
@@ -275,17 +398,19 @@ export default function OrderFocusPage() {
 
                         <div className="grid sm:grid-cols-2 gap-4">
                             {/* Reassign */}
-                            <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 p-4">
-                                <div className="flex items-center gap-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2"><UserCheck size={11} /> Assigned Researcher</div>
-                                <select value={analyst} onChange={e => setAnalyst(e.target.value)}
-                                    className="w-full px-3 py-2.5 bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg text-sm dark:text-white outline-none focus:ring-2 focus:ring-primary/20 mb-2">
-                                    {ANALYST_OPTIONS.map(a => <option key={a.value} value={a.value} className="bg-white dark:bg-slate-900">{a.label}</option>)}
-                                </select>
-                                <button onClick={reassign} disabled={busy === 'reassign'}
-                                    className="w-full py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg font-black text-[10px] uppercase tracking-widest hover:opacity-80 transition-all disabled:opacity-40 flex items-center justify-center gap-1.5">
-                                    {busy === 'reassign' ? <Loader2 size={12} className="animate-spin" /> : <UserCheck size={12} />} Reassign
-                                </button>
-                            </div>
+                            {isAdmin && (
+                                <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 p-4">
+                                    <div className="flex items-center gap-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2"><UserCheck size={11} /> Assigned Researcher</div>
+                                    <select value={analyst} onChange={e => setAnalyst(e.target.value)}
+                                        className="w-full px-3 py-2.5 bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg text-sm dark:text-white outline-none focus:ring-2 focus:ring-primary/20 mb-2">
+                                        {ANALYST_OPTIONS.map(a => <option key={a.value} value={a.value} className="bg-white dark:bg-slate-900">{a.label}</option>)}
+                                    </select>
+                                    <button onClick={reassign} disabled={busy === 'reassign'}
+                                        className="w-full py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg font-black text-[10px] uppercase tracking-widest hover:opacity-80 transition-all disabled:opacity-40 flex items-center justify-center gap-1.5">
+                                        {busy === 'reassign' ? <Loader2 size={12} className="animate-spin" /> : <UserCheck size={12} />} Reassign
+                                    </button>
+                                </div>
+                            )}
 
                             {/* Complete / Delete */}
                             <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 p-4 flex flex-col gap-2">
@@ -295,7 +420,7 @@ export default function OrderFocusPage() {
                                         {busy === 'complete' ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />} Mark Complete
                                     </button>
                                 )}
-                                {status !== 'completed' ? (
+                                {isAdmin && (status !== 'completed' ? (
                                     !confirmDelete ? (
                                         <button onClick={() => setConfirmDelete(true)}
                                             className="w-full py-2.5 border border-rose-500/30 text-rose-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-rose-500/10 transition-all flex items-center justify-center gap-1.5">
@@ -313,7 +438,7 @@ export default function OrderFocusPage() {
                                     )
                                 ) : (
                                     <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5"><CheckCircle2 size={14} /> This report is complete.</div>
-                                )}
+                                ))}
                             </div>
                         </div>
                     </div>

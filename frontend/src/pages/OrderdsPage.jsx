@@ -20,6 +20,11 @@ const SPEED_LEVELS = {
     '24_hours': { label: '24 Hours', className: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800/40' },
 }
 
+const SPEED_FILTERS = [
+    { value: 'all', label: 'All Speeds' },
+    ...Object.entries(SPEED_LEVELS).map(([value, cfg]) => ({ value, label: cfg.label })),
+]
+
 const COUNTRY_FLAGS = {
     egypt: '🇪🇬', 'eg': '🇪🇬',
     'saudi arabia': '🇸🇦', 'sa': '🇸🇦', saudi: '🇸🇦',
@@ -43,6 +48,7 @@ const SUPPORTED_COUNTRIES = [
 
 const ANALYST_FILTERS = [
     { value: 'all', label: 'All Researchers' },
+    { value: 'unassigned', label: 'Unassigned' },
     { value: 'waleed@valyze.com', label: 'Waleed' },
     { value: 'mohamed@valyze.com', label: 'Mohamed' },
     { value: 'mahmoud@valyze.com', label: 'Mahmoud' },
@@ -189,7 +195,7 @@ function OrderRow({ order, onManage, onDownload, downloading }) {
             </td>
             <td className="px-4 py-4">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                    {order.client_id || '-'}
+                    {order.client_ref || order.order_client_ref || '-'}
                 </span>
             </td>
             <td className="px-4 py-4">
@@ -267,6 +273,7 @@ export default function OrderdsPage() {
     const [clientFilter, setClientFilter] = useState('all')
     const [researcherFilter, setResearcherFilter] = useState('all')
     const [reportTypeFilter, setReportTypeFilter] = useState('all')
+    const [speedFilter, setSpeedFilter] = useState('all')
     const [dateFrom, setDateFrom] = useState('')
     const [dateTo, setDateTo] = useState('')
     const [sortBy, setSortBy] = useState('due_date')
@@ -338,11 +345,16 @@ export default function OrderdsPage() {
     const filteredOrders = useMemo(() => {
         return orders.filter(order => {
             if (clientFilter !== 'all' && order.client_id !== clientFilter) return false
-            if (researcherFilter !== 'all' && order.analyst_assigned !== researcherFilter && order.auto_assigned_analyst !== researcherFilter) return false
+            if (researcherFilter === 'unassigned') {
+                if (order.analyst_assigned || order.auto_assigned_analyst) return false
+            } else if (researcherFilter !== 'all' && order.analyst_assigned !== researcherFilter && order.auto_assigned_analyst !== researcherFilter) {
+                return false
+            }
             if (reportTypeFilter !== 'all') {
                 const types = String(order.report_types || order.report_type || '').split(',').map(t => t.trim())
                 if (!types.includes(reportTypeFilter)) return false
             }
+            if (speedFilter !== 'all' && order.speed !== speedFilter && order.service_level !== speedFilter) return false
             if (dateFrom || dateTo) {
                 const due = order.due_date ? new Date(order.due_date) : null
                 if (!due || Number.isNaN(due.getTime())) return false
@@ -351,7 +363,7 @@ export default function OrderdsPage() {
             }
             return true
         })
-    }, [orders, clientFilter, researcherFilter, reportTypeFilter, dateFrom, dateTo])
+    }, [orders, clientFilter, researcherFilter, reportTypeFilter, speedFilter, dateFrom, dateTo])
 
     const sortedOrders = useMemo(() => {
         return [...filteredOrders].sort((a, b) => {
@@ -527,6 +539,20 @@ export default function OrderdsPage() {
                         </select>
                     </div>
 
+                    <div className="w-full xl:w-56">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Speed</label>
+                        <select
+                            value={speedFilter}
+                            onChange={(e) => setSpeedFilter(e.target.value)}
+                            className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white"
+                            aria-label="Filter orders by speed"
+                        >
+                            {SPEED_FILTERS.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                    </div>
+
                     <div className="w-full xl:w-44">
                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Due From</label>
                         <input
@@ -577,7 +603,7 @@ export default function OrderdsPage() {
                             <tr className="border-b border-slate-200 dark:border-white/10">
                                 <SortableHeader column="order_number" label="Order ID" />
                                 <SortableHeader column="client_name" label="Client Name" />
-                                <SortableHeader column="client_id" label="Client Ref" />
+                                <SortableHeader column="client_ref" label="Client Ref" />
                                 <SortableHeader column="company_name" label="Company Name" />
                                 <SortableHeader column="country" label="Country" />
                                 <SortableHeader column="report_id" label="Report ID" />

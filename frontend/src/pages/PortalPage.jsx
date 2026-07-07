@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import React, { useState, useMemo, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Loader2, X, Plus, Trash2, CheckCircle, Paperclip,
   ChevronLeft, ChevronRight, Check, Building2, FileText,
-  ClipboardCheck, Gauge, Zap, AlertCircle, Send,
+  ClipboardCheck, Gauge, Zap, AlertCircle, Send, ArrowLeft, CalendarClock,
 } from 'lucide-react'
+import { useDarkMode } from '../hooks/useDarkMode'
 
 const API_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000')
 
@@ -16,19 +17,34 @@ async function portalRequest(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, { ...options, headers })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error(data?.detail || `Request failed with status ${response.status}`)
+    const err = new Error(data?.detail || `Request failed with status ${response.status}`)
+    err.status = response.status
+    throw err
   }
   return data
 }
 
+/* ---- Shared theme-aware class tokens (light + dark) ---- */
+const PAGE_CLS = 'min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-200 dark:from-[#08111c] dark:via-[#0D1B2A] dark:to-[#07101a]'
+const CARD_CLS = 'bg-white border border-slate-200 shadow-xl dark:bg-white/5 dark:backdrop-blur-xl dark:border-white/10 dark:shadow-none'
+const FIELD_CLS = 'w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 placeholder-slate-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none text-sm transition-all dark:bg-white/5 dark:border-white/10 dark:text-white dark:placeholder-white/30 dark:focus:border-amber-400 dark:focus:ring-amber-400/20'
+const T_HEADING = 'text-slate-900 dark:text-white'
+const T_LABEL = 'text-slate-600 dark:text-white/70'
+const T_MUTED = 'text-slate-500 dark:text-white/50'
+const T_FAINT = 'text-slate-400 dark:text-white/40'
+const BRAND_CLS = 'text-amber-500 dark:text-amber-400 font-extrabold tracking-[0.3em]'
+const PRIMARY_BTN = 'bg-gradient-to-r from-amber-400 to-amber-300 text-gray-900 font-extrabold rounded-xl hover:opacity-90 transition-all disabled:opacity-50'
+const SECONDARY_BTN = 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 rounded-xl font-bold transition-all'
+const ERROR_CLS = 'bg-red-500/10 border border-red-500/30 rounded-xl text-red-600 dark:text-red-400 text-sm'
+
 /* Constants */
 const SPEED_TIERS = {
-  '7_days': { label: '7 Days', tier: 'Basic', tierClass: 'bg-slate-100/10 text-slate-300' },
-  '5_days': { label: '5 Days', tier: 'Standard', tierClass: 'bg-amber-400/10 text-amber-400' },
-  '3_days': { label: '3 Days', tier: 'Express', tierClass: 'bg-cyan-100/10 text-cyan-300' },
-  '2_days': { label: '2 Days', tier: 'Express', tierClass: 'bg-cyan-100/10 text-cyan-300' },
-  '1_day': { label: '1 Day', tier: 'Urgent', tierClass: 'bg-rose-100/10 text-rose-300' },
-  '24_hours': { label: '24 Hours', tier: 'Urgent', tierClass: 'bg-rose-100/10 text-rose-300' },
+  '7_days': { label: '7 Days', tier: 'Basic', tierClass: 'bg-slate-200 text-slate-600 dark:bg-slate-100/10 dark:text-slate-300' },
+  '5_days': { label: '5 Days', tier: 'Standard', tierClass: 'bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-400' },
+  '3_days': { label: '3 Days', tier: 'Express', tierClass: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-100/10 dark:text-cyan-300' },
+  '2_days': { label: '2 Days', tier: 'Express', tierClass: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-100/10 dark:text-cyan-300' },
+  '1_day': { label: '1 Day', tier: 'Urgent', tierClass: 'bg-rose-100 text-rose-700 dark:bg-rose-100/10 dark:text-rose-300' },
+  '24_hours': { label: '24 Hours', tier: 'Urgent', tierClass: 'bg-rose-100 text-rose-700 dark:bg-rose-100/10 dark:text-rose-300' },
 }
 
 const SUPPORTED_COUNTRIES = [
@@ -71,7 +87,7 @@ const DOC_CHECKLIST = [
 ]
 
 const EMPTY_COMPANY = {
-  company_name: '', country: '', registration_no: '',
+  company_name: '', client_ref: '', country: '', registration_no: '',
   address: '', requested_limit: '', vat_no: '', phone: '', comments: '',
 }
 
@@ -82,9 +98,25 @@ const WIZARD_STEPS = [
   { id: 'review',    label: 'Review',    icon: ClipboardCheck },
 ]
 
+// Vercel caps the whole request body at ~4.5 MB, so the client cap has to stay
+// under that for the file + form-field payload combined.
+const MAX_FILE_SIZE_MB = 4
+const MAX_TOTAL_UPLOAD_BYTES = 4 * 1024 * 1024
+
+function formatDate(value) {
+  if (!value) return '-'
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? '-' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function titleizeStatus(status) {
+  const s = String(status || 'pending').toLowerCase()
+  return s === 'in_progress' ? 'In Progress' : s.charAt(0).toUpperCase() + s.slice(1)
+}
+
 /* Completeness for a single company: 1 (name) + filled optional fields, out of total. */
 function companyCompleteness(company) {
-  const optionalKeys = [...COMPANY_FIELDS.map(f => f.key), 'country', 'comments']
+  const optionalKeys = [...COMPANY_FIELDS.map(f => f.key), 'client_ref', 'country', 'comments']
   const total = optionalKeys.length + 1 // +1 for the mandatory name
   let filled = company.company_name.trim() ? 1 : 0
   optionalKeys.forEach(k => { if (String(company[k] || '').trim()) filled += 1 })
@@ -92,10 +124,10 @@ function companyCompleteness(company) {
 }
 
 /* Login Screen */
-function LoginScreen({ token, onAuthenticated }) {
+function LoginScreen({ token, initialMessage, onAuthenticated }) {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(initialMessage || '')
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -113,27 +145,23 @@ function LoginScreen({ token, onAuthenticated }) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #08111c 0%, #0D1B2A 48%, #07101a 100%)' }}>
-      <div className="w-full max-w-md bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-10 text-center">
-        <div className="text-amber-400 font-extrabold text-xl tracking-[0.3em] mb-4">VALYZE</div>
-        <h1 className="text-white text-2xl font-black mb-2">Client Order Portal</h1>
-        <p className="text-white/50 text-sm mb-6">Enter the temporary password from your Valyze portal link.</p>
-        {error && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">{error}</div>}
+    <div className={`${PAGE_CLS} flex items-center justify-center p-4`}>
+      <div className={`w-full max-w-md ${CARD_CLS} rounded-3xl p-10 text-center`}>
+        <div className={`${BRAND_CLS} text-xl mb-4`}>VALYZE</div>
+        <h1 className={`${T_HEADING} text-2xl font-black mb-2`}>Client Order Portal</h1>
+        <p className={`${T_MUTED} text-sm mb-6`}>Enter the temporary password from your Valyze portal link.</p>
+        {error && <div className={`mb-4 p-3 ${ERROR_CLS}`}>{error}</div>}
         <form onSubmit={handleSubmit}>
-          <label className="block text-left text-white/70 text-sm font-bold mb-2">Password</label>
+          <label className={`block text-left ${T_LABEL} text-sm font-bold mb-2`}>Password</label>
           <input
             type="password"
             value={password}
             onChange={e => setPassword(e.target.value)}
             disabled={loading}
-            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all mb-4"
+            className={`${FIELD_CLS} mb-4`}
             placeholder="Enter password"
           />
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-gradient-to-r from-amber-400 to-amber-300 text-gray-900 font-extrabold rounded-xl hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-          >
+          <button type="submit" disabled={loading} className={`w-full py-3 ${PRIMARY_BTN} flex items-center justify-center gap-2`}>
             {loading ? <><Loader2 size={18} className="animate-spin" /> Signing in...</> : 'Continue'}
           </button>
         </form>
@@ -142,11 +170,8 @@ function LoginScreen({ token, onAuthenticated }) {
   )
 }
 
-/* Shared input styling */
-const FIELD_CLS = 'w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none text-sm transition-all'
-
 /* Order Form — guided multi-step wizard */
-function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
+function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode, onSessionExpired }) {
   const isBatch = orderMode === 'batch'
   const [step, setStep] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -154,12 +179,10 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
   const [speed, setSpeed] = useState('5_days')
   const [reportTypes, setReportTypes] = useState(['credit_report'])
   const [notes, setNotes] = useState('')
-  const [clientRef, setClientRef] = useState('')
   const [companies, setCompanies] = useState([{ ...EMPTY_COMPANY }])
   const [filesPerCompany, setFilesPerCompany] = useState([[]])
 
   const MAX_FILES_PER_COMPANY = 5
-  const MAX_FILE_SIZE_MB = 100
   const ALLOWED_EXTENSIONS = new Set(['.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg', '.tiff', '.xlsx', '.xls', '.csv', '.txt'])
 
   const addCompany = () => {
@@ -183,10 +206,16 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
       setError(`Invalid file type. Allowed: ${[...ALLOWED_EXTENSIONS].join(', ')}`); return
     }
     if (files.some(f => f.size > MAX_FILE_SIZE_MB * 1024 * 1024)) {
-      setError(`Files must be under ${MAX_FILE_SIZE_MB}MB each`); return
+      setError(`Files must be under ${MAX_FILE_SIZE_MB}MB each. You can also submit without files and email larger documents.`); return
     }
     if ((filesPerCompany[i]?.length || 0) + files.length > MAX_FILES_PER_COMPANY) {
       setError(`Maximum ${MAX_FILES_PER_COMPANY} files per company`); return
+    }
+    // Reject if the combined size of everything attached would exceed the limit.
+    const existingBytes = filesPerCompany.reduce((s, ef) => s + ef.reduce((a, f) => a + f.size, 0), 0)
+    const addedBytes = files.reduce((a, f) => a + f.size, 0)
+    if (existingBytes + addedBytes > MAX_TOTAL_UPLOAD_BYTES) {
+      setError('Total attachments must stay under 4 MB — you can also submit without files and email larger documents.'); return
     }
     setError('')
     setFilesPerCompany(prev => prev.map((ef, idx) => idx === i ? [...ef, ...files] : ef))
@@ -196,6 +225,7 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
 
   const namedCompanies = companies.filter(c => c.company_name.trim())
   const totalFiles = filesPerCompany.reduce((s, f) => s + f.length, 0)
+  const totalBytes = filesPerCompany.reduce((s, ef) => s + ef.reduce((a, f) => a + f.size, 0), 0)
 
   // Overall completeness across all companies (drives the meter).
   const overall = useMemo(() => {
@@ -205,13 +235,6 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
   }, [companies])
 
   const selectedTier = SPEED_TIERS[speed]
-
-  // Per-step gating — company NAME and COUNTRY are mandatory.
-  const canAdvance = () => {
-    if (step === 0) return reportTypes.length > 0
-    if (step === 1) return namedCompanies.length > 0 && namedCompanies.every(c => c.country)
-    return true
-  }
 
   const goNext = () => {
     if (step === 0 && reportTypes.length === 0) {
@@ -235,13 +258,15 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
   const handleSubmit = async () => {
     if (!namedCompanies.length) { setError('At least one company name is required.'); setStep(1); return }
     if (namedCompanies.some(c => !c.country)) { setError('Please select a country for each company.'); setStep(1); return }
+    if (totalBytes > MAX_TOTAL_UPLOAD_BYTES) {
+      setError('Total attachments must stay under 4 MB — you can also submit without files and email larger documents.'); setStep(2); return
+    }
     setLoading(true); setError('')
     try {
       const formData = new FormData()
       const orderData = {
         speed,
         report_types: reportTypes,
-        client_ref: clientRef || undefined,
         notes: notes || undefined,
         companies: namedCompanies,
       }
@@ -262,25 +287,30 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
       })
       onSubmitSuccess(result)
     } catch (err) {
-      setError(err.message || 'Failed to submit order')
+      if (err.status === 401) { onSessionExpired?.(); return }
+      if (err.status === 413) {
+        setError('Total attachments must stay under 4 MB — you can also submit without files and email larger documents.')
+      } else {
+        setError(err.message || 'Failed to submit order')
+      }
     } finally { setLoading(false) }
   }
 
   return (
-    <div className="min-h-screen p-4 md:p-6" style={{ background: 'linear-gradient(135deg, #08111c 0%, #0D1B2A 48%, #07101a 100%)' }}>
+    <div className={`${PAGE_CLS} p-4 md:p-6`}>
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="flex items-end justify-between mb-6">
           <div>
-            <div className="text-amber-400 font-extrabold text-lg tracking-[0.3em] mb-1">VALYZE</div>
-            <h1 className="text-white text-2xl font-black">{isBatch ? 'Batch Order' : 'Single Order'}</h1>
-            <p className="text-white/50 text-sm mt-1">Welcome, {clientName}</p>
+            <div className={`${BRAND_CLS} text-lg mb-1`}>VALYZE</div>
+            <h1 className={`${T_HEADING} text-2xl font-black`}>{isBatch ? 'Batch Order' : 'Single Order'}</h1>
+            <p className={`${T_MUTED} text-sm mt-1`}>Welcome, {clientName}</p>
           </div>
           <div className="flex items-center gap-2 text-right">
-            <Gauge size={16} className="text-amber-400" />
+            <Gauge size={16} className="text-amber-500 dark:text-amber-400" />
             <div>
-              <div className="text-white font-black text-lg leading-none">{overall}%</div>
-              <div className="text-white/40 text-[10px] uppercase tracking-wider">Complete</div>
+              <div className={`${T_HEADING} font-black text-lg leading-none`}>{overall}%</div>
+              <div className={`${T_FAINT} text-[10px] uppercase tracking-wider`}>Complete</div>
             </div>
           </div>
         </div>
@@ -301,15 +331,15 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
                 >
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${
                     active ? 'bg-amber-400 border-amber-400 text-gray-900 scale-110 shadow-lg shadow-amber-400/30'
-                    : done ? 'bg-emerald-400/20 border-emerald-400 text-emerald-400'
-                    : 'bg-white/5 border-white/15 text-white/40'
+                    : done ? 'bg-emerald-400/20 border-emerald-400 text-emerald-500 dark:text-emerald-400'
+                    : 'bg-slate-100 border-slate-300 text-slate-400 dark:bg-white/5 dark:border-white/15 dark:text-white/40'
                   }`}>
                     {done ? <Check size={18} /> : <Icon size={16} />}
                   </div>
-                  <span className={`text-[10px] font-bold uppercase tracking-wider ${active ? 'text-amber-400' : done ? 'text-emerald-400/80' : 'text-white/40'}`}>{s.label}</span>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${active ? 'text-amber-500 dark:text-amber-400' : done ? 'text-emerald-500/80 dark:text-emerald-400/80' : T_FAINT}`}>{s.label}</span>
                 </button>
                 {idx < WIZARD_STEPS.length - 1 && (
-                  <div className={`flex-1 h-0.5 mx-1 mb-5 rounded transition-all ${idx < step ? 'bg-emerald-400/50' : 'bg-white/10'}`} />
+                  <div className={`flex-1 h-0.5 mx-1 mb-5 rounded transition-all ${idx < step ? 'bg-emerald-400/50' : 'bg-slate-200 dark:bg-white/10'}`} />
                 )}
               </React.Fragment>
             )
@@ -317,7 +347,7 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
         </div>
 
         {error && (
-          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-center gap-2">
+          <div className={`mb-4 p-4 ${ERROR_CLS} flex items-center gap-2`}>
             <AlertCircle size={16} className="flex-shrink-0" />{error}
           </div>
         )}
@@ -325,26 +355,28 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
         {/* ---------- STEP 0: SERVICE ---------- */}
         {step === 0 && (
           <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-              <label className="block text-white/70 text-sm font-bold mb-3">Service Speed</label>
+            <div className={`${CARD_CLS} rounded-2xl p-6`}>
+              <label className={`block ${T_LABEL} text-sm font-bold mb-3`}>Service Speed</label>
               <select value={speed} onChange={e => setSpeed(e.target.value)} className={FIELD_CLS + ' mb-3'}>
                 {Object.entries(SPEED_TIERS).map(([key, val]) => (
-                  <option key={key} value={key} className="bg-gray-900 text-white">{val.label}</option>
+                  <option key={key} value={key} className="bg-white text-slate-800 dark:bg-gray-900 dark:text-white">{val.label}</option>
                 ))}
               </select>
               <div className="flex items-center gap-2">
-                <span className="text-white/50 text-xs">Tier:</span>
+                <span className={`${T_MUTED} text-xs`}>Tier:</span>
                 <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-bold ${selectedTier?.tierClass || ''}`}>{selectedTier?.tier || 'Standard'}</span>
-                <span className="text-white/30 text-xs ml-auto">Due date auto-calculated</span>
+                <span className={`${T_FAINT} text-xs ml-auto`}>Due date auto-calculated</span>
               </div>
             </div>
 
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-              <label className="block text-white/70 text-sm font-bold mb-3">Report Types <span className="text-amber-400/70 font-normal">· pick at least one</span></label>
+            <div className={`${CARD_CLS} rounded-2xl p-6`}>
+              <label className={`block ${T_LABEL} text-sm font-bold mb-3`}>Report Types <span className="text-amber-500/80 dark:text-amber-400/70 font-normal">· pick at least one</span></label>
               <div className="grid grid-cols-2 gap-2">
                 {REPORT_TYPE_OPTIONS.map(opt => (
                   <label key={opt.value} className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-medium cursor-pointer transition-all ${
-                    reportTypes.includes(opt.value) ? 'bg-amber-400/10 border-amber-400/40 text-amber-300' : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10'
+                    reportTypes.includes(opt.value)
+                      ? 'bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-400/10 dark:border-amber-400/40 dark:text-amber-300'
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 dark:bg-white/5 dark:border-white/10 dark:text-white/70 dark:hover:bg-white/10'
                   }`}>
                     <input type="checkbox" checked={reportTypes.includes(opt.value)} onChange={() => toggleReportType(opt.value)} className="accent-amber-400 w-4 h-4" />
                     {opt.label}
@@ -358,14 +390,10 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
         {/* ---------- STEP 1: COMPANIES ---------- */}
         {step === 1 && (
           <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5">
-              <label className="block text-white/70 text-sm font-bold mb-2">Your Reference <span className="text-white/30 font-normal">· optional</span></label>
-              <input type="text" value={clientRef} onChange={e => setClientRef(e.target.value)} className={FIELD_CLS} placeholder="e.g., PO-12345" />
-            </div>
             <div className="flex items-center justify-between">
-              <p className="text-white/50 text-xs"><span className="text-amber-400 font-bold">Company name</span> and <span className="text-amber-400 font-bold">country</span> are required. The more details you add, the faster and more accurate your report.</p>
+              <p className={`${T_MUTED} text-xs`}><span className="text-amber-500 dark:text-amber-400 font-bold">Company name</span> and <span className="text-amber-500 dark:text-amber-400 font-bold">country</span> are required. The more details you add, the faster and more accurate your report.</p>
               {isBatch && (
-                <button type="button" onClick={addCompany} className="flex items-center gap-1 px-3 py-1.5 bg-amber-400/10 text-amber-400 rounded-lg text-xs font-bold hover:bg-amber-400/20 transition-all flex-shrink-0 ml-3">
+                <button type="button" onClick={addCompany} className="flex items-center gap-1 px-3 py-1.5 bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-400 rounded-lg text-xs font-bold hover:bg-amber-200 dark:hover:bg-amber-400/20 transition-all flex-shrink-0 ml-3">
                   <Plus size={14} /> Add
                 </button>
               )}
@@ -373,46 +401,56 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
             {companies.map((company, i) => {
               const comp = companyCompleteness(company)
               return (
-                <div key={i} className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5 space-y-3">
+                <div key={i} className={`${CARD_CLS} rounded-2xl p-5 space-y-3`}>
                   <div className="flex items-center justify-between">
-                    <span className="text-white font-bold text-sm flex items-center gap-2"><Building2 size={14} className="text-amber-400" /> Company {i + 1}</span>
+                    <span className={`${T_HEADING} font-bold text-sm flex items-center gap-2`}><Building2 size={14} className="text-amber-500 dark:text-amber-400" /> Company {i + 1}</span>
                     <div className="flex items-center gap-3">
-                      <span className="text-[10px] font-bold text-white/40">{comp.filled}/{comp.total} details</span>
+                      <span className={`text-[10px] font-bold ${T_FAINT}`}>{comp.filled}/{comp.total} details</span>
                       {companies.length > 1 && (
-                        <button type="button" onClick={() => removeCompany(i)} className="text-red-400 hover:text-red-300"><Trash2 size={14} /></button>
+                        <button type="button" onClick={() => removeCompany(i)} className="text-red-500 hover:text-red-400"><Trash2 size={14} /></button>
                       )}
                     </div>
                   </div>
                   {/* completeness bar */}
-                  <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-1 rounded-full bg-slate-200 dark:bg-white/10 overflow-hidden">
                     <div className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-500" style={{ width: `${comp.pct}%` }} />
                   </div>
 
                   <div>
-                    <label className="block text-white/70 text-xs font-bold mb-1.5">Company Name <span className="text-amber-400">*</span></label>
+                    <label className={`block ${T_LABEL} text-xs font-bold mb-1.5`}>Your Reference <span className={`${T_FAINT} font-normal`}>· optional</span></label>
+                    <input type="text" value={company.client_ref} onChange={e => updateCompany(i, 'client_ref', e.target.value)} placeholder="e.g., PO-12345" className={FIELD_CLS} />
+                  </div>
+                  <div>
+                    <label className={`block ${T_LABEL} text-xs font-bold mb-1.5`}>Company Name <span className="text-amber-500 dark:text-amber-400">*</span></label>
                     <input type="text" value={company.company_name} onChange={e => updateCompany(i, 'company_name', e.target.value)} placeholder="Legal company name" className={FIELD_CLS} />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-white/70 text-xs font-bold mb-1.5">Country <span className="text-amber-400">*</span></label>
+                      <label className={`block ${T_LABEL} text-xs font-bold mb-1.5`}>Country <span className="text-amber-500 dark:text-amber-400">*</span></label>
                       <select
                         value={company.country}
                         onChange={e => updateCompany(i, 'country', e.target.value)}
-                        className={`${FIELD_CLS} ${!company.country ? 'border-amber-400/40' : ''}`}
+                        className={`${FIELD_CLS} ${!company.country ? 'border-amber-400/60' : ''}`}
                       >
-                        {SUPPORTED_COUNTRIES.map(c => <option key={c.value} value={c.value} className="bg-gray-900">{c.label}</option>)}
+                        {SUPPORTED_COUNTRIES.map(c => <option key={c.value} value={c.value} className="bg-white text-slate-800 dark:bg-gray-900 dark:text-white">{c.label}</option>)}
                       </select>
                     </div>
                     {COMPANY_FIELDS.map(f => (
                       <div key={f.key}>
-                        <label className="block text-white/70 text-xs font-bold mb-1.5">{f.label}</label>
+                        <label className={`block ${T_LABEL} text-xs font-bold mb-1.5`}>{f.label}</label>
                         <input type="text" value={company[f.key]} onChange={e => updateCompany(i, f.key, e.target.value)} placeholder={f.placeholder} className={FIELD_CLS} />
                       </div>
                     ))}
                   </div>
                   <div>
-                    <label className="block text-white/70 text-xs font-bold mb-1.5">Comments</label>
-                    <input type="text" value={company.comments} onChange={e => updateCompany(i, 'comments', e.target.value)} placeholder="Anything we should know about this company" className={FIELD_CLS} />
+                    <label className={`block ${T_LABEL} text-xs font-bold mb-1.5`}>Comments</label>
+                    <input
+                      type="text"
+                      value={company.comments}
+                      onChange={e => updateCompany(i, 'comments', e.target.value)}
+                      placeholder="Recommended: state whether we may disclose your company's name as the party requesting this report"
+                      className={FIELD_CLS}
+                    />
                   </div>
                 </div>
               )
@@ -423,29 +461,29 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
         {/* ---------- STEP 2: DOCUMENTS ---------- */}
         {step === 2 && (
           <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-            <div className="bg-amber-400/5 border border-amber-400/20 rounded-2xl p-4">
-              <div className="flex items-center gap-2 text-amber-300 text-xs font-bold mb-2"><ClipboardCheck size={14} /> Recommended documents</div>
+            <div className="bg-amber-50 border border-amber-200 dark:bg-amber-400/5 dark:border-amber-400/20 rounded-2xl p-4">
+              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 text-xs font-bold mb-2"><ClipboardCheck size={14} /> Recommended documents</div>
               <div className="grid grid-cols-2 gap-1.5">
                 {DOC_CHECKLIST.map(d => (
-                  <div key={d} className="flex items-center gap-1.5 text-white/60 text-xs"><Check size={12} className="text-emerald-400/70 flex-shrink-0" />{d}</div>
+                  <div key={d} className={`flex items-center gap-1.5 ${T_MUTED} text-xs`}><Check size={12} className="text-emerald-500/80 dark:text-emerald-400/70 flex-shrink-0" />{d}</div>
                 ))}
               </div>
-              <p className="text-white/30 text-[11px] mt-2">Optional — but attaching these speeds up your report significantly.</p>
+              <p className={`${T_FAINT} text-[11px] mt-2`}>Optional — attaching these speeds up your report. Total attachments must stay under 4 MB; email larger documents to your Valyze contact.</p>
             </div>
 
             {namedCompanies.length === 0 && (
-              <div className="text-white/40 text-sm text-center py-6">Add a company in the previous step to attach documents.</div>
+              <div className={`${T_FAINT} text-sm text-center py-6`}>Add a company in the previous step to attach documents.</div>
             )}
 
             {companies.map((company, i) => {
               if (!company.company_name.trim()) return null
               return (
-                <div key={i} className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5">
+                <div key={i} className={`${CARD_CLS} rounded-2xl p-5`}>
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-white font-bold text-sm flex items-center gap-2"><Building2 size={14} className="text-amber-400" /> {company.company_name}</span>
-                    <span className="text-[10px] font-bold text-white/40">{filesPerCompany[i]?.length || 0}/{MAX_FILES_PER_COMPANY} files</span>
+                    <span className={`${T_HEADING} font-bold text-sm flex items-center gap-2`}><Building2 size={14} className="text-amber-500 dark:text-amber-400" /> {company.company_name}</span>
+                    <span className={`text-[10px] font-bold ${T_FAINT}`}>{filesPerCompany[i]?.length || 0}/{MAX_FILES_PER_COMPANY} files</span>
                   </div>
-                  <label htmlFor={`files-${i}`} className="flex items-center justify-center gap-2 px-3 py-4 bg-white/5 border border-dashed border-white/15 rounded-xl text-white/50 text-xs font-medium cursor-pointer hover:border-amber-400/50 hover:text-amber-300 transition-all">
+                  <label htmlFor={`files-${i}`} className={`flex items-center justify-center gap-2 px-3 py-4 bg-slate-50 dark:bg-white/5 border border-dashed border-slate-300 dark:border-white/15 rounded-xl ${T_MUTED} text-xs font-medium cursor-pointer hover:border-amber-400/60 hover:text-amber-500 dark:hover:text-amber-300 transition-all`}>
                     <Paperclip size={14} />
                     <span>Click to attach documents</span>
                     <input id={`files-${i}`} type="file" multiple accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.tiff,.xlsx,.xls,.csv,.txt"
@@ -454,9 +492,9 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
                   {filesPerCompany[i]?.length > 0 && (
                     <ul className="mt-2 space-y-1">
                       {filesPerCompany[i].map((f, fi) => (
-                        <li key={fi} className="flex items-center justify-between text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2">
-                          <span className="truncate flex items-center gap-2"><FileText size={12} className="text-amber-400/70 flex-shrink-0" />{f.name}</span>
-                          <button type="button" onClick={() => removeFile(i, fi)} className="text-red-400 hover:text-red-300 ml-2"><X size={14} /></button>
+                        <li key={fi} className={`flex items-center justify-between text-xs ${T_LABEL} bg-slate-50 dark:bg-white/5 rounded-lg px-3 py-2`}>
+                          <span className="truncate flex items-center gap-2"><FileText size={12} className="text-amber-500/80 dark:text-amber-400/70 flex-shrink-0" />{f.name}</span>
+                          <button type="button" onClick={() => removeFile(i, fi)} className="text-red-500 hover:text-red-400 ml-2"><X size={14} /></button>
                         </li>
                       ))}
                     </ul>
@@ -470,26 +508,26 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
         {/* ---------- STEP 3: REVIEW ---------- */}
         {step === 3 && (
           <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 space-y-4">
-              <h2 className="text-white font-black text-sm uppercase tracking-wider">Review your order</h2>
+            <div className={`${CARD_CLS} rounded-2xl p-6 space-y-4`}>
+              <h2 className={`${T_HEADING} font-black text-sm uppercase tracking-wider`}>Review your order</h2>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><div className="text-white/40 text-xs">Speed</div><div className="text-white font-bold">{selectedTier?.label} · {selectedTier?.tier}</div></div>
-                <div><div className="text-white/40 text-xs">Report Types</div><div className="text-white font-bold">{reportTypes.map(t => REPORT_TYPE_OPTIONS.find(o => o.value === t)?.label || t).join(', ')}</div></div>
-                {clientRef && <div><div className="text-white/40 text-xs">Your Reference</div><div className="text-white font-bold">{clientRef}</div></div>}
-                <div><div className="text-white/40 text-xs">Documents</div><div className="text-white font-bold">{totalFiles} file(s)</div></div>
+                <div><div className={`${T_FAINT} text-xs`}>Speed</div><div className={`${T_HEADING} font-bold`}>{selectedTier?.label} · {selectedTier?.tier}</div></div>
+                <div><div className={`${T_FAINT} text-xs`}>Report Types</div><div className={`${T_HEADING} font-bold`}>{reportTypes.map(t => REPORT_TYPE_OPTIONS.find(o => o.value === t)?.label || t).join(', ')}</div></div>
+                <div><div className={`${T_FAINT} text-xs`}>Documents</div><div className={`${T_HEADING} font-bold`}>{totalFiles} file(s)</div></div>
+                <div><div className={`${T_FAINT} text-xs`}>Companies</div><div className={`${T_HEADING} font-bold`}>{namedCompanies.length} → {namedCompanies.length} order(s)</div></div>
               </div>
               <div>
-                <div className="text-white/40 text-xs mb-2">Companies ({namedCompanies.length})</div>
+                <div className={`${T_FAINT} text-xs mb-2`}>Companies ({namedCompanies.length})</div>
                 <div className="space-y-2">
                   {namedCompanies.map((c, idx) => {
                     const realIdx = companies.findIndex(cc => cc === c)
                     return (
-                      <div key={idx} className="bg-white/5 rounded-xl px-3 py-2 flex items-center justify-between">
+                      <div key={idx} className="bg-slate-50 dark:bg-white/5 rounded-xl px-3 py-2 flex items-center justify-between">
                         <div>
-                          <div className="text-white font-bold text-sm">{c.company_name}</div>
-                          <div className="text-white/40 text-xs">{[c.country, c.registration_no, c.requested_limit].filter(Boolean).join(' · ') || 'No extra details'}</div>
+                          <div className={`${T_HEADING} font-bold text-sm`}>{c.company_name}{c.client_ref ? <span className={`${T_FAINT} font-normal`}> · {c.client_ref}</span> : null}</div>
+                          <div className={`${T_FAINT} text-xs`}>{[c.country, c.registration_no, c.requested_limit].filter(Boolean).join(' · ') || 'No extra details'}</div>
                         </div>
-                        <span className="text-[10px] text-white/40 font-bold">{(filesPerCompany[realIdx]?.length || 0)} files</span>
+                        <span className={`text-[10px] ${T_FAINT} font-bold`}>{(filesPerCompany[realIdx]?.length || 0)} files</span>
                       </div>
                     )
                   })}
@@ -497,8 +535,8 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
               </div>
             </div>
 
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-              <label className="block text-white/70 text-sm font-bold mb-2">Notes <span className="text-white/30 font-normal">· optional</span></label>
+            <div className={`${CARD_CLS} rounded-2xl p-6`}>
+              <label className={`block ${T_LABEL} text-sm font-bold mb-2`}>Notes <span className={`${T_FAINT} font-normal`}>· optional</span></label>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className={FIELD_CLS + ' resize-none'} placeholder="Any additional instructions for the analyst..." />
             </div>
           </div>
@@ -508,13 +546,13 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
         <div className="flex items-center gap-3 mt-6">
           {step > 0 && (
             <button type="button" onClick={goBack} disabled={loading}
-              className="px-5 py-3.5 bg-white/5 border border-white/10 text-white/70 rounded-xl text-sm font-bold hover:bg-white/10 transition-all flex items-center gap-2 disabled:opacity-50">
+              className={`px-5 py-3.5 ${SECONDARY_BTN} text-sm flex items-center gap-2 disabled:opacity-50`}>
               <ChevronLeft size={16} /> Back
             </button>
           )}
           {step < WIZARD_STEPS.length - 1 ? (
             <button type="button" onClick={goNext}
-              className="flex-1 py-3.5 bg-gradient-to-r from-amber-400 to-amber-300 text-gray-900 font-extrabold rounded-xl hover:opacity-90 transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider">
+              className={`flex-1 py-3.5 ${PRIMARY_BTN} flex items-center justify-center gap-2 text-sm uppercase tracking-wider`}>
               Continue <ChevronRight size={16} />
             </button>
           ) : (
@@ -529,37 +567,160 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode }) {
   )
 }
 
-/* Success Screen */
-function SuccessScreen({ result, clientName }) {
-  const navigate = useNavigate()
-  const handleViewOrder = () => {
-    if (result?.order_id) {
-      navigate(`/orders/${result.order_id}`)
-    } else {
-      window.location.reload()
-    }
-  }
+/* Success Screen — lists every order created by the submission */
+function SuccessScreen({ result, onViewSummary, onSubmitAnother }) {
+  const orders = result?.orders?.length ? result.orders : (result?.order_number ? [{ order_number: result.order_number, order_id: result.order_id }] : [])
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #08111c 0%, #0D1B2A 48%, #07101a 100%)' }}>
-      <div className="w-full max-w-lg bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-10 text-center">
+    <div className={`${PAGE_CLS} flex items-center justify-center p-4`}>
+      <div className={`w-full max-w-lg ${CARD_CLS} rounded-3xl p-10 text-center`}>
         <div className="w-20 h-20 mx-auto mb-6 rounded-full border-2 border-emerald-400 flex items-center justify-center">
           <CheckCircle size={40} className="text-emerald-400" />
         </div>
-        <h1 className="text-white text-2xl font-black mb-2">Order Submitted!</h1>
-        <div className="text-amber-400 text-3xl font-black my-4">{result?.order_number || '-'}</div>
-        <p className="text-white/50 text-sm">Your order has been received and is being processed.</p>
-        <div className="flex gap-3 mt-6">
-          <button
-            onClick={handleViewOrder}
-            className="flex-1 px-6 py-3 bg-gradient-to-r from-amber-400 to-amber-300 text-gray-900 rounded-xl text-sm font-bold hover:opacity-90 transition-all"
-          >
-            View Order Details
+        <h1 className={`${T_HEADING} text-2xl font-black mb-2`}>Order{orders.length > 1 ? 's' : ''} Submitted!</h1>
+        <p className={`${T_MUTED} text-sm`}>
+          {orders.length > 1
+            ? `${orders.length} orders were created — one per company.`
+            : 'Your order has been received and is being processed.'}
+        </p>
+        <div className="my-5 space-y-2 max-h-56 overflow-y-auto">
+          {orders.map((o, i) => (
+            <div key={o.order_id || o.order_number || i} className="bg-slate-50 dark:bg-white/5 rounded-xl px-4 py-3 flex items-center justify-between">
+              <span className="text-amber-500 dark:text-amber-400 text-lg font-black">{o.order_number || '-'}</span>
+              {o.company_name && <span className={`${T_MUTED} text-sm truncate ml-3`}>{o.company_name}</span>}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onViewSummary} className={`flex-1 px-6 py-3 ${PRIMARY_BTN} text-sm`}>
+            View Order{orders.length > 1 ? 's' : ''}
           </button>
-          <button
-            onClick={() => window.location.reload()}
-            className="flex-1 px-6 py-3 bg-white/10 text-white rounded-xl text-sm font-bold hover:bg-white/20 transition-all"
-          >
+          <button onClick={onSubmitAnother} className={`flex-1 px-6 py-3 ${SECONDARY_BTN} text-sm`}>
             Submit Another
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* Order Summary — portal-native status view (never links into the internal app) */
+function OrderSummaryScreen({ orders, portalToken, onBack, onSubmitAnother, onSessionExpired }) {
+  const list = orders?.length ? orders : []
+  const [selected, setSelected] = useState(0)
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const current = list[selected]
+
+  useEffect(() => {
+    if (!current?.order_number) { setLoading(false); return undefined }
+    let cancelled = false
+    setLoading(true); setError('')
+    portalRequest(`/api/portal/order-status/${encodeURIComponent(current.order_number)}`, {
+      headers: { Authorization: `Bearer ${portalToken}` },
+    })
+      .then(res => { if (!cancelled) setData(res) })
+      .catch(err => {
+        if (err.status === 401) { onSessionExpired?.(); return }
+        if (!cancelled) setError(err.message || 'Failed to load order')
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [current?.order_number, portalToken]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const order = data?.order
+  const companies = data?.companies || []
+  const files = data?.files || []
+
+  return (
+    <div className={`${PAGE_CLS} p-4 md:p-6`}>
+      <div className="max-w-2xl mx-auto">
+        <button onClick={onBack} className={`mb-6 inline-flex items-center gap-2 text-sm font-bold ${T_MUTED} hover:text-amber-500 transition-colors`}>
+          <ArrowLeft size={16} /> Back
+        </button>
+
+        <div className="flex items-end justify-between mb-6">
+          <div>
+            <div className={`${BRAND_CLS} text-lg mb-1`}>VALYZE</div>
+            <h1 className={`${T_HEADING} text-2xl font-black`}>Order Summary</h1>
+          </div>
+        </div>
+
+        {list.length > 1 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {list.map((o, i) => (
+              <button
+                key={o.order_id || o.order_number || i}
+                onClick={() => setSelected(i)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black tracking-wide transition-all ${
+                  i === selected
+                    ? 'bg-amber-400 text-gray-900'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:text-white/60 dark:hover:bg-white/10'
+                }`}
+              >
+                {o.order_number}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {error && <div className={`mb-4 p-4 ${ERROR_CLS} flex items-center gap-2`}><AlertCircle size={16} />{error}</div>}
+
+        {loading ? (
+          <div className={`${CARD_CLS} rounded-2xl p-12 flex items-center justify-center`}>
+            <Loader2 size={28} className="text-amber-500 dark:text-amber-400 animate-spin" />
+          </div>
+        ) : !order ? (
+          <div className={`${CARD_CLS} rounded-2xl p-12 text-center ${T_MUTED}`}>Order details are not available yet.</div>
+        ) : (
+          <>
+            <div className={`${CARD_CLS} rounded-2xl p-6 mb-4`}>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-amber-500 dark:text-amber-400 text-2xl font-black">{order.order_number}</span>
+                <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">{titleizeStatus(order.status)}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><div className={`${T_FAINT} text-xs flex items-center gap-1`}><CalendarClock size={11} /> Due Date</div><div className={`${T_HEADING} font-bold`}>{formatDate(order.due_date)}</div></div>
+                <div><div className={`${T_FAINT} text-xs`}>Progress</div><div className={`${T_HEADING} font-bold`}>{order.completed_count || 0} / {order.company_count || companies.length || 0} complete</div></div>
+              </div>
+            </div>
+
+            <div className={`${CARD_CLS} rounded-2xl p-6 mb-4`}>
+              <div className={`${T_FAINT} text-xs font-black uppercase tracking-wider mb-3`}>Companies</div>
+              <div className="space-y-2">
+                {companies.length === 0 ? (
+                  <div className={`${T_FAINT} text-sm`}>No companies on this order.</div>
+                ) : companies.map(c => (
+                  <div key={c.id} className="bg-slate-50 dark:bg-white/5 rounded-xl px-3 py-2 flex items-center justify-between">
+                    <span className={`${T_HEADING} font-bold text-sm`}>{c.company_name || 'Unnamed company'}</span>
+                    <span className={`text-[10px] font-bold ${T_MUTED} uppercase tracking-wider`}>{titleizeStatus(c.status)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {files.length > 0 && (
+              <div className={`${CARD_CLS} rounded-2xl p-6 mb-4`}>
+                <div className={`${T_FAINT} text-xs font-black uppercase tracking-wider mb-3`}>Attached Files ({files.length})</div>
+                <ul className="space-y-1">
+                  {files.map(f => (
+                    <li key={f.id} className={`flex items-center gap-2 text-sm ${T_LABEL} bg-slate-50 dark:bg-white/5 rounded-lg px-3 py-2`}>
+                      <FileText size={13} className="text-amber-500/80 dark:text-amber-400/70 flex-shrink-0" />
+                      <span className="truncate">{f.filename || 'Attachment'}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+
+        <div className="flex items-center gap-3 mt-2">
+          <button onClick={onBack} className={`px-5 py-3.5 ${SECONDARY_BTN} text-sm flex items-center gap-2`}>
+            <ChevronLeft size={16} /> Back
+          </button>
+          <button onClick={onSubmitAnother} className={`flex-1 py-3.5 ${PRIMARY_BTN} text-sm uppercase tracking-wider`}>
+            Submit Another Order
           </button>
         </div>
       </div>
@@ -570,35 +731,35 @@ function SuccessScreen({ result, clientName }) {
 /* Order Type Selection Screen */
 function OrderTypeScreen({ clientName, onSelect }) {
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #08111c 0%, #0D1B2A 48%, #07101a 100%)' }}>
+    <div className={`${PAGE_CLS} flex items-center justify-center p-4`}>
       <div className="w-full max-w-lg">
         <div className="text-center mb-8">
-          <div className="text-amber-400 font-extrabold text-xl tracking-[0.3em] mb-2">VALYZE</div>
-          <h1 className="text-white text-2xl font-black mb-1">New Order</h1>
-          <p className="text-white/50 text-sm">Welcome, {clientName} — choose your order type</p>
+          <div className={`${BRAND_CLS} text-xl mb-2`}>VALYZE</div>
+          <h1 className={`${T_HEADING} text-2xl font-black mb-1`}>New Order</h1>
+          <p className={`${T_MUTED} text-sm`}>Welcome, {clientName} — choose your order type</p>
         </div>
         <div className="grid sm:grid-cols-2 gap-4">
           <button
             type="button"
             onClick={() => onSelect('single')}
-            className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-7 text-left hover:border-amber-400/50 hover:bg-amber-400/5 transition-all group"
+            className={`${CARD_CLS} rounded-2xl p-7 text-left hover:border-amber-400/60 transition-all group`}
           >
-            <div className="w-12 h-12 rounded-xl bg-amber-400/10 flex items-center justify-center mb-4 group-hover:bg-amber-400/20 transition-all">
-              <FileText size={22} className="text-amber-400" />
+            <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-400/10 flex items-center justify-center mb-4 group-hover:bg-amber-200 dark:group-hover:bg-amber-400/20 transition-all">
+              <FileText size={22} className="text-amber-500 dark:text-amber-400" />
             </div>
-            <div className="text-white font-black text-lg mb-1">Single Order</div>
-            <p className="text-white/40 text-sm">Request a credit report for one company.</p>
+            <div className={`${T_HEADING} font-black text-lg mb-1`}>Single Order</div>
+            <p className={`${T_FAINT} text-sm`}>Request a credit report for one company.</p>
           </button>
           <button
             type="button"
             onClick={() => onSelect('batch')}
-            className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-7 text-left hover:border-amber-400/50 hover:bg-amber-400/5 transition-all group"
+            className={`${CARD_CLS} rounded-2xl p-7 text-left hover:border-amber-400/60 transition-all group`}
           >
-            <div className="w-12 h-12 rounded-xl bg-amber-400/10 flex items-center justify-center mb-4 group-hover:bg-amber-400/20 transition-all">
-              <ClipboardCheck size={22} className="text-amber-400" />
+            <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-400/10 flex items-center justify-center mb-4 group-hover:bg-amber-200 dark:group-hover:bg-amber-400/20 transition-all">
+              <ClipboardCheck size={22} className="text-amber-500 dark:text-amber-400" />
             </div>
-            <div className="text-white font-black text-lg mb-1">Batch Order</div>
-            <p className="text-white/40 text-sm">Request reports for multiple companies in one submission.</p>
+            <div className={`${T_HEADING} font-black text-lg mb-1`}>Batch Order</div>
+            <p className={`${T_FAINT} text-sm`}>Request reports for multiple companies in one submission.</p>
           </button>
         </div>
       </div>
@@ -608,6 +769,9 @@ function OrderTypeScreen({ clientName, onSelect }) {
 
 /* Main Portal Page */
 export default function PortalPage() {
+  // Apply the shared dark/light class (respects saved preference / system).
+  useDarkMode()
+
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token') || ''
   const [state, setState] = useState('login')
@@ -615,13 +779,22 @@ export default function PortalPage() {
   const [clientName, setClientName] = useState('Client')
   const [orderMode, setOrderMode] = useState('single')
   const [lastResult, setLastResult] = useState(null)
+  const [loginMessage, setLoginMessage] = useState('')
+
+  const submitAnother = () => { setLastResult(null); setState('type-select') }
+  const sessionExpired = () => {
+    setPortalToken('')
+    setLastResult(null)
+    setLoginMessage('Your session expired. Please sign in again.')
+    setState('login')
+  }
 
   if (!token) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #08111c 0%, #0D1B2A 48%, #07101a 100%)' }}>
-        <div className="w-full max-w-md bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-10 text-center">
-          <div className="text-amber-400 font-extrabold text-xl tracking-[0.3em] mb-4">VALYZE</div>
-          <p className="text-red-400 text-sm">Invalid portal link. Contact Valyze.</p>
+      <div className={`${PAGE_CLS} flex items-center justify-center p-4`}>
+        <div className={`w-full max-w-md ${CARD_CLS} rounded-3xl p-10 text-center`}>
+          <div className={`${BRAND_CLS} text-xl mb-4`}>VALYZE</div>
+          <p className="text-red-500 dark:text-red-400 text-sm">Invalid portal link. Contact Valyze.</p>
         </div>
       </div>
     )
@@ -632,9 +805,11 @@ export default function PortalPage() {
       {state === 'login' && (
         <LoginScreen
           token={token}
+          initialMessage={loginMessage}
           onAuthenticated={({ portalToken: pt, clientName: cn }) => {
             setPortalToken(pt)
             setClientName(cn)
+            setLoginMessage('')
             setState('type-select')
           }}
         />
@@ -651,10 +826,24 @@ export default function PortalPage() {
           clientName={clientName}
           orderMode={orderMode}
           onSubmitSuccess={(result) => { setLastResult(result); setState('success') }}
+          onSessionExpired={sessionExpired}
         />
       )}
       {state === 'success' && (
-        <SuccessScreen result={lastResult} clientName={clientName} />
+        <SuccessScreen
+          result={lastResult}
+          onViewSummary={() => setState('summary')}
+          onSubmitAnother={submitAnother}
+        />
+      )}
+      {state === 'summary' && (
+        <OrderSummaryScreen
+          orders={lastResult?.orders?.length ? lastResult.orders : (lastResult?.order_number ? [{ order_number: lastResult.order_number, order_id: lastResult.order_id }] : [])}
+          portalToken={portalToken}
+          onBack={() => setState('success')}
+          onSubmitAnother={submitAnother}
+          onSessionExpired={sessionExpired}
+        />
       )}
     </div>
   )

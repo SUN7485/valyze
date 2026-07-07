@@ -72,9 +72,9 @@ def _verify(password: str, stored: str) -> bool:
 SEED_USERS = [
     {"id": "usr_000", "email": "superadmin@valyze.com", "name": "Super Admin", "role": "super_admin", "password": "Superadmin@123"},
     {"id": "usr_001", "email": "waleed@valyze.com",     "name": "Waleed",      "role": "admin",       "password": "Waleed@123"},
-    {"id": "usr_002", "email": "mohamed@valyze.com",    "name": "Mohamed",     "role": "admin",       "password": "Mohamed@123"},
-    {"id": "usr_003", "email": "mahmoud@valyze.com",    "name": "Mahmoud",     "role": "admin",       "password": "Mahmoud@123"},
-    {"id": "usr_004", "email": "amani@valyze.com",      "name": "Amani",       "role": "admin",       "password": "Amani@123"},
+    {"id": "usr_002", "email": "mohamed@valyze.com",    "name": "Mohamed",     "role": "analyst",     "password": "Mohamed@123"},
+    {"id": "usr_003", "email": "mahmoud@valyze.com",    "name": "Mahmoud",     "role": "analyst",     "password": "Mahmoud@123"},
+    {"id": "usr_004", "email": "amani@valyze.com",      "name": "Amani",       "role": "analyst",     "password": "Amani@123"},
     {"id": "usr_005", "email": "sally@valyze.com",      "name": "Sally",       "role": "admin",       "password": "Sally@123"},
 ]
 
@@ -282,6 +282,11 @@ def get_current_user(
     if credentials is None:
         raise HTTPException(401, "Not authenticated")
     return decode_token(credentials.credentials)
+
+
+def require_admin(user: dict) -> None:
+    if user.get("role") not in ("admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin permission required")
 
 
 # ---------------------------------------------------------------------------

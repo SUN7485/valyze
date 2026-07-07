@@ -147,6 +147,13 @@ export const ordersAPI = {
     update: (id, data) =>
         api.patch(`/orders/${id}`, data),
 
+    // Alias for update — used by the focused-report service-level editor.
+    updateOrder: (id, data) =>
+        api.patch(`/orders/${id}`, data),
+
+    delete: (id) =>
+        api.delete(`/orders/${id}`),
+
     updateCompany: (orderId, companyId, data) =>
         api.patch(`/orders/${orderId}/companies/${companyId}`, data),
 
@@ -167,6 +174,16 @@ export const ordersAPI = {
 
     downloadOrder: (orderId) =>
         api.get(`/orders/${orderId}/download`, { responseType: 'blob' }),
+}
+
+// ---------------------------------------------------------------------------
+// Search API (existing reports in the database)
+// ---------------------------------------------------------------------------
+
+export const searchAPI = {
+    // GET /api/search/?company_name=...&cr_number=... -> { total, reports }
+    search: (params = {}) =>
+        api.get('/search/', { params }),
 }
 
 // ---------------------------------------------------------------------------

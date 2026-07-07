@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, Ban, CalendarClock, CheckCircle2, Clock, Download, Edit3, ExternalLink, FileCheck, FileText, Loader2, PlayCircle, PencilLine, RefreshCw, User, UserCheck, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Ban, CalendarClock, CheckCircle2, Clock, Download, Edit3, ExternalLink, FileCheck, FileText, Loader2, PlayCircle, PencilLine, RefreshCw, Trash2, User, UserCheck, X } from 'lucide-react'
 import { invoicesAPI, ordersAPI } from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
 const STATUS_LABELS = {
     pending: 'Pending',
@@ -547,14 +548,29 @@ function BottomActionBar({ order, onGenerateInvoice, generating }) {
     )
 }
 
-function AdminActionsPanel({ order, onUpdated }) {
+function AdminActionsPanel({ order, onUpdated, isAdmin }) {
+    const navigate = useNavigate()
     const [serviceLevel, setServiceLevel] = useState(order?.service_level || 'standard')
     const [analyst, setAnalyst] = useState(order?.auto_assigned_analyst || '')
     const [saving, setSaving] = useState(null)
     const [confirmCancel, setConfirmCancel] = useState(false)
+    const [confirmDelete, setConfirmDelete] = useState(false)
     const [error, setError] = useState('')
 
     const isCancelled = order?.status === 'cancelled'
+    const isInvoiced = order?.status === 'invoiced'
+
+    async function handleDelete() {
+        setSaving('delete')
+        setError('')
+        try {
+            await ordersAPI.delete(order.id)
+            navigate('/orders')
+        } catch (e) {
+            setError(e.message || 'Failed to delete order')
+            setSaving(null)
+        }
+    }
 
     async function applyUpdate(data, field) {
         setSaving(field)
@@ -670,6 +686,46 @@ function AdminActionsPanel({ order, onUpdated }) {
                         </div>
                     )}
                 </div>
+
+                {/* Delete order (admin only) */}
+                {isAdmin && (
+                    <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 p-4">
+                        <div className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">
+                            <Trash2 size={12} /> Delete Order
+                        </div>
+                        {isInvoiced ? (
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Invoiced orders cannot be deleted.</p>
+                        ) : (
+                            <>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Permanently delete this order, its companies, and their reports.</p>
+                                {!confirmDelete ? (
+                                    <button
+                                        onClick={() => setConfirmDelete(true)}
+                                        className="w-full py-2 border border-rose-500/30 text-rose-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-rose-500/10 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <Trash2 size={12} /> Delete Order
+                                    </button>
+                                ) : (
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => setConfirmDelete(false)}
+                                            className="flex-1 py-2 border border-slate-200 dark:border-white/10 rounded-lg font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 transition-all"
+                                        >
+                                            Keep
+                                        </button>
+                                        <button
+                                            onClick={handleDelete}
+                                            disabled={saving === 'delete'}
+                                            className="flex-1 py-2 bg-rose-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
+                                        >
+                                            {saving === 'delete' ? <Loader2 size={12} className="animate-spin" /> : 'Confirm Delete'}
+                                        </button>
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     )
@@ -678,6 +734,8 @@ function AdminActionsPanel({ order, onUpdated }) {
 export default function OrderDetailPage() {
     const navigate = useNavigate()
     const { orderId } = useParams()
+    const { user } = useAuth()
+    const isAdmin = ['admin', 'super_admin'].includes(user?.role)
     const [order, setOrder] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -840,6 +898,7 @@ export default function OrderDetailPage() {
                     <AdminActionsPanel
                         order={order}
                         onUpdated={(patch) => setOrder(current => ({ ...current, ...patch }))}
+                        isAdmin={isAdmin}
                     />
 
                     <OrderFilesSection files={order.files || []} onDownloadAll={handleDownloadSubmission} downloading={downloading} />

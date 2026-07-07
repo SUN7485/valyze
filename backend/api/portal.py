@@ -135,6 +135,7 @@ class PortalAuthRequest(BaseModel):
 
 class OrderCompanyRequest(BaseModel):
     company_name: str = Field(..., min_length=1)
+    client_ref: Optional[str] = None
     country: Optional[str] = None
     address: Optional[str] = None
     registration_no: Optional[str] = None
@@ -333,10 +334,16 @@ def _next_order_number() -> str:
     return generate_order_number()
 
 
-async def _create_order_company(order_id: str, company: OrderCompanyRequest, index: int) -> Dict[str, Any]:
+async def _create_order_company(
+    order_id: str,
+    company: OrderCompanyRequest,
+    index: int,
+    analyst: Optional[str] = None,
+) -> Dict[str, Any]:
     payload = {
         "order_id": order_id,
         "company_name": company.company_name,
+        "client_ref": company.client_ref,
         "country": company.country,
         "address": company.address,
         "registration_no": company.registration_no,
@@ -345,6 +352,7 @@ async def _create_order_company(order_id: str, company: OrderCompanyRequest, ind
         "fax": company.fax,
         "requested_limit": company.requested_limit,
         "comments": company.comments,
+        "analyst_assigned": analyst,
         "status": "pending",
         "sort_order": index,
     }
@@ -607,75 +615,109 @@ async def _submit_order_payload(
     else:
         resolved_report_types = ["credit_report"]
 
-    # Auto-calculate due date from speed + country
-    first_country = body.companies[0].country if body.companies else None
     resolved_speed = body.speed or "5_days"
-    if body.due_date:
-        due_date_str = f"{body.due_date.isoformat()}T00:00:00Z"
-    else:
-        due_date_str = _calculate_due_date(resolved_speed, first_country)
+    report_types_str = ",".join(resolved_report_types)
+    report_type_derived = "full" if "analysis_financial" in resolved_report_types else "standard"
 
+    # Usage limit is checked (and later incremented) ONCE per submission, even
+    # though a submission now produces one order per company.
     session = await _load_portal_session(portal_client)
     max_uses = session.get("max_uses")
     used_count = int(session.get("used_count") or 0)
     if max_uses is not None and used_count >= int(max_uses):
         raise HTTPException(status_code=401, detail="Portal session has reached its usage limit")
 
+    # Group uploaded files by their (named) company index so each company's
+    # documents land on that company's own order.
+    uploads = files or []
+    indexes = file_company_indexes or []
+    if indexes and len(indexes) != len(uploads):
+        raise HTTPException(status_code=400, detail="File company indexes do not match uploaded files")
+    files_by_index: Dict[int, List[UploadFile]] = {}
+    for pos, upload in enumerate(uploads):
+        idx = indexes[pos] if indexes else 0
+        files_by_index.setdefault(idx, []).append(upload)
+
     now = datetime.now(timezone.utc).isoformat()
-    analyst = await asyncio.to_thread(assign_analyst)
 
-    order = None
-    for attempt in range(5):
-        order_number = generate_order_number(extra_offset=attempt)
-        order_payload = {
-            "order_number": order_number,
-            "client_id": portal_client["client_id"],
-            "client_ref": body.client_ref,
-            "date_received": now,
-            "service_level": resolved_service_level,
-            "speed": resolved_speed,
+    # One order per company — each gets its own ORD number, its own analyst
+    # (so workload balancing spreads the batch), and its own due date.
+    created_orders: List[Dict[str, Any]] = []
+    all_files: List[Dict[str, Any]] = []
+
+    for company_index, company in enumerate(body.companies):
+        if body.due_date:
+            due_date_str = f"{body.due_date.isoformat()}T00:00:00Z"
+        else:
+            due_date_str = _calculate_due_date(resolved_speed, company.country)
+
+        analyst = await asyncio.to_thread(assign_analyst)
+        # Per-company reference falls back to the order-level one (3.3), and is
+        # mirrored onto the order so existing order-level displays keep working.
+        company_client_ref = company.client_ref or body.client_ref
+
+        order = None
+        order_number = None
+        for attempt in range(5):
+            order_number = generate_order_number(extra_offset=attempt)
+            order_payload = {
+                "order_number": order_number,
+                "client_id": portal_client["client_id"],
+                "client_ref": company_client_ref,
+                "date_received": now,
+                "service_level": resolved_service_level,
+                "speed": resolved_speed,
+                "due_date": due_date_str,
+                "report_type": report_type_derived,
+                "report_types": report_types_str,
+                "status": "pending",
+                "company_count": 1,
+                "completed_count": 0,
+                "auto_assigned_analyst": analyst,
+                "submitted_via_portal": True,
+                "notes": body.notes,
+                "created_at": now,
+                "updated_at": now,
+            }
+            order_result = await asyncio.to_thread(sb_create_order, order_payload)
+            order = _first_result(order_result)
+            if order:
+                break
+
+        if not order:
+            raise HTTPException(status_code=500, detail="Failed to create order")
+
+        created_company = await _create_order_company(order["id"], company, 0, analyst)
+        company_id = created_company.get("id") if created_company else None
+
+        company_uploads = files_by_index.get(company_index, [])
+        if company_uploads and company_id:
+            idx_list: Optional[List[int]] = [0] * len(company_uploads)
+            ids_map = {0: company_id}
+        else:
+            idx_list = None
+            ids_map = {}
+        uploaded_files = await _save_portal_files(order["id"], company_uploads, idx_list, ids_map)
+        all_files.extend(uploaded_files)
+
+        created_orders.append({
+            "order_id": order.get("id"),
+            "order_number": order.get("order_number", order_number),
+            "company_name": company.company_name,
             "due_date": due_date_str,
-            "report_type": "full" if "analysis_financial" in resolved_report_types else "standard",
-            "status": "pending",
-            "company_count": len(body.companies),
-            "completed_count": 0,
-            "auto_assigned_analyst": analyst,
-            "submitted_via_portal": True,
-            "notes": body.notes,
-            "created_at": now,
-            "updated_at": now,
-        }
-        order_result = await asyncio.to_thread(sb_create_order, order_payload)
-        order = _first_result(order_result)
-        if order:
-            break
+        })
 
-    if not order:
-        raise HTTPException(status_code=500, detail="Failed to create order")
+    await _increment_session_used_count(portal_client["session_id"])
 
-    company_ids_by_index: Dict[int, str] = {}
-    try:
-        for index, company in enumerate(body.companies):
-            created_company = await _create_order_company(order["id"], company, index)
-            if created_company and created_company.get("id"):
-                company_ids_by_index[index] = created_company["id"]
-
-        uploaded_files = await _save_portal_files(
-            order["id"],
-            files,
-            file_company_indexes,
-            company_ids_by_index,
-        )
-        await _increment_session_used_count(portal_client["session_id"])
-    except Exception:
-        raise
-
+    first = created_orders[0] if created_orders else {}
     return {
-        "order_id": order.get("id"),
-        "order_number": order.get("order_number", order_number),
+        # Backward-compat: order_id/order_number/due_date reflect the first order.
+        "order_id": first.get("order_id"),
+        "order_number": first.get("order_number"),
+        "due_date": first.get("due_date"),
+        "orders": created_orders,
         "company_count": len(body.companies),
-        "due_date": due_date_str,
-        "files": [_public_order_file(file) for file in uploaded_files],
+        "files": [_public_order_file(file) for file in all_files],
         "message": "Order submitted successfully",
     }
 
@@ -749,7 +791,7 @@ async def submit_order_with_files(
     portal_client: Dict[str, str] = Depends(get_portal_current_client),
     order_data: str = Form(...),
     files: Optional[List[UploadFile]] = File(default=None),
-    file_company_indexes: Optional[List[int]] = File(default=None),
+    file_company_indexes: Optional[List[int]] = Form(default=None),
 ):
     try:
         payload = json.loads(order_data)

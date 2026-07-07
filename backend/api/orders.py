@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from api.auth import get_current_user, get_order_assignable_users
+from api.auth import get_current_user, get_order_assignable_users, require_admin
 from database.crud import add_uploaded_file, create_report, update_report_field, update_report_status
 from services.pricing_engine import calculate_invoice, generate_invoice_number
 import logging
@@ -102,6 +102,7 @@ class UpdateCompanyRequest(BaseModel):
     analyst_assigned: Optional[str] = None
     report_id: Optional[str] = None
     company_name: Optional[str] = None
+    client_ref: Optional[str] = None
     country: Optional[str] = None
     address: Optional[str] = None
     registration_no: Optional[str] = None
@@ -258,6 +259,7 @@ def _public_company(company: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": company.get("id"),
         "company_name": company.get("company_name"),
+        "client_ref": company.get("client_ref"),
         "country": company.get("country"),
         "registration_no": company.get("registration_no"),
         "status": company.get("status"),
@@ -495,6 +497,7 @@ def _build_company_focus(company: Dict[str, Any]) -> Dict[str, Any]:
         "id": company.get("id"),
         "order_id": company.get("order_id"),
         "company_name": company.get("company_name"),
+        "client_ref": company.get("client_ref"),
         "country": company.get("country"),
         "registration_no": company.get("registration_no"),
         "vat_no": company.get("vat_no"),
@@ -514,8 +517,11 @@ def _build_company_focus(company: Dict[str, Any]) -> Dict[str, Any]:
             "id": order.get("id"),
             "order_number": order.get("order_number"),
             "client_id": order.get("client_id"),
+            "client_ref": order.get("client_ref"),
             "service_level": order.get("service_level"),
+            "speed": order.get("speed"),
             "report_type": order.get("report_type"),
+            "report_types": order.get("report_types"),
             "due_date": order.get("due_date"),
             "date_received": order.get("date_received"),
             "status": order.get("status"),
@@ -546,6 +552,7 @@ async def delete_company_focus(company_id: str, user: dict = Depends(get_current
     """Delete a single focused report (order_company). Completed reports are
     protected; a linked report row is cleaned up and the parent order counts
     are recomputed from the remaining companies."""
+    require_admin(user)
     company = sb_get_order_company(company_id)
     if not company:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -755,6 +762,9 @@ async def update_order(order_id: str, body: UpdateOrderRequest, user: dict = Dep
     updates = _model_dump(body)
     if not updates:
         return _build_order_detail(existing)
+
+    if "auto_assigned_analyst" in updates or "service_level" in updates:
+        require_admin(user)
 
     if "status" in updates:
         _validate_status(updates["status"])
@@ -999,18 +1009,31 @@ async def complete_company_work(order_id: str, company_id: str, user: dict = Dep
 
 @router.delete("/{order_id}")
 async def delete_order(order_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
     order = _get_order_or_404(order_id)
-    if order.get("status") != "pending":
+    if str(order.get("status") or "").lower() == "invoiced":
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot delete order with status '{order.get('status')}'. Only pending orders can be deleted.",
+            detail="Invoiced orders cannot be deleted.",
         )
+
+    # Cascade: remove every company + its linked report before the order itself.
+    companies = sb_get_order_companies(order_id)
+    for company in companies:
+        report_id = company.get("report_id")
+        if report_id:
+            try:
+                from services.supabase_client import delete_report as sb_delete_report
+                sb_delete_report(report_id)
+            except Exception as exc:
+                logger.warning(f"[ORDERS] Could not clean up report {report_id} for order {order_id}: {exc}")
+        sb_delete_order_company(company["id"])
 
     deleted = sb_delete_order(order_id)
     if not deleted:
         raise HTTPException(status_code=500, detail="Failed to delete order")
 
-    return {"deleted": True, "order_id": order_id}
+    return {"deleted": True, "order_id": order_id, "companies_deleted": len(companies)}
 
 
 @router.post("/{order_id}/reassign")
@@ -1020,6 +1043,7 @@ async def reassign_order(
     user: dict = Depends(get_current_user),
 ):
     """Reassign an order (all companies) to a different analyst."""
+    require_admin(user)
     order = _get_order_or_404(order_id)
     analyst = body.get("analyst")
     if not analyst:
@@ -1089,6 +1113,7 @@ async def reassign_company(
     user: dict = Depends(get_current_user),
 ):
     """Reassign a single company/report to a different analyst."""
+    require_admin(user)
     _get_order_or_404(order_id)
     analyst = body.get("analyst")
     if not analyst:

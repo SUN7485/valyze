@@ -196,6 +196,51 @@ REPORT_LIST_COLUMNS = (
 )
 
 
+def search_reports(
+    query: str = "",
+    company_name: Optional[str] = None,
+    cr_number: Optional[str] = None,
+    country: Optional[str] = None,
+    client_reference: Optional[str] = None,
+    analyst: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """Search reports (summary columns only), case-insensitive. Named filters are
+    ANDed; the free-text `query` matches any of the common columns (OR)."""
+    query_parts = [f"select={REPORT_LIST_COLUMNS}"]
+
+    def _ilike(column: str, value: str) -> None:
+        query_parts.append(f"{column}=ilike.%{quote(str(value).strip(), safe='')}%")
+
+    if company_name:
+        _ilike("company_name", company_name)
+    if cr_number:
+        _ilike("cr_number", cr_number)
+    if country:
+        _ilike("country", country)
+    if client_reference:
+        _ilike("client_reference", client_reference)
+    if analyst:
+        _ilike("analyst", analyst)
+    if query and query.strip():
+        q = quote(query.strip(), safe="")
+        query_parts.append(
+            f"or=(company_name.ilike.%{q}%,legal_name.ilike.%{q}%,"
+            f"cr_number.ilike.%{q}%,client_reference.ilike.%{q}%)"
+        )
+
+    query_parts.append("order=updated_at.desc.nullslast")
+    query_parts.append(f"limit={int(limit)}")
+
+    url = f"{get_base_url()}/reports?{'&'.join(query_parts)}"
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        return _handle_response(response)
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Search reports failed: {e}")
+        return []
+
+
 def get_all_reports(limit: int = 1000, offset: int = 0) -> List[Dict[str, Any]]:
     """Get reports (summary columns only) with pagination, newest first."""
     url = (
@@ -795,7 +840,9 @@ def get_all_orders(
         query.append(f"status=eq.{quote(status, safe='')}")
     if client_id:
         query.append(f"client_id=eq.{quote(client_id, safe='')}")
-    if analyst:
+    if analyst == "unassigned":
+        query.append("auto_assigned_analyst=is.null")
+    elif analyst:
         query.append(f"auto_assigned_analyst=eq.{quote(analyst, safe='')}")
     for key, value in params.items():
         if value is not None:
@@ -1289,22 +1336,18 @@ def get_all_order_companies(
     # Apply country filter on order company
     if country:
         query_parts.append(f"country=eq.{quote(country, safe='')}")
-    
-    # Apply search filter
-    if search:
-        search_term = search.strip()
-        if search_term:
-            encoded = quote(search_term, safe="")
-            query_parts.append(f"or=(company_name.ilike.%{encoded}%,registration_no.ilike.%{encoded}%)")
-    
+
+    # NOTE: the `search` param is applied in Python below (not at the DB level)
+    # so it can span embedded columns too (order_number, client_ref, client name).
+
     query_parts.append("order=created_at.desc.nullslast")
-    
+
     full_url = f"{get_base_url()}/order_companies?{'&'.join(query_parts)}"
-    
+
     try:
         response = requests.get(full_url, headers=get_headers(), timeout=30)
         results = _handle_response(response)
-        
+
         # Flatten the data - merge order/client into each company record
         flattened = []
         for row in results:
@@ -1312,27 +1355,51 @@ def get_all_order_companies(
             client_data = order_data.get('client') if isinstance(order_data.get('client'), dict) else {}
             client_data = client_data or {}
 
+            # Per-company client_ref (3.3) falling back to the order-level ref.
+            company_client_ref = row.get('client_ref')
+            order_client_ref = order_data.get('client_ref')
+
             flattened.append({
                 'id': row.get('id'),
                 'order_id': row.get('order_id'),
                 'order_number': order_data.get('order_number'),
                 'client_name': client_data.get('client_name') or order_data.get('client_name'),
                 'client_id': order_data.get('client_id'),
+                'client_ref': company_client_ref or order_client_ref,
+                'order_client_ref': order_client_ref,
                 'company_name': row.get('company_name'),
                 'country': row.get('country'),
                 'registration_no': row.get('registration_no'),
                 'report_id': row.get('report_id'),
                 'status': row.get('status'),
                 'analyst_assigned': row.get('analyst_assigned'),
+                'auto_assigned_analyst': order_data.get('auto_assigned_analyst'),
                 'date_received': order_data.get('date_received'),
                 'due_date': order_data.get('due_date'),
                 'service_level': order_data.get('service_level'),
+                'speed': order_data.get('speed'),
                 'report_type': order_data.get('report_type'),
+                'report_types': order_data.get('report_types'),
                 'created_at': row.get('created_at'),
                 'updated_at': row.get('updated_at'),
                 'files': [],
             })
-        
+
+        # Case-insensitive search across every meaningful field (Python-side so
+        # it can cover the embedded order/client columns as well).
+        if search and search.strip():
+            needle = search.strip().lower()
+            flattened = [
+                r for r in flattened
+                if any(
+                    needle in str(r.get(field) or '').lower()
+                    for field in (
+                        'company_name', 'registration_no', 'report_id',
+                        'order_number', 'client_ref', 'order_client_ref', 'client_name',
+                    )
+                )
+            ]
+
         return flattened
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Get all order companies failed: {e}")
