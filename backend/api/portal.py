@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -158,9 +159,17 @@ class SubmitOrderRequest(BaseModel):
 
 
 def _verify_password(password: str, stored_hash: str) -> bool:
+    """Verify a portal password. Accepts the current PBKDF2 format and the legacy
+    `salt:sha256` format so links issued before the upgrade keep working."""
+    if not stored_hash:
+        return False
     try:
+        if stored_hash.startswith("pbkdf2$"):
+            _, iters, salt, expected = stored_hash.split("$", 3)
+            dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), int(iters))
+            return hmac.compare_digest(dk.hex(), expected)
         salt, digest = stored_hash.split(":", 1)
-        return hashlib.sha256((salt + password).encode()).hexdigest() == digest
+        return hmac.compare_digest(hashlib.sha256((salt + password).encode()).hexdigest(), digest)
     except (ValueError, AttributeError):
         return False
 

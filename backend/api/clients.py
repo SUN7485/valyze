@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import random
 import secrets
 import string
 from collections import Counter
@@ -123,14 +122,20 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
     return parsed
 
 
+_PBKDF2_ITERATIONS = 200_000
+
+
 def _hash_password(password: str) -> str:
+    """PBKDF2-HMAC-SHA256 (stdlib, no C build). Verified in portal.py, which
+    also still accepts legacy `salt:sha256` hashes for pre-upgrade sessions."""
     salt = os.urandom(16).hex()
-    digest = hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
-    return f"{salt}:{digest}"
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), _PBKDF2_ITERATIONS)
+    return f"pbkdf2${_PBKDF2_ITERATIONS}${salt}${dk.hex()}"
 
 
 def _generate_password_plain() -> str:
-    return "".join(random.choice(PASSWORD_CHARS) for _ in range(8))
+    # Cryptographically secure RNG (not Mersenne Twister) and a longer password.
+    return "".join(secrets.choice(PASSWORD_CHARS) for _ in range(12))
 
 
 def _is_valid_session(session: Dict[str, Any]) -> bool:

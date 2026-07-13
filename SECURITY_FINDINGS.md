@@ -8,8 +8,10 @@ Severity legend: **CRITICAL** (fix now / rotate) · **HIGH** (fix this sprint) �
 > - **C4 (unauth data export) — FIXED.** `pdf` + `export` routers are now auth-gated at the router level via a header-OR-`?token=` guard (`get_current_user_flexible`), the frontend appends the JWT with a `withToken()` helper for raw-browser opens, and the two `backup/*` full-DB dumps are now **admin-only** (`require_admin`).
 > - **C3 (forgeable JWT) — MITIGATED.** `_resolve_jwt_secret()` no longer falls back to the public default in prod; it derives an unforgeable key from the Supabase key (or a per-process random key). ⚠️ This derivation is only safe **once C1 is done** (the anchor key is currently committed). Setting an explicit `JWT_SECRET` is still recommended.
 > - **Fail-open cascade — FIXED.** If the auth dependency ever fails to import, protected routers now register with a hard-deny 503 dependency instead of silently opening (`index.py`).
+> - **H1 (weak password hashing) — FIXED.** Staff (`auth.py`) and portal (`clients.py` `_hash_password`) now use PBKDF2-HMAC-SHA256 (200k rounds); verification (`auth.py` `_verify`, `portal.py` `_verify_password`) accepts legacy `salt:sha256` for pre-upgrade accounts/sessions.
+> - **H2 (predictable portal passwords) — PARTIALLY FIXED.** `_generate_password_plain()` now uses `secrets.choice` over 12 chars (was `random.choice` over 8). ⚠️ Still open: plaintext is still persisted in `client_sessions.password_plain_temp` so admins can re-share it — move to show-once if that flow allows.
 >
-> Still open: **C1 (rotate + purge the committed Supabase key), C2 (seed passwords), H1/H2 (hashing + portal RNG), M1–M4, L1–L4.**
+> Still open: **C1 (rotate + purge the committed Supabase key), C2 (seed passwords), H2 plaintext persistence, M1–M4, L1–L4.**
 
 ---
 
