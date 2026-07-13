@@ -46,8 +46,10 @@ async def proxy_anthropic(request: Request, current_user: dict = Depends(get_cur
     go directly to api.anthropic.com. This endpoint strips out
     dangerous-direct-browser-access headers and forwards cleanly.
     """
-    # Extract the API key from the incoming request headers
-    api_key = request.headers.get("x-api-key", "")
+    # Prefer a server-side company key when configured, so the browser never has
+    # to hold an Anthropic key. Falls back to the client-supplied header, keeping
+    # the existing per-analyst flow working until ANTHROPIC_API_KEY is set.
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip() or request.headers.get("x-api-key", "")
 
     if not api_key.startswith("sk-ant-"):
         raise HTTPException(status_code=401, detail="Missing or invalid Anthropic API key")

@@ -19,6 +19,15 @@ function getBaseUrl() {
 
 const API_BASE = getBaseUrl() + '/api'
 
+// Append the login JWT as a query param for endpoints opened as raw browser
+// URLs (window.open / link.href) that can't send an Authorization header —
+// PDF previews and file downloads. The backend accepts `?token=` for these.
+function withToken(url) {
+    const token = localStorage.getItem('valyze_token') || ''
+    if (!token) return url
+    return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
+}
+
 // Create axios instance with proper configuration
 const api = axios.create({
     baseURL: API_BASE,
@@ -284,10 +293,10 @@ export const reportAPI = {
         api.get(`/pdf/status/${reportId}`),
 
     getPreviewURL: (reportId) =>
-        `${API_BASE}/pdf/preview/${reportId}`,
+        withToken(`${API_BASE}/pdf/preview/${reportId}`),
 
     getDownloadURL: (reportId) =>
-        `${API_BASE}/pdf/download/${reportId}`,
+        withToken(`${API_BASE}/pdf/download/${reportId}`),
 
     // -- Export -----------------------------------
 
@@ -310,7 +319,7 @@ export const reportAPI = {
         api.get(`/export/status/${reportId}`),
 
     getExportDownloadURL: (reportId, format) =>
-        `${API_BASE}/export/download/${reportId}/${format}`,
+        withToken(`${API_BASE}/export/download/${reportId}/${format}`),
 
     // -- Cloud / Supabase ------------------------
 
@@ -368,6 +377,20 @@ export const reportAPI = {
             cr_number: crNumber,
             company_name: companyName
         }),
+}
+
+// ---------------------------------------------------------------------------
+// Company Intelligence API (de-duplicated view over all reports + orders)
+// ---------------------------------------------------------------------------
+
+export const companiesAPI = {
+    // De-duplicated company list — one row per distinct company.
+    search: (q = '') =>
+        api.get('/companies/search', { params: { q } }),
+
+    // "Do we already have this company?" — full dossier for one company.
+    lookup: ({ company_name, cr_number, country } = {}) =>
+        api.get('/companies/lookup', { params: { company_name, cr_number, country } }),
 }
 
 export const invoicesAPI = {

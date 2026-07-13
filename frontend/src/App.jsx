@@ -21,6 +21,7 @@ const InvoiceDetailPage = lazy(() => import('./pages/InvoiceDetailPage'))
 const ClientsPage = lazy(() => import('./pages/ClientsPage'))
 const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage'))
 const ExtractorPage = lazy(() => import('./pages/ExtractorPage'))
+const CompaniesPage = lazy(() => import('./pages/CompaniesPage'))
 const UsersPage = lazy(() => import('./pages/UsersPage'))
 const PortalPage = lazy(() => import('./pages/PortalPage'))
 
@@ -53,6 +54,7 @@ function AppRoutes() {
         {/* Protected routes (require login) */}
         <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
         <Route path="/reports" element={<ProtectedRoute><ReportsPage /></ProtectedRoute>} />
+        <Route path="/companies" element={<ProtectedRoute><CompaniesPage /></ProtectedRoute>} />
 <Route path="/orders" element={<ProtectedRoute><OrdersPage /></ProtectedRoute>} />
                         <Route path="/orders/:orderId" element={<ProtectedRoute><OrderDetailPage /></ProtectedRoute>} />
                         <Route path="/orderds" element={<ProtectedRoute><OrderdsPage /></ProtectedRoute>} />

@@ -197,15 +197,27 @@ def _safe_register(name, module_path, prefix=None, tags=None, dependencies=None)
 # consumed by the frontend through the token-attaching API client (or fetch with
 # an explicit Bearer token), so requiring auth here closes the public hole
 # without breaking any flow.
-# NOTE: pdf + export download endpoints are intentionally left open because the
-# UI opens them as raw browser URLs (window.open / link.href) that cannot send
-# an Authorization header. Securing those needs a query-token scheme (follow-up).
+# NOTE: pdf + export endpoints carry confidential report data, so they are now
+# protected too — via a header-OR-query-token guard (get_current_user_flexible),
+# because the UI opens them as raw browser URLs (window.open / link.href) that
+# cannot send an Authorization header. The frontend appends `?token=<jwt>`.
 try:
-    from api.auth import get_current_user as _auth_dep
+    from api.auth import (
+        get_current_user as _auth_dep,
+        get_current_user_flexible as _auth_dep_flex,
+    )
     _PROTECTED = [Depends(_auth_dep)]
+    _PROTECTED_FLEX = [Depends(_auth_dep_flex)]
 except Exception as _e:  # pragma: no cover - defensive
     print(f"[WARN] could not load auth dependency: {_e}")
-    _PROTECTED = None
+    # Fail CLOSED: if the auth dependency can't be loaded we must NOT register the
+    # protected routers wide-open (dependencies=None disables auth entirely). Use a
+    # hard-deny dependency so report/upload/search/cloud/pdf/export return 503
+    # instead of silently exposing every report and order.
+    async def _auth_unavailable() -> None:
+        raise HTTPException(status_code=503, detail="Authentication is unavailable")
+    _PROTECTED = [Depends(_auth_unavailable)]
+    _PROTECTED_FLEX = [Depends(_auth_unavailable)]
 
 # Auth first (critical), then everything else.
 # Routers with their own /api/* prefix are registered without an extra prefix.
@@ -213,11 +225,12 @@ _safe_register("auth", "api.auth")
 _safe_register("portal", "api.portal", prefix="/api/portal", tags=["portal"])
 _safe_register("upload", "api.upload", dependencies=_PROTECTED)
 _safe_register("report", "api.report", dependencies=_PROTECTED)
-_safe_register("pdf", "api.pdf")
-_safe_register("export", "api.export")
+_safe_register("pdf", "api.pdf", dependencies=_PROTECTED_FLEX)
+_safe_register("export", "api.export", dependencies=_PROTECTED_FLEX)
 _safe_register("invoices", "api.invoices", prefix="/api/invoices", tags=["invoices"])
 _safe_register("search", "api.search", dependencies=_PROTECTED)
 _safe_register("cloud", "api.cloud", dependencies=_PROTECTED)
 _safe_register("clients", "api.clients", prefix="/api/clients", tags=["clients"])
 _safe_register("orders", "api.orders", prefix="/api/orders", tags=["orders"])
+_safe_register("companies", "api.companies")
 _safe_register("proxy", "api.proxy")

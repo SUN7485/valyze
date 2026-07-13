@@ -1,7 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, Link } from 'react-router-dom'
 import * as mammoth from 'mammoth'
 import { useDarkMode } from '../hooks/useDarkMode'
+import { companiesAPI } from '../api/client'
 
 const loadPdfJs = () => new Promise((resolve, reject) => {
   if (window.pdfjsLib) { resolve(window.pdfjsLib); return; }
@@ -290,8 +291,29 @@ export default function ExtractorPage() {
   const [patchError, setPatchError]     = useState("");
   const [apiKey, setApiKey]             = useState(() => localStorage.getItem("valyze_api_key") || "");
   const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem("valyze_api_key"));
+  const [dupCheck, setDupCheck]         = useState({ status: "idle", dossier: null });
 
   useEffect(() => { if (apiKey) localStorage.setItem("valyze_api_key", apiKey); }, [apiKey]);
+
+  // After extraction, check whether Valyze already holds this company — surfaces
+  // prior reports so the analyst doesn't create a duplicate and can reuse work.
+  useEffect(() => {
+    const cn = result?.company_name || result?.legal_name;
+    const cr = result?.cr_number;
+    if (status !== "done" || (!cn && !cr)) { setDupCheck({ status: "idle", dossier: null }); return; }
+    let cancelled = false;
+    setDupCheck({ status: "loading", dossier: null });
+    companiesAPI.lookup({ company_name: cn, cr_number: cr, country: result?.country })
+      .then((res) => {
+        if (cancelled) return;
+        const dossier = res.data || {};
+        // The report we're working on now shouldn't count as a prior duplicate.
+        const priorReports = (dossier.reports || []).filter((r) => String(r.id) !== String(reportId));
+        setDupCheck({ status: "done", dossier: { ...dossier, reports: priorReports } });
+      })
+      .catch(() => { if (!cancelled) setDupCheck({ status: "error", dossier: null }); });
+    return () => { cancelled = true; };
+  }, [status, result, reportId]);
 
   useEffect(() => {
     if (!reportId) return
@@ -864,6 +886,41 @@ export default function ExtractorPage() {
                 </button>
               ))}
             </div>
+
+            {dupCheck.status === "done" && dupCheck.dossier?.reports?.length > 0 && (
+              <div className="mb-5 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4">
+                <div className="flex items-start gap-3">
+                  <span className="text-lg leading-none">⚠</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-black text-amber-700 dark:text-amber-300">
+                      We already have {dupCheck.dossier.reports.length} report{dupCheck.dossier.reports.length > 1 ? "s" : ""} on {dupCheck.dossier.canonical_name || "this company"}
+                    </p>
+                    <p className="text-xs text-amber-700/80 dark:text-amber-300/80 mt-0.5">
+                      Reuse existing work instead of creating a duplicate — open a prior report:
+                    </p>
+                    <div className="flex flex-wrap gap-2 mt-2.5">
+                      {dupCheck.dossier.reports.slice(0, 6).map((r) => (
+                        <Link key={r.id} to={`/editor/${r.id}`}
+                          className="px-3 py-1.5 rounded-lg bg-white/70 dark:bg-white/10 border border-amber-500/30 text-xs font-bold text-amber-800 dark:text-amber-200 hover:bg-white dark:hover:bg-white/20 transition-all">
+                          {r.company_name || "Report"} · {r.status || "—"}
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {dupCheck.status === "done" && dupCheck.dossier?.reports?.length === 0 && (dupCheck.dossier?.matched
+              ? (dupCheck.dossier?.order_count > 0 && (
+                  <div className="mb-5 rounded-2xl border border-[var(--color-border)] bg-white/60 dark:bg-white/5 p-3 text-xs font-semibold text-[var(--color-text-secondary)]">
+                    On file: {dupCheck.dossier.order_count} order{dupCheck.dossier.order_count > 1 ? "s" : ""} for {dupCheck.dossier.canonical_name || "this company"} — no prior report yet.
+                  </div>
+                ))
+              : (
+                  <div className="mb-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                    ✓ New to Valyze — this is the first report on {result?.company_name || result?.legal_name || "this company"}.
+                  </div>
+                ))}
 
             <div className="flex gap-3 mb-6 flex-wrap">
               <button onClick={copyJSON} className="px-4 py-2 rounded-xl border border-[var(--color-border)] bg-white/70 dark:bg-white/5 text-[var(--color-text-secondary)] hover:text-primary hover:border-primary/50 text-sm font-bold">{copied?"✓ Copied":"Copy JSON"}</button>

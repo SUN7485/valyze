@@ -2,7 +2,7 @@ import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useDarkMode } from '../hooks/useDarkMode'
 import { useAuth } from '../context/AuthContext'
-import { Sun, Moon, Info, Shield, FileText, ClipboardList, ListChecks, Receipt, LogOut, Building2, Users } from 'lucide-react'
+import { Sun, Moon, Info, Shield, FileText, ClipboardList, ListChecks, Receipt, LogOut, Building2, Users, Boxes } from 'lucide-react'
 
 export default function Layout({ children }) {
     const { darkMode, toggleDarkMode } = useDarkMode()
@@ -42,6 +42,18 @@ export default function Layout({ children }) {
                         >
                             <FileText size={14} />
                             Reports
+                        </Link>
+
+                        <Link
+                            to="/companies"
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${
+                                location.pathname.startsWith('/companies')
+                                    ? 'bg-primary text-white shadow-md shadow-primary/20'
+                                    : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary'
+                            }`}
+                        >
+                            <Boxes size={14} />
+                            Companies
                         </Link>
 
                         <Link

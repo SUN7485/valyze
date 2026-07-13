@@ -29,11 +29,18 @@ extraction), edit in the **Editor**, generate narratives/PDF, and bill via **Inv
 - **Vercel body limit ~4.5 MB.** Large payloads 413. The proxy path gzips requests.
 - **Auth model** — `backend/api/auth.py`. Users are persisted in Supabase `app_users`
   (seeded from 6 bootstrap accounts on first run; in-memory fallback if DB is down).
-  `JWT_SECRET` MUST be set in the deployment env (it warns if left at the default).
-- **Router-level auth** is applied in `index.py` to report/upload/search/cloud.
-  `pdf` and `export` download endpoints are intentionally left open because the UI opens
-  them as raw browser URLs (`window.open`, `link.href`) that can't send an auth header.
-  If you secure them, use a query-token scheme.
+  Set `JWT_SECRET` in the deployment env. If it's unset in prod, `auth.py` derives a
+  stable secret from the Supabase key (unforgeable, survives cold starts) rather than
+  using the public default — but set a real one anyway. Staff passwords are PBKDF2
+  (`_verify` still accepts legacy `salt:sha256` hashes for accounts seeded before the upgrade).
+- **Router-level auth** is applied in `index.py` to report/upload/search/cloud/companies,
+  and to `pdf`/`export` via `get_current_user_flexible` — a header-OR-`?token=` guard,
+  because the UI opens those as raw browser URLs (`window.open`, `link.href`) that can't
+  send an auth header. The frontend appends `?token=<jwt>` (see `withToken` in `client.js`).
+  The `export/backup/all` DB-dump endpoints additionally require an admin role.
+- **Company Intelligence** — `services/company_intel.py` + `api/companies.py` give a
+  de-duplicated view over all reports + `order_companies` (normalized name/CR matching).
+  Read-only, no migration. `GET /api/companies/search` and `/api/companies/lookup`.
 - **PostgREST quirks** — list endpoints should `select=` only needed columns (reports'
   `report_json` is huge); use the count header (`Range: 0-0`) instead of fetching all rows.
 

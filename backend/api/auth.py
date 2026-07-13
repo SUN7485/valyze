@@ -6,13 +6,14 @@ Uses SHA-256 (hashlib) instead of bcrypt to avoid C compilation on Vercel.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -23,19 +24,48 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # ---------------------------------------------------------------------------
 
 _DEFAULT_JWT_SECRET = "valyze-secret-change-in-production-2026"
-JWT_SECRET = os.getenv("JWT_SECRET", _DEFAULT_JWT_SECRET)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24
 
-# Security guard: a hardcoded fallback secret means anyone can forge admin tokens.
-# Warn loudly in production rather than crash (so a misconfig doesn't lock everyone out).
-if JWT_SECRET == _DEFAULT_JWT_SECRET:
-    _is_prod = (os.getenv("ENV", "").lower() == "production") or bool(os.getenv("VERCEL"))
-    _level = "CRITICAL" if _is_prod else "WARNING"
+_IS_PROD = (os.getenv("ENV", "").lower() == "production") or bool(os.getenv("VERCEL"))
+
+
+def _resolve_jwt_secret() -> str:
+    """Return the signing secret — never the public repo default in production.
+
+    A hardcoded fallback secret lets anyone forge admin tokens. If JWT_SECRET is
+    unset in production we derive a stable, secret-but-unpublished key from the
+    Supabase key (always present in prod, never in the repo) so tokens stay
+    unforgeable AND sessions survive serverless cold starts. Setting a real
+    JWT_SECRET silences the warning and is still strongly recommended.
+    """
+    secret = os.getenv("JWT_SECRET", "").strip()
+    if secret:
+        return secret
+
+    if _IS_PROD:
+        anchor = (os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY") or "").strip()
+        if anchor:
+            print(
+                "[CRITICAL] JWT_SECRET is not set — deriving a temporary signing key "
+                "from the Supabase key. Set a strong JWT_SECRET env var now."
+            )
+            return hashlib.sha256(f"valyze-jwt-v1|{anchor}".encode()).hexdigest()
+        print(
+            "[CRITICAL] JWT_SECRET is not set and no Supabase key is available to "
+            "derive one — using a random per-process key. Sessions will not survive "
+            "a cold start until you set JWT_SECRET."
+        )
+        return os.urandom(32).hex()
+
     print(
-        f"[{_level}] JWT_SECRET is not set — using the public default. "
-        "Set a strong JWT_SECRET env var in your deployment; otherwise tokens can be forged."
+        "[WARNING] JWT_SECRET is not set — using the public dev default. "
+        "Fine for local dev only; set a strong JWT_SECRET in production."
     )
+    return _DEFAULT_JWT_SECRET
+
+
+JWT_SECRET = _resolve_jwt_secret()
 VALID_ROLES = {"super_admin", "admin", "analyst", "reviewer"}
 ORDER_ASSIGNABLE_ROLES = {"admin", "analyst"}
 
@@ -46,18 +76,32 @@ security = HTTPBearer(auto_error=False)
 # Simple SHA-256 hashing (no bcrypt dependency)
 # ---------------------------------------------------------------------------
 
+_PBKDF2_ITERATIONS = 200_000
+
+
 def _hash(password: str) -> str:
-    """SHA-256 hash with a random salt for simple password storage."""
+    """Hash a password with PBKDF2-HMAC-SHA256 (stdlib — no C build for Vercel)."""
     salt = os.urandom(16).hex()
-    h = hashlib.sha256((salt + password).encode()).hexdigest()
-    return f"{salt}:{h}"
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), _PBKDF2_ITERATIONS)
+    return f"pbkdf2${_PBKDF2_ITERATIONS}${salt}${dk.hex()}"
 
 
 def _verify(password: str, stored: str) -> bool:
-    """Verify password against stored hash."""
+    """Verify a password against a stored hash.
+
+    Accepts the current PBKDF2 format and the legacy `salt:sha256` format, so
+    accounts seeded before the KDF upgrade keep working (they re-hash to PBKDF2
+    the next time their password is set).
+    """
+    if not stored:
+        return False
     try:
+        if stored.startswith("pbkdf2$"):
+            _, iters, salt, expected = stored.split("$", 3)
+            dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), int(iters))
+            return hmac.compare_digest(dk.hex(), expected)
         salt, h = stored.split(":", 1)
-        return hashlib.sha256((salt + password).encode()).hexdigest() == h
+        return hmac.compare_digest(hashlib.sha256((salt + password).encode()).hexdigest(), h)
     except (ValueError, AttributeError):
         return False
 
@@ -282,6 +326,22 @@ def get_current_user(
     if credentials is None:
         raise HTTPException(401, "Not authenticated")
     return decode_token(credentials.credentials)
+
+
+def get_current_user_flexible(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> dict:
+    """Authenticate via the Authorization header OR a `?token=` query param.
+
+    Required for endpoints the UI opens as raw browser URLs (window.open /
+    link.href) that cannot attach an Authorization header — PDF previews and
+    file downloads. Same signed login JWT, just permitted in the query string.
+    """
+    token = credentials.credentials if credentials is not None else request.query_params.get("token")
+    if not token:
+        raise HTTPException(401, "Not authenticated")
+    return decode_token(token)
 
 
 def require_admin(user: dict) -> None:

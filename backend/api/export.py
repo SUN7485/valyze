@@ -13,9 +13,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from xml.etree.ElementTree import Element, SubElement, tostring
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
+from api.auth import get_current_user, require_admin
 from database.crud import get_report
 
 router = APIRouter(prefix="/api/export", tags=["export"])
@@ -70,7 +71,7 @@ def _company_name(report) -> str:
 
 
 @router.post("/json/{report_id}")
-async def export_report_json(report_id: str):
+async def export_report_json(report_id: str, user: dict = Depends(get_current_user)):
     """Export report as JSON file download."""
     report = await _get_report_or_404(report_id)
     data = report.model_dump() if hasattr(report, "model_dump") else report
@@ -83,7 +84,7 @@ async def export_report_json(report_id: str):
 
 
 @router.post("/xml/{report_id}")
-async def export_report_xml(report_id: str):
+async def export_report_xml(report_id: str, user: dict = Depends(get_current_user)):
     """Export report as XML file download."""
     report = await _get_report_or_404(report_id)
     fields = _get_fields(report)
@@ -105,7 +106,7 @@ async def export_report_xml(report_id: str):
 
 
 @router.post("/csv/{report_id}")
-async def export_report_csv(report_id: str):
+async def export_report_csv(report_id: str, user: dict = Depends(get_current_user)):
     """Export report as CSV file download."""
     report = await _get_report_or_404(report_id)
     fields = _get_fields(report)
@@ -124,7 +125,7 @@ async def export_report_csv(report_id: str):
 
 
 @router.post("/excel/{report_id}")
-async def export_report_excel(report_id: str):
+async def export_report_excel(report_id: str, user: dict = Depends(get_current_user)):
     """Export report as Excel — returns base64-encoded XLSX."""
     report = await _get_report_or_404(report_id)
     fields = _get_fields(report)
@@ -166,7 +167,7 @@ async def export_report_excel(report_id: str):
 
 
 @router.post("/word/{report_id}")
-async def export_report_word(report_id: str):
+async def export_report_word(report_id: str, user: dict = Depends(get_current_user)):
     """Export report as Word — returns base64-encoded DOCX."""
     report = await _get_report_or_404(report_id)
     fields = _get_fields(report)
@@ -241,8 +242,9 @@ async def export_status(report_id: str):
 
 
 @router.get("/backup/all")
-async def export_all_reports_backup():
-    """Export all reports as JSON."""
+async def export_all_reports_backup(user: dict = Depends(get_current_user)):
+    """Export all reports as JSON. Admin-only — this dumps the whole database."""
+    require_admin(user)
     from database.crud import get_all_reports
     reports = await get_all_reports(None)
     if not reports:
@@ -256,8 +258,9 @@ async def export_all_reports_backup():
 
 
 @router.get("/backup/download/all")
-async def download_all_reports_backup():
-    """Download all reports as a downloadable JSON backup."""
+async def download_all_reports_backup(user: dict = Depends(get_current_user)):
+    """Download all reports as a JSON backup. Admin-only — dumps the whole database."""
+    require_admin(user)
     from database.crud import get_all_reports
     reports = await get_all_reports(None)
     if not reports:
