@@ -228,7 +228,7 @@ async def generate_narratives(report_id: str):
     except Exception as e:
         print(f"[GENERATE] Fatal error: {e}")
         await update_report_status(None, report_id, "ready")  # Rollback status
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Generation failed")
 
 
 @router.get("/progress/{report_id}")

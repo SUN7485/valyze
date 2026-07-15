@@ -53,7 +53,8 @@ async def search_reports(request: SearchRequest):
             "reports": results,
         }
     except Exception as e:
-        raise HTTPException(500, f"Search failed: {str(e)}")
+        print(f"[SEARCH] Search failed: {e}")
+        raise HTTPException(500, "Search failed")
 
 
 @router.get("/")
@@ -93,7 +94,8 @@ async def search_reports_get(
             "reports": results,
         }
     except Exception as e:
-        raise HTTPException(500, f"Search failed: {str(e)}")
+        print(f"[SEARCH] Search failed: {e}")
+        raise HTTPException(500, "Search failed")
 
 
 @router.get("/reports")
@@ -117,7 +119,7 @@ async def get_all_reports(limit: int = 100, offset: int = 0):
         import logging
 
         logging.getLogger(__name__).error(f"Get reports failed: {e}")
-        raise HTTPException(500, f"Failed to get reports: {str(e)}")
+        raise HTTPException(500, "Failed to get reports")
 
 
 @router.post("/load/{report_id}")
@@ -139,7 +141,8 @@ async def load_report_from_cloud(report_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"Failed to load report: {str(e)}")
+        print(f"[SEARCH] Failed to load report: {e}")
+        raise HTTPException(500, "Failed to load report")
 
 
 @router.get("/count")
@@ -151,7 +154,8 @@ async def get_reports_count():
         count = get_count()
         return {"total": count}
     except Exception as e:
-        raise HTTPException(500, f"Failed to get count: {str(e)}")
+        print(f"[SEARCH] Failed to get count: {e}")
+        raise HTTPException(500, "Failed to get count")
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +202,8 @@ async def get_local_reports(
             "reports": reports,
         }
     except Exception as e:
-        raise HTTPException(500, f"Failed to get reports: {str(e)}")
+        print(f"[SEARCH] Failed to get reports: {e}")
+        raise HTTPException(500, "Failed to get reports")
 
 
 @router.get("/local/count")
@@ -210,7 +215,8 @@ async def get_local_reports_count():
         count = get_count()
         return {"total": count}
     except Exception as e:
-        raise HTTPException(500, f"Failed to get count: {str(e)}")
+        print(f"[SEARCH] Failed to get count: {e}")
+        raise HTTPException(500, "Failed to get count")
 
 
 @router.delete("/local/{report_id}")
@@ -230,7 +236,8 @@ async def delete_local_report(report_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"Failed to delete report: {str(e)}")
+        print(f"[SEARCH] Failed to delete report: {e}")
+        raise HTTPException(500, "Failed to delete report")
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +291,8 @@ async def get_all_reports_combined(
             "reports": reports,
         }
     except Exception as e:
-        raise HTTPException(500, f"Failed to get all reports: {str(e)}")
+        print(f"[SEARCH] Failed to get all reports: {e}")
+        raise HTTPException(500, "Failed to get all reports")
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +373,8 @@ async def get_output_reports(
             "reports": all_reports,
         }
     except Exception as e:
-        raise HTTPException(500, f"Failed to get output reports: {str(e)}")
+        print(f"[SEARCH] Failed to get output reports: {e}")
+        raise HTTPException(500, "Failed to get output reports")
 
 
 @router.delete("/output/{report_id}")
@@ -399,4 +408,5 @@ async def delete_output_report(report_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"Failed to delete output files: {str(e)}")
+        print(f"[SEARCH] Failed to delete output files: {e}")
+        raise HTTPException(500, "Failed to delete output files")

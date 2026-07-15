@@ -116,7 +116,8 @@ async def list_reports():
         reports = await get_all_reports(None)
         return reports
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list reports: {e}")
+        print(f"[REPORT] Failed to list reports: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list reports")
 
 
 # ---------------------------------------------------------------------------

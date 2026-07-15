@@ -51,4 +51,5 @@ async def delete_from_cloud(report_id: str):
             "message": f"Report {report_id} deleted",
         }
     except Exception as e:
-        raise HTTPException(500, f"Failed to delete: {str(e)}")
+        print(f"[CLOUD] Failed to delete report {report_id}: {e}")
+        raise HTTPException(500, "Failed to delete report")

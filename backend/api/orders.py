@@ -482,7 +482,8 @@ async def get_all_order_companies(
         companies = sb_get_all_order_companies(status=status, country=country, search=search)
         return companies
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to list order companies: {exc}")
+        logger.error(f"[ORDERS] Failed to list order companies: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to list order companies")
 
 
 def _build_company_focus(company: Dict[str, Any]) -> Dict[str, Any]:
@@ -598,7 +599,8 @@ async def list_orders(
     try:
         orders = sb_get_all_orders(status=status, client_id=client_id, analyst=analyst)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to list orders: {exc}")
+        logger.error(f"[ORDERS] Failed to list orders: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to list orders")
 
     return [_public_order_summary(order) for order in orders]
 
@@ -646,7 +648,8 @@ async def create_order(body: CreateOrderRequest, user: dict = Depends(get_curren
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to create order: {exc}")
+        logger.error(f"[ORDERS] Failed to create order: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to create order")
 
 
 @router.get("/{order_id}")
@@ -795,7 +798,8 @@ async def update_order(order_id: str, body: UpdateOrderRequest, user: dict = Dep
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to update order: {exc}")
+        logger.error(f"[ORDERS] Failed to update order: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to update order")
 
     companies = sb_get_order_companies(order_id)
     if status_changed_to_completed:
@@ -830,7 +834,8 @@ async def update_order_company(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to update order company: {exc}")
+        logger.error(f"[ORDERS] Failed to update order company: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to update order company")
 
     return _public_company(updated)
 
@@ -977,7 +982,8 @@ async def start_company_work(order_id: str, company_id: str, user: dict = Depend
                 logger.info(f"[ORDERS] Cleaned up orphaned report {report_id} after error: {exc}")
             except Exception as cleanup_err:
                 logger.error(f"[ORDERS] Failed to clean up orphaned report {report_id}: {cleanup_err}")
-        raise HTTPException(status_code=500, detail=f"Failed to start work: {exc}")
+        logger.error(f"[ORDERS] Failed to start work on order {order_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to start work")
 
 
 @router.post("/{order_id}/companies/{company_id}/complete")

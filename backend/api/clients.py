@@ -312,7 +312,6 @@ async def generate_portal_link(
             "client_id": client_id,
             "token": token,
             "password_hash": _hash_password(password_plain),
-            "password_plain_temp": password_plain,
             "portal_url": portal_url,
             "expires_at": expires_at_iso,
             "no_expiry": no_expiry,
@@ -374,7 +373,6 @@ async def reset_session_password(
     from services.supabase_client import update_session as sb_update_session
     sb_update_session(session_id, {
         "password_hash": new_hash,
-        "password_plain_temp": password_plain,
     })
 
     return {

@@ -163,7 +163,8 @@ async def export_report_excel(report_id: str, user: dict = Depends(get_current_u
     except ImportError:
         raise HTTPException(500, "Excel export requires openpyxl — not installed")
     except Exception as e:
-        raise HTTPException(500, f"Excel export failed: {str(e)}")
+        print(f"[EXPORT] Excel export failed: {e}")
+        raise HTTPException(500, "Excel export failed")
 
 
 @router.post("/word/{report_id}")
@@ -201,7 +202,8 @@ async def export_report_word(report_id: str, user: dict = Depends(get_current_us
     except ImportError:
         raise HTTPException(500, "Word export requires python-docx — not installed")
     except Exception as e:
-        raise HTTPException(500, f"Word export failed: {str(e)}")
+        print(f"[EXPORT] Word export failed: {e}")
+        raise HTTPException(500, "Word export failed")
 
 
 # ---------------------------------------------------------------------------

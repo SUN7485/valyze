@@ -158,19 +158,19 @@ async def proxy_anthropic(request: Request, current_user: dict = Depends(get_cur
         print(f"[proxy] ERROR: Cannot connect to Anthropic API: {e}")
         raise HTTPException(
             status_code=502,
-            detail=f"Cannot connect to Anthropic API. The server may be unreachable: {str(e)}",
+            detail="Cannot connect to Anthropic API. The server may be unreachable.",
         )
     except httpx.RequestError as e:
         print(f"[proxy] ERROR: Anthropic API request failed: {e}")
         traceback.print_exc()
         raise HTTPException(
             status_code=502,
-            detail=f"Anthropic API connection failed: {str(e)}",
+            detail="Anthropic API connection failed.",
         )
     except Exception as e:
         print(f"[proxy] ERROR: Unexpected error: {e}")
         traceback.print_exc()
         raise HTTPException(
             status_code=500,
-            detail=f"Proxy error: {str(e)}",
+            detail="Internal server error",
         )

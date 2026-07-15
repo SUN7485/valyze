@@ -1,24 +1,15 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import * as mammoth from 'mammoth'
+import * as pdfjsLib from 'pdfjs-dist'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url'
 import { useDarkMode } from '../hooks/useDarkMode'
 import { companiesAPI } from '../api/client'
 
-const loadPdfJs = () => new Promise((resolve, reject) => {
-  if (window.pdfjsLib) { resolve(window.pdfjsLib); return; }
-  const s = document.createElement("script");
-  s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-  s.onload = () => {
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    resolve(window.pdfjsLib);
-  };
-  s.onerror = () => reject(new Error("PDF.js failed to load"));
-  document.head.appendChild(s);
-});
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const extractPdf = async (file, mode, opts = {}) => {
-  const pdfjs = await loadPdfJs();
+  const pdfjs = pdfjsLib;
   const ab = await file.arrayBuffer();
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(ab) }).promise;
   if (pdf.numPages > 100)

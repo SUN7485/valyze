@@ -127,7 +127,7 @@ async def start_upload(body: StartUploadRequest):
         print(f"[UPLOAD] Report created: {report_id}")
     except Exception as e:
         print(f"[UPLOAD] Error creating report: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create report: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create report")
 
     now = datetime.now(timezone.utc)
     await update_report_field(None, report_id, "report_id", report_id, "high", "system")

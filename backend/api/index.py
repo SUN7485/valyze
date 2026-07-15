@@ -65,7 +65,8 @@ class CORSSafetyMiddleware(BaseHTTPMiddleware):
             if status == 413:
                 detail = "Request body too large for serverless"
             else:
-                detail = getattr(exc, "detail", None) or str(exc) or "Server error"
+                # Preserve intentional HTTPException detail; never leak a raw exception string.
+                detail = getattr(exc, "detail", None) or "Internal server error"
             response = JSONResponse(status_code=status, content={"detail": detail})
         origin = request.headers.get("origin", "")
         if "access-control-allow-origin" not in response.headers:
@@ -84,8 +85,15 @@ class CORSSafetyMiddleware(BaseHTTPMiddleware):
 app.add_middleware(CORSSafetyMiddleware)
 
 # Public routes — no auth needed
+def _is_prod() -> bool:
+    return bool(os.getenv("VERCEL")) or os.getenv("ENV", "").lower() == "production"
+
+
 @app.get("/health")
 async def health():
+    # In prod, don't leak which env vars are configured — return a minimal payload.
+    if _is_prod():
+        return {"status": "ok", "version": "1.0.0"}
     supabase_key = bool(os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY"))
     return {
         "status": "ok",
@@ -163,6 +171,9 @@ async def ready_tables():
 # Debug — shows which routers loaded and all routes
 @app.get("/routes")
 async def list_routes():
+    # Recon aid — hide the route map in prod.
+    if _is_prod():
+        raise HTTPException(status_code=404, detail="Not found")
     routes = []
     for r in app.routes:
         if hasattr(r, "path") and hasattr(r, "methods"):

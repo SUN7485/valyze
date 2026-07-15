@@ -97,8 +97,9 @@ async def preview_report_html(report_id: str):
 
         return HTMLResponse(content=html_content)
     except Exception as e:
+        print(f"[PDF] Preview error: {e}")
         return HTMLResponse(
-            content=f"<html><body><h1>Preview Error</h1><p>{str(e)}</p></body></html>"
+            content="<html><body><h1>Preview Error</h1><p>Could not render preview.</p></body></html>"
         )
 
 
