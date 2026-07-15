@@ -1164,20 +1164,29 @@ def ensure_storage_bucket(bucket: str) -> bool:
                 if b.get("name") == bucket:
                     return True  # Bucket already exists
 
-        # Create bucket
+        # Create bucket.
+        # Deliberately no `file_size_limit`: a bucket limit above the project's
+        # global upload ceiling makes Supabase reject the create with
+        # 400 {"statusCode":"413","error":"Payload too large"} — the bucket then
+        # never exists and every upload 404s "Bucket not found". Omitting the
+        # field inherits the project ceiling, so this can't drift out of sync.
+        # Per-file size is enforced by the caller anyway.
         payload = {
             "id": bucket,
             "name": bucket,
             "public": False,
-            "file_size_limit": 104857600,  # 100MB
-            "allowed_mime_types": None,
         }
         response = requests.post(url, headers=headers, json=payload, timeout=15)
         if response.status_code in [200, 201]:
+            logger.info(f"[Storage] Created bucket '{bucket}'")
             return True
-        logger.warning(f"[Storage] Bucket create returned {response.status_code}: {response.text[:200]}")
-        # May already exist (409 conflict) — treat as success
-        return response.status_code == 409
+        # Already exists — Supabase answers 409, or 400 with a "already exists" body.
+        if response.status_code == 409 or "already exists" in response.text.lower():
+            return True
+        logger.error(
+            f"[Storage] Bucket '{bucket}' create failed ({response.status_code}): {response.text[:200]}"
+        )
+        return False
     except requests.exceptions.RequestException as e:
         logger.error(f"[Storage] Bucket creation failed: {e}")
         return False

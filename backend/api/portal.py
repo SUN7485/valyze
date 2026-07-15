@@ -530,8 +530,14 @@ async def _save_portal_files(
                 detail=f"Maximum {MAX_PORTAL_FILES_PER_COMPANY} files per company allowed",
             )
 
-    # Ensure the storage bucket exists
-    ensure_storage_bucket(PORTAL_STORAGE_BUCKET)
+    # Ensure the storage bucket exists. Checking the result matters: when the
+    # bucket can't be created every upload below fails with an opaque
+    # "Failed to upload ... to storage" that hides the real cause.
+    if not await asyncio.to_thread(ensure_storage_bucket, PORTAL_STORAGE_BUCKET):
+        raise HTTPException(
+            status_code=503,
+            detail="File storage is unavailable. Please contact support and try again shortly.",
+        )
 
     saved_rows: List[Dict[str, Any]] = []
     for index, upload in enumerate(uploads):

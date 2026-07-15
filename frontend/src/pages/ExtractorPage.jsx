@@ -249,6 +249,28 @@ const STAGES = ["Processing files", "Claude thinking", "Building JSON", "Done"];
 const ACCEPT = ".pdf,image/*,.xlsx,.csv,.txt,.docx,.doc,.png,.jpg,.jpeg,.webp,.gif";
 const fIcon = f => f.type === "application/pdf" ? "📄" : f.type?.startsWith("image/") ? "🖼️" : f.name.match(/\.docx?$/i) ? "📝" : "📊";
 
+// /api/proxy is auth-gated (Depends(get_current_user)), so every proxied call must
+// carry the Valyze JWT as well as the Anthropic key — without it the proxy 401s and
+// the error surfaces as a misleading "API key rejected".
+const buildApiHeaders = (apiKey, isDirect) => {
+  if (isDirect) {
+    return {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    };
+  }
+  const token = localStorage.getItem("valyze_token") || "";
+  return {
+    "Content-Type": "application/json",
+    "x-api-key": apiKey,
+    "anthropic-version": "2023-06-01",
+    "Content-Encoding": "gzip",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
+
 export default function ExtractorPage() {
   const navigate = useNavigate()
   const { reportId } = useParams()
@@ -457,9 +479,7 @@ export default function ExtractorPage() {
         const isDirect = !proxyUrl;
         const payload = i === 0 ? apiBody : { ...apiBody, messages: msgs };
         let fetchBody = JSON.stringify(payload);
-        const headers = isDirect
-          ? { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }
-          : { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Encoding": "gzip" };
+        const headers = buildApiHeaders(apiKey, isDirect);
         if (!isDirect) {
           const compressed = await compressBody(payload);
           fetchBody = compressed;
@@ -555,6 +575,10 @@ export default function ExtractorPage() {
               "If the problem persists, check:\n" +
               "• Backend health endpoint: /health\n" +
               "• Your API key is valid (starts with sk-ant-)";
+      } else if (e.message?.includes("Not authenticated")) {
+        // The proxy is auth-gated, so a dead Valyze session 401s exactly like a bad
+        // Anthropic key would. Keep them distinct — they need opposite fixes.
+        msg = "Your Valyze session has expired.\n\n• Sign in again, then re-run the extraction\n• Your uploaded files and settings are preserved";
       } else if (e.message?.includes("[401]") || e.message?.includes("[403]")) {
         msg = "API key rejected by proxy.\n\n• Verify your key is correct\n• Make sure key starts with sk-ant-\n• Check API key quota at console.anthropic.com";
       } else if (e.message?.includes("[502]")) {
@@ -616,9 +640,7 @@ export default function ExtractorPage() {
          messages: [{ role: "user", content: `Here is the full JSON:\n${JSON.stringify(parsed, null, 2)}\n\n## CHANGES TO APPLY:\n${patchInstructions}\n\nReturn only the complete patched JSON.` }]
        };
        const bodyStr = JSON.stringify(patchPayload);
-       const headers = patchIsDirect
-         ? { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }
-         : { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Encoding": "gzip" };
+       const headers = buildApiHeaders(apiKey, patchIsDirect);
        const fetchBody = patchIsDirect ? bodyStr : await compressBody(patchPayload);
        const res = await fetch(patchUseUrl, {
          method: "POST",
