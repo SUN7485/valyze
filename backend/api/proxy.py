@@ -2,8 +2,9 @@
 Anthropic API Proxy — forwards Claude API requests from the browser
 through the backend to avoid CORS issues and browser security restrictions.
 
-Used by the valyze-extractor (browser-based SPA) to make Anthropic API calls
-without exposing the API key in the Network tab and without CORS issues.
+Used by the browser-based extractor (frontend/src/pages/ExtractorPage.jsx) to
+make Anthropic API calls without exposing the API key in the Network tab and
+without CORS issues.
 
 Endpoint: POST /api/proxy
 

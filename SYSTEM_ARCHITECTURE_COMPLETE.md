@@ -424,8 +424,8 @@ Frontend ExtractorPage (React)
 - Supports gzip-compressed request bodies (Vercel has ~4.5MB body limit)
 - 5-minute timeout, size checks on compressed and decompressed payloads
 
-**Mock Data:**
-- `valyze-extractor/mock-data.json` — Complete example of the expected JSON output format with all sections populated
+**Output format:**
+- Defined by the report schema in `backend/models/report_schema.py`; the extractor (`frontend/src/pages/ExtractorPage.jsx`) produces JSON matching it.
 
 ### 5.3 Auth and Import Flow
 

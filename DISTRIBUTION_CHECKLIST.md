@@ -13,7 +13,7 @@ Use this checklist when preparing to share the project with someone else.
 - [ ] Delete `.ruff_cache/` folder
 - [ ] Delete `node_modules/` (will be reinstalled by user)
 - [ ] Delete `frontend/node_modules/`
-- [ ] Delete `valyze-extractor/node_modules/`
+- [ ] Delete `valyze-portal/node_modules/`
 - [ ] Delete `design-system/node_modules/`
 - [ ] Delete `frontend/dist/`
 
@@ -33,7 +33,7 @@ Use this checklist when preparing to share the project with someone else.
 ### Required Files (ALWAYS include)
 - [ ] `backend/` (entire folder)
 - [ ] `frontend/` (entire folder)
-- [ ] `valyze-extractor/` (entire folder)
+- [ ] `valyze-portal/` (entire folder)
 - [ ] `design-system/` (entire folder)
 - [ ] `README.md`
 - [ ] `startall.bat` / `startall.sh`
@@ -116,7 +116,7 @@ rm valyez.db
 
 ```powershell
 # Windows - Run in project root
-Compress-Archive -Path "backend","frontend","valyze-extractor","design-system","README.md","startall.bat","startall.sh","install.bat","install.sh","startbackend.bat","startbackend.sh" -DestinationPath "valyez-dist.zip" -Force
+Compress-Archive -Path "backend","frontend","valyze-portal","design-system","README.md","startall.bat","startall.sh","install.bat","install.sh","startbackend.bat","startbackend.sh" -DestinationPath "valyez-dist.zip" -Force
 ```
 
 ---
@@ -125,5 +125,5 @@ Compress-Archive -Path "backend","frontend","valyze-extractor","design-system","
 
 ```bash
 # macOS - Run in project root
-zip -r valyez-dist.zip backend frontend valyze-extractor design-system README.md startall.bat startall.sh install.bat install.sh startbackend.bat startbackend.sh
+zip -r valyez-dist.zip backend frontend valyze-portal design-system README.md startall.bat startall.sh install.bat install.sh startbackend.bat startbackend.sh
 ```
