@@ -61,6 +61,7 @@ export default function OrderForm({
   const [filesByCompany, setFilesByCompany] = useState([[]]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [reviewing, setReviewing] = useState(false);
 
   const estimate = useMemo(() => {
     const multiplier = order.report_type === "full" ? 1.1 : 1;
@@ -140,7 +141,8 @@ export default function OrderForm({
     return "";
   }
 
-  async function handleSubmit(event) {
+  // Step 1: validate, then show the read-only review instead of submitting.
+  function handleReview(event) {
     event.preventDefault();
 
     const validationError = validate();
@@ -155,30 +157,39 @@ export default function OrderForm({
       return;
     }
 
+    setError("");
+    setReviewing(true);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function buildPayload() {
+    return {
+      client_ref: order.client_ref.trim(),
+      service_level: order.service_level,
+      report_type: order.report_type,
+      due_date: order.due_date,
+      notes: order.notes.trim(),
+      companies: companies.map((company) => ({
+        company_name: company.company_name.trim(),
+        country: company.country.trim(),
+        address: company.address.trim(),
+        registration_no: company.registration_no.trim(),
+        vat_no: company.vat_no.trim(),
+        phone: company.phone.trim(),
+        fax: company.fax.trim(),
+        requested_limit: company.requested_limit.trim(),
+        comments: company.comments.trim(),
+      })),
+    };
+  }
+
+  // Step 2: the client confirmed the review — actually submit the order.
+  async function confirmSubmit() {
     setLoading(true);
     setError("");
 
     try {
-      const payload = {
-        client_ref: order.client_ref.trim(),
-        service_level: order.service_level,
-        report_type: order.report_type,
-        due_date: order.due_date,
-        notes: order.notes.trim(),
-        companies: companies.map((company) => ({
-          company_name: company.company_name.trim(),
-          country: company.country.trim(),
-          address: company.address.trim(),
-          registration_no: company.registration_no.trim(),
-          vat_no: company.vat_no.trim(),
-          phone: company.phone.trim(),
-          fax: company.fax.trim(),
-          requested_limit: company.requested_limit.trim(),
-          comments: company.comments.trim(),
-        })),
-      };
-
-      const result = await submitOrderWithFiles(portalToken, payload, filesByCompany);
+      const result = await submitOrderWithFiles(portalToken, buildPayload(), filesByCompany);
       onSubmitSuccess(result);
     } catch (err) {
       setError(err.message || "Failed to submit order. Please try again.");
@@ -205,7 +216,8 @@ export default function OrderForm({
         <div className="logo">VALYZE</div>
       </div>
 
-      <form className="order-form" onSubmit={handleSubmit}>
+      {!reviewing && (
+      <form className="order-form" onSubmit={handleReview}>
         <section className="form-section">
           <div className="section-heading">
             <span className="section-number">01</span>
@@ -334,15 +346,80 @@ export default function OrderForm({
           <button className="secondary-button" type="button" onClick={resetForm}>
             Reset Form
           </button>
-          <button className="primary-button" type="submit" disabled={loading}>
-            {loading ? "Submitting..." : `Submit Order (${companies.length} Companies)`}
+          <button className="primary-button" type="submit">
+            {`Review Order (${companies.length} ${companies.length === 1 ? "Company" : "Companies"})`}
           </button>
         </div>
       </form>
+      )}
+
+      {reviewing && (
+        <div className="order-form review-panel">
+          <section className="form-section">
+            <div className="section-heading">
+              <span className="section-number">✓</span>
+              <div>
+                <h2>Review Your Order</h2>
+                <p>Check everything below, then confirm to submit. Nothing is sent until you confirm.</p>
+              </div>
+            </div>
+
+            <div className="review-block">
+              <h3>Order Details</h3>
+              <dl className="review-list">
+                <div><dt>Client Reference</dt><dd>{order.client_ref.trim() || "—"}</dd></div>
+                <div><dt>Service Level</dt><dd>{serviceLevelLabel(order.service_level)}</dd></div>
+                <div><dt>Report Type</dt><dd>{order.report_type === "full" ? "Full" : "Standard"}</dd></div>
+                <div><dt>Due Date</dt><dd>{order.due_date || "—"}</dd></div>
+                {order.notes.trim() && (<div><dt>Notes</dt><dd>{order.notes.trim()}</dd></div>)}
+              </dl>
+            </div>
+
+            {companies.map((company, index) => (
+              <div className="review-block" key={index}>
+                <h3>Company {index + 1}: {company.company_name.trim() || "—"}</h3>
+                <dl className="review-list">
+                  {company.country.trim() && (<div><dt>Country</dt><dd>{company.country.trim()}</dd></div>)}
+                  {company.registration_no.trim() && (<div><dt>Registration No</dt><dd>{company.registration_no.trim()}</dd></div>)}
+                  {company.vat_no.trim() && (<div><dt>VAT No</dt><dd>{company.vat_no.trim()}</dd></div>)}
+                  {company.address.trim() && (<div><dt>Address</dt><dd>{company.address.trim()}</dd></div>)}
+                  {company.phone.trim() && (<div><dt>Phone</dt><dd>{company.phone.trim()}</dd></div>)}
+                  {company.requested_limit.trim() && (<div><dt>Requested Limit</dt><dd>{company.requested_limit.trim()}</dd></div>)}
+                  {company.comments.trim() && (<div><dt>Comments</dt><dd>{company.comments.trim()}</dd></div>)}
+                  <div><dt>Attached Files</dt><dd>{(filesByCompany[index] || []).length} file(s)</dd></div>
+                </dl>
+                {(filesByCompany[index] || []).length > 0 && (
+                  <ul className="review-files">
+                    {(filesByCompany[index] || []).map((file, fileIndex) => (
+                      <li key={fileIndex}>{file.name}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+
+            {error && <div className="form-error">{error}</div>}
+
+            <div className="submit-row">
+              <button className="secondary-button" type="button" onClick={() => setReviewing(false)} disabled={loading}>
+                Back to Edit
+              </button>
+              <button className="primary-button" type="button" onClick={confirmSubmit} disabled={loading}>
+                {loading ? "Submitting..." : "Confirm & Submit"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       <button className="text-button" type="button" onClick={onReset}>
         Submit Another Order
       </button>
     </div>
   );
+}
+
+function serviceLevelLabel(value) {
+  const match = SERVICE_LEVELS.find((level) => level.value === value);
+  return match ? match.label : value;
 }

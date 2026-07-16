@@ -83,3 +83,6 @@ valyze-portal/.env
 frontend/dist/
 valyze-portal/dist/
 valyze-extractor/dist/
+
+# Local planning artifacts (handoff missions for /qc) — keep out of the repo
+.claude/handoffs/

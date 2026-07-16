@@ -82,3 +82,24 @@ export async function submitOrderWithFiles(portalToken, orderData, filesByCompan
     body: formData,
   });
 }
+
+// Order document — the portal token goes in the header (never the URL). Returns
+// raw HTML (converted to PDF client-side via the browser's print dialog) or a
+// Word (.doc) Blob. Not routed through request() because that JSON-parses.
+export async function fetchOrderDocumentHtml(portalToken, orderNumber) {
+  const res = await fetch(
+    `${API_URL}/api/portal/order-document/${encodeURIComponent(orderNumber)}?format=html`,
+    { headers: { Authorization: `Bearer ${portalToken}` } }
+  );
+  if (!res.ok) throw new Error("Failed to load order document");
+  return res.text();
+}
+
+export async function fetchOrderDocumentBlob(portalToken, orderNumber) {
+  const res = await fetch(
+    `${API_URL}/api/portal/order-document/${encodeURIComponent(orderNumber)}?format=doc`,
+    { headers: { Authorization: `Bearer ${portalToken}` } }
+  );
+  if (!res.ok) throw new Error("Failed to download Word file");
+  return res.blob();
+}

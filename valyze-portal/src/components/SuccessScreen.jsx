@@ -1,5 +1,42 @@
-export default function SuccessScreen({ result, onReset }) {
-  const fileCount = result?.files?.length || 0;
+import { fetchOrderDocumentHtml, fetchOrderDocumentBlob } from "../api.js";
+
+export default function SuccessScreen({ result, portalToken, onReset }) {
+  const files = result?.files || [];
+  const fileCount = files.length;
+  const orderNumber = result?.order_number || "";
+
+  async function handlePdf() {
+    if (!orderNumber) return;
+    try {
+      const html = await fetchOrderDocumentHtml(portalToken, orderNumber);
+      const w = window.open("", "_blank");
+      if (!w) {
+        alert("Please allow pop-ups to download the PDF.");
+        return;
+      }
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      setTimeout(() => w.print(), 400);
+    } catch (e) {
+      alert(e.message || "Could not open the PDF view.");
+    }
+  }
+
+  async function handleWord() {
+    if (!orderNumber) return;
+    try {
+      const blob = await fetchOrderDocumentBlob(portalToken, orderNumber);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Order-${orderNumber}.doc`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e.message || "Could not download the Word file.");
+    }
+  }
 
   return (
     <div className="portal-page">
@@ -25,14 +62,31 @@ export default function SuccessScreen({ result, onReset }) {
           </div>
         </div>
 
+        {fileCount > 0 && (
+          <div className="success-files">
+            <span className="success-files-label">
+              {fileCount} attached file{fileCount === 1 ? "" : "s"}
+            </span>
+            <ul>
+              {files.map((file, index) => (
+                <li key={file?.id || index}>{file?.filename || "file"}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <p className="success-note">
           Your Valyze team has received your order and will begin processing shortly.
         </p>
-        {fileCount > 0 && (
-          <p className="success-note">
-            {fileCount} attached file{fileCount === 1 ? "" : "s"} submitted with this order.
-          </p>
-        )}
+
+        <div className="success-actions">
+          <button className="secondary-button" type="button" onClick={handlePdf}>
+            Download PDF
+          </button>
+          <button className="secondary-button" type="button" onClick={handleWord}>
+            Download Word
+          </button>
+        </div>
 
         <button className="primary-button" type="button" onClick={onReset}>
           Submit Another Order

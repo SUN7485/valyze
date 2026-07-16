@@ -60,7 +60,7 @@ export default function App() {
       )}
 
       {state === "success" && (
-        <SuccessScreen result={lastResult} onReset={resetForm} />
+        <SuccessScreen result={lastResult} portalToken={portalToken} onReset={resetForm} />
       )}
     </>
   );

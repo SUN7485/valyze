@@ -820,6 +820,39 @@ export default function OrderDetailPage() {
         }
     }
 
+    const handleDownloadPdf = async () => {
+        if (!order) return
+        try {
+            setError('')
+            const res = await ordersAPI.getOrderDocumentHtml(order.id)
+            const w = window.open('', '_blank')
+            if (!w) { setError('Please allow pop-ups to download the PDF.'); return }
+            w.document.write(res.data)
+            w.document.close()
+            w.focus()
+            setTimeout(() => w.print(), 400)
+        } catch (e) {
+            setError(e.message || 'Failed to open PDF view')
+        }
+    }
+
+    const handleDownloadWord = async () => {
+        if (!order) return
+        try {
+            setError('')
+            const res = await ordersAPI.getOrderDocumentDoc(order.id)
+            const blob = new Blob([res.data], { type: 'application/msword' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `Order-${order.order_number || order.id}.doc`
+            a.click()
+            URL.revokeObjectURL(url)
+        } catch (e) {
+            setError(e.message || 'Failed to download Word file')
+        }
+    }
+
     const handleGenerateInvoice = async () => {
         if (!order) return
 
@@ -882,6 +915,24 @@ export default function OrderDetailPage() {
                             >
                                 {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                                 Download Submission
+                            </button>
+                            <button
+                                onClick={handleDownloadPdf}
+                                className="px-4 py-3 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 rounded-xl transition-all flex items-center gap-2 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-white/5"
+                                aria-label="Download order details as PDF"
+                                title="Open a printable view of the order details — use your browser's Save as PDF"
+                            >
+                                <FileText size={16} />
+                                PDF
+                            </button>
+                            <button
+                                onClick={handleDownloadWord}
+                                className="px-4 py-3 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 rounded-xl transition-all flex items-center gap-2 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-white/5"
+                                aria-label="Download order details as Word"
+                                title="Download the order details as a Word (.doc) file"
+                            >
+                                <FileText size={16} />
+                                Word
                             </button>
                             <button
                                 onClick={() => fetchOrder()}

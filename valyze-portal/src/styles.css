@@ -551,6 +551,109 @@ select option {
   margin-bottom: 26px;
 }
 
+.success-files {
+  text-align: left;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: rgba(13, 27, 42, 0.42);
+  margin-bottom: 22px;
+}
+
+.success-files-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.success-files ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.success-files li {
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+
+.success-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.success-actions .secondary-button {
+  flex: 1 1 160px;
+}
+
+.review-block {
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  padding: 16px 18px;
+  background: rgba(13, 27, 42, 0.42);
+  margin-bottom: 14px;
+}
+
+.review-block h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.review-list {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.review-list > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.review-list dt {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.review-list dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.review-files {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+.review-files li {
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .review-list > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
 @media (max-width: 760px) {
   .login-card,
   .order-form,

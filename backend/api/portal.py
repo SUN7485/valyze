@@ -19,11 +19,13 @@ from typing import Any, Dict, List, Literal, Optional
 import jwt
 import requests
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path as PathParam, UploadFile
+from fastapi.responses import HTMLResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from api.auth import JWT_ALGORITHM, JWT_SECRET
-from api.orders import assign_analyst, generate_order_number
+from api.orders import assign_analyst, generate_order_number, _build_order_detail
+from services.order_documents import build_order_html, WORD_MIME
 from services.supabase_client import (
     create_order as sb_create_order,
     create_order_file,
@@ -852,3 +854,25 @@ async def get_order_status(
         ],
         "files": [_public_order_file(file) for file in files],
     }
+
+
+@router.get("/order-document/{order_number}")
+async def portal_order_document(
+    order_number: str,
+    format: str = "html",
+    portal_client: Dict[str, str] = Depends(get_portal_current_client),
+):
+    """Same order document as the analyst side, scoped to the calling client.
+    format=html (default) renders the order; format=doc downloads a Word file."""
+    order = await _get_order_by_number_for_client(order_number, portal_client["client_id"])
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    detail = await asyncio.to_thread(_build_order_detail, order)
+    html = build_order_html(detail)
+    if format == "doc":
+        return Response(
+            content=html,
+            media_type=WORD_MIME,
+            headers={"Content-Disposition": f'attachment; filename="Order-{order_number}.doc"'},
+        )
+    return HTMLResponse(content=html)

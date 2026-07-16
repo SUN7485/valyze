@@ -183,6 +183,13 @@ export const ordersAPI = {
 
     downloadOrder: (orderId) =>
         api.get(`/orders/${orderId}/download`, { responseType: 'blob' }),
+
+    // Order details document — HTML (converted to PDF client-side via print) or Word (.doc)
+    getOrderDocumentHtml: (orderId) =>
+        api.get(`/orders/${orderId}/document`, { params: { format: 'html' }, responseType: 'text' }),
+
+    getOrderDocumentDoc: (orderId) =>
+        api.get(`/orders/${orderId}/document`, { params: { format: 'doc' }, responseType: 'blob' }),
 }
 
 // ---------------------------------------------------------------------------

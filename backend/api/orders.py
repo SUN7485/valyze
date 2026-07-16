@@ -19,11 +19,12 @@ from urllib.parse import quote
 import os
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from api.auth import get_current_user, get_order_assignable_users, require_admin
 from database.crud import add_uploaded_file, create_report, update_report_field, update_report_status
+from services.order_documents import build_order_html, WORD_MIME
 from services.pricing_engine import calculate_invoice, generate_invoice_number
 import logging
 from services.supabase_client import (
@@ -757,6 +758,28 @@ async def download_order(order_id: str, user: dict = Depends(get_current_user)):
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{safe_label}.zip"'},
     )
+
+
+@router.get("/{order_id}/document")
+async def order_document(
+    order_id: str,
+    format: str = "html",
+    user: dict = Depends(get_current_user),
+):
+    """Order details as a printable HTML doc (format=html, default) or a Word
+    file (format=doc). PDF is produced client-side from the HTML (browser
+    print), so any language — including Arabic company names — renders correctly."""
+    order = _get_order_or_404(order_id)
+    detail = _build_order_detail(order)
+    html = build_order_html(detail)
+    order_no = detail.get("order_number") or order_id
+    if format == "doc":
+        return Response(
+            content=html,
+            media_type=WORD_MIME,
+            headers={"Content-Disposition": f'attachment; filename="Order-{order_no}.doc"'},
+        )
+    return HTMLResponse(content=html)
 
 
 @router.patch("/{order_id}")
