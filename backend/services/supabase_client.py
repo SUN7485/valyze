@@ -1161,14 +1161,15 @@ def ensure_storage_bucket(bucket: str) -> bool:
         "Content-Type": "application/json",
     }
     try:
-        # List existing buckets
-        list_url = f"{get_storage_base_url()}/bucket"
-        resp = requests.get(list_url, headers=headers, timeout=15)
-        if resp.status_code == 200:
-            buckets = resp.json()
-            for b in buckets:
-                if b.get("name") == bucket:
-                    return True  # Bucket already exists
+        # Probe the bucket by name instead of listing every bucket. Listing needs
+        # storage-admin rights, and a key without them gets `200 []` rather than a
+        # 403 — indistinguishable from "the project has no buckets". That false
+        # negative sent this function on to create a bucket that might already
+        # exist, and hid the real problem (wrong key) behind a generic failure.
+        # The by-name probe answers definitively: 200, or a "Bucket not found" body.
+        probe = requests.get(f"{get_storage_base_url()}/bucket/{bucket}", headers=headers, timeout=15)
+        if probe.status_code == 200:
+            return True
 
         # Create bucket.
         # Deliberately no `file_size_limit`: a bucket limit above the project's
@@ -1189,6 +1190,18 @@ def ensure_storage_bucket(bucket: str) -> bool:
         # Already exists — Supabase answers 409, or 400 with a "already exists" body.
         if response.status_code == 409 or "already exists" in response.text.lower():
             return True
+        # Creating a bucket needs the service_role key. Every table here has RLS
+        # `using (true)`, so an anon key reads and writes the DB perfectly well and
+        # nothing looks broken until a file upload — call that out by name, because
+        # the fix is an env var, not code.
+        if response.status_code in (401, 403):
+            logger.error(
+                f"[Storage] Not permitted to create bucket '{bucket}' ({response.status_code}). "
+                "SUPABASE_SERVICE_KEY is missing or is not a service_role key — bucket "
+                "administration requires service_role. Create the bucket manually in the "
+                "Supabase dashboard, or set a real service_role key."
+            )
+            return False
         logger.error(
             f"[Storage] Bucket '{bucket}' create failed ({response.status_code}): {response.text[:200]}"
         )
