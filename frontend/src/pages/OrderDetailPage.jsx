@@ -822,16 +822,22 @@ export default function OrderDetailPage() {
 
     const handleDownloadPdf = async () => {
         if (!order) return
+        // Open the tab synchronously, inside the click handler: a window.open()
+        // issued after an await has lost the user gesture and the pop-up blocker
+        // eats it — which shows up only on slow connections.
+        const w = window.open('', '_blank')
+        if (!w) { setError('Please allow pop-ups to download the PDF.'); return }
+        w.document.write("<p style='font:16px sans-serif;padding:24px'>Preparing the order document…</p>")
         try {
             setError('')
             const res = await ordersAPI.getOrderDocumentHtml(order.id)
-            const w = window.open('', '_blank')
-            if (!w) { setError('Please allow pop-ups to download the PDF.'); return }
+            w.document.open()
             w.document.write(res.data)
             w.document.close()
             w.focus()
             setTimeout(() => w.print(), 400)
         } catch (e) {
+            w.close()
             setError(e.message || 'Failed to open PDF view')
         }
     }

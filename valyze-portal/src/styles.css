@@ -582,6 +582,15 @@ select option {
   overflow-wrap: anywhere;
 }
 
+.success-orders {
+  text-align: left;
+  margin-bottom: 22px;
+}
+
+.success-orders .success-actions {
+  margin-bottom: 0;
+}
+
 .success-actions {
   display: flex;
   flex-wrap: wrap;
