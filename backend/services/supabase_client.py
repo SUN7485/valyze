@@ -1133,11 +1133,17 @@ def create_signed_url(bucket: str, path: str, expires_in: int = 3600) -> Optiona
         response = requests.post(url, headers=headers, json={"expiresIn": expires_in}, timeout=30)
         if response.status_code in [200, 201]:
             data = response.json()
-            signed_url = data.get("signedUrl")
+            # Supabase returns `signedURL` (capital URL) from /object/sign/... —
+            # reading only `signedUrl` made this return None on every 200, so every
+            # portal file came back with file_url: null.
+            signed_url = data.get("signedURL") or data.get("signedUrl")
             if signed_url:
-                # Supabase returns relative path, prepend the base URL
-                if signed_url.startswith("/"):
+                # The path is relative to the STORAGE api root ("/object/sign/…"),
+                # so it needs /storage/v1 — prepending only SUPABASE_URL 404s.
+                if signed_url.startswith("/storage/"):
                     return f"{os.getenv('SUPABASE_URL')}{signed_url}"
+                if signed_url.startswith("/"):
+                    return f"{get_storage_base_url()}{signed_url}"
                 return signed_url
         logger.error(f"[Storage] Signed URL failed ({response.status_code}): {response.text[:200]}")
         return None

@@ -501,6 +501,56 @@ MIME_TYPE_MAP = {
 }
 
 
+def _order_files_table_ready() -> bool:
+    """Is the `order_files` table actually present?
+
+    PostgREST answers 404/PGRST205 when it isn't — which is what happens if
+    migration `004_add_order_files.sql` was never pasted into Supabase (this repo
+    has no migration runner). Without the table every attached document fails to
+    save, so we check it up-front instead of discovering it mid-submission.
+    """
+    try:
+        response = requests.get(
+            f"{get_base_url()}/order_files",
+            params={"select": "id", "limit": "1"},
+            headers=get_headers(),
+            timeout=15,
+        )
+    except requests.exceptions.RequestException as exc:
+        print(f"[portal] order_files reachability check failed: {exc}")
+        return False
+    if response.status_code >= 400:
+        print(
+            "[portal] order_files table is NOT usable "
+            f"({response.status_code}): {response.text[:200]} — apply "
+            "supabase/migrations/004_add_order_files.sql in the Supabase SQL editor."
+        )
+        return False
+    return True
+
+
+async def _ensure_file_pipeline_ready() -> None:
+    """Verify documents can be stored BEFORE the first order row is created.
+
+    Run once per submission. Checking here rather than inside the per-company
+    file loop is deliberate: a broken file pipeline must not leave half-created
+    orders sitting in the work queue with none of the client's documents attached.
+    """
+    if not await asyncio.to_thread(ensure_storage_bucket, PORTAL_STORAGE_BUCKET):
+        raise HTTPException(
+            status_code=503,
+            detail="File storage is unavailable. Your order was not submitted — please try again shortly.",
+        )
+    if not await asyncio.to_thread(_order_files_table_ready):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Document storage is not available right now, so your order was not "
+                "submitted. Please contact Valyze support, or submit without attachments."
+            ),
+        )
+
+
 async def _save_portal_files(
     order_id: str,
     files: Optional[List[UploadFile]],
@@ -532,14 +582,8 @@ async def _save_portal_files(
                 detail=f"Maximum {MAX_PORTAL_FILES_PER_COMPANY} files per company allowed",
             )
 
-    # Ensure the storage bucket exists. Checking the result matters: when the
-    # bucket can't be created every upload below fails with an opaque
-    # "Failed to upload ... to storage" that hides the real cause.
-    if not await asyncio.to_thread(ensure_storage_bucket, PORTAL_STORAGE_BUCKET):
-        raise HTTPException(
-            status_code=503,
-            detail="File storage is unavailable. Please contact support and try again shortly.",
-        )
+    # Storage bucket + order_files table are verified once per submission by
+    # _ensure_file_pipeline_ready(), before any order row exists.
 
     saved_rows: List[Dict[str, Any]] = []
     for index, upload in enumerate(uploads):
@@ -580,18 +624,31 @@ async def _save_portal_files(
                 detail=f"Failed to upload file '{original_name}' to storage",
             )
 
-        # Store the storage path in the database (not local disk path)
-        row = create_order_file(
-            {
-                "order_id": order_id,
-                "order_company_id": company_ids_by_index.get(indexes[index]) if indexes else None,
-                "filename": safe_name,
-                "file_path": f"storage://{PORTAL_STORAGE_BUCKET}/{storage_path}",
-                "file_type": FILE_TYPE_MAP.get(ext, "unknown"),
-                "file_size": len(content),
-                "processed": False,
-            }
-        )
+        # Store the storage path in the database (not local disk path).
+        # The bytes are already in Supabase Storage at this point, so a DB failure
+        # here has to say so plainly — it used to surface as a bare 500 /
+        # "Internal server error" that looked like a problem with the file.
+        try:
+            row = create_order_file(
+                {
+                    "order_id": order_id,
+                    "order_company_id": company_ids_by_index.get(indexes[index]) if indexes else None,
+                    "filename": safe_name,
+                    "file_path": f"storage://{PORTAL_STORAGE_BUCKET}/{storage_path}",
+                    "file_type": FILE_TYPE_MAP.get(ext, "unknown"),
+                    "file_size": len(content),
+                    "processed": False,
+                }
+            )
+        except Exception as exc:
+            print(f"[portal] create_order_file failed for '{original_name}': {exc}")
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"'{original_name}' was uploaded but could not be recorded. "
+                    "Your order was not completed — please contact Valyze support."
+                ),
+            ) from exc
         saved_rows.append(row)
 
     return saved_rows
@@ -654,6 +711,10 @@ async def _submit_order_payload(
     for pos, upload in enumerate(uploads):
         idx = indexes[pos] if indexes else 0
         files_by_index.setdefault(idx, []).append(upload)
+
+    # Fail before creating anything if the documents can't be stored.
+    if uploads:
+        await _ensure_file_pipeline_ready()
 
     now = datetime.now(timezone.utc).isoformat()
 

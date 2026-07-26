@@ -30,8 +30,12 @@ const emptyOrder = {
 };
 
 const MAX_FILES_PER_COMPANY = 5;
-const MAX_FILE_SIZE_MB = 100;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+// Every attachment in a submission travels in ONE multipart request, and the
+// serverless platform rejects request bodies above ~4.5 MB before they ever reach
+// the API — which arrives in the browser as an opaque network failure. So cap the
+// whole submission here, where we can name the actual problem.
+const MAX_UPLOAD_MB = 4;
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 const ALLOWED_EXTENSIONS = new Set([
   ".pdf",
   ".docx",
@@ -120,6 +124,8 @@ export default function OrderForm({
   }
 
   function validateFiles() {
+    let totalBytes = 0;
+
     for (let companyIndex = 0; companyIndex < filesByCompany.length; companyIndex += 1) {
       const companyFiles = filesByCompany[companyIndex] || [];
 
@@ -128,14 +134,20 @@ export default function OrderForm({
       }
 
       for (const file of companyFiles) {
-        if (file.size > MAX_FILE_SIZE_BYTES) {
-          return `${file.name} is larger than ${MAX_FILE_SIZE_MB}MB.`;
+        if (file.size > MAX_UPLOAD_BYTES) {
+          return `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB — the limit is ${MAX_UPLOAD_MB} MB per file. Please compress or split it.`;
         }
 
         if (!ALLOWED_EXTENSIONS.has(getExtension(file))) {
           return `${file.name} is not an allowed file type.`;
         }
+
+        totalBytes += file.size;
       }
+    }
+
+    if (totalBytes > MAX_UPLOAD_BYTES) {
+      return `Your attachments total ${(totalBytes / 1024 / 1024).toFixed(1)} MB — the limit is ${MAX_UPLOAD_MB} MB per order. Please remove or compress some files, or submit the companies in separate orders.`;
     }
 
     return "";

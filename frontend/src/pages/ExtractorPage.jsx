@@ -252,6 +252,49 @@ const fIcon = f => f.type === "application/pdf" ? "📄" : f.type?.startsWith("i
 // /api/proxy is auth-gated (Depends(get_current_user)), so every proxied call must
 // carry the Valyze JWT as well as the Anthropic key — without it the proxy 401s and
 // the error surfaces as a misleading "API key rejected".
+//
+// The proxy can answer 401 for FIVE different reasons: three from the auth
+// dependency (below), a missing/malformed x-api-key, and Anthropic's own
+// rejection. They need opposite fixes, so the status code alone must never be
+// mapped to a cause — always branch on the server's detail first.
+const SESSION_ERROR_DETAILS = ["Not authenticated", "Token expired", "Invalid token"];
+const isSessionError = (message = "") =>
+  SESSION_ERROR_DETAILS.some((detail) => message.includes(detail));
+const SESSION_EXPIRED_MSG =
+  "Your Valyze session has expired.\n\n" +
+  "• Sign in again, then re-run the extraction\n" +
+  "• Sessions last 24 hours";
+
+// Login JWTs last 24h. Reading `exp` locally (no network call) lets us stop before
+// minutes of file processing are spent on a request the proxy will reject.
+const sessionIsExpired = () => {
+  const token = localStorage.getItem("valyze_token") || "";
+  if (!token) return true;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    if (!payload?.exp) return false; // no expiry claim — let the server decide
+    return payload.exp * 1000 <= Date.now();
+  } catch {
+    return true; // unparseable token — the server would reject it too
+  }
+};
+
+// Read the real cause out of a failed proxy/Anthropic response. Two error shapes
+// arrive here: FastAPI's {detail} and Anthropic's {error:{message}}.
+const readProxyError = async (res) => {
+  let errMsg;
+  let prefix = "";
+  try {
+    const body = await res.json();
+    errMsg = body?.error?.message || body?.detail || JSON.stringify(body);
+    // The proxy tags which key Anthropic refused (see api/proxy.py).
+    if (body?.valyze_key_source === "server") prefix = "SERVER_KEY_REJECTED ";
+  } catch {
+    errMsg = `HTTP ${res.status}`;
+  }
+  return `${prefix}[${res.status}] ${errMsg}`;
+};
+
 const buildApiHeaders = (apiKey, isDirect) => {
   if (isDirect) {
     return {
@@ -409,6 +452,11 @@ export default function ExtractorPage() {
       setStatus("error");
       return;
     }
+    if (proxyUrl && sessionIsExpired()) {
+      setError(SESSION_EXPIRED_MSG);
+      setStatus("error");
+      return;
+    }
     setStatus("loading"); setStage(0); setResult(null); setError(""); setElapsed(0); setLogMsg("Reading files…");
     clockRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
     abortRef.current = new AbortController();
@@ -490,15 +538,7 @@ export default function ExtractorPage() {
           signal: abortRef.current.signal,
           body: fetchBody,
         });
-        if (!res.ok) {
-          let errMsg;
-          try {
-            const e = await res.json();
-            // Handle both Anthropic format (error.message) and FastAPI format (detail)
-            errMsg = e?.error?.message || e?.detail || JSON.stringify(e);
-          } catch { errMsg = `HTTP ${res.status}`; }
-          throw new Error(`[${res.status}] ${errMsg}`);
-        }
+        if (!res.ok) throw new Error(await readProxyError(res));
         let data = await res.json();
         if (Array.isArray(data)) data = data[0];
         if (!data || typeof data !== "object") {
@@ -575,12 +615,23 @@ export default function ExtractorPage() {
               "If the problem persists, check:\n" +
               "• Backend health endpoint: /health\n" +
               "• Your API key is valid (starts with sk-ant-)";
-      } else if (e.message?.includes("Not authenticated")) {
+      } else if (isSessionError(e.message)) {
         // The proxy is auth-gated, so a dead Valyze session 401s exactly like a bad
         // Anthropic key would. Keep them distinct — they need opposite fixes.
-        msg = "Your Valyze session has expired.\n\n• Sign in again, then re-run the extraction\n• Your uploaded files and settings are preserved";
+        msg = SESSION_EXPIRED_MSG;
+      } else if (e.message?.includes("Missing or invalid Anthropic API key")) {
+        msg = "The server did not receive a valid Anthropic API key.\n\n• Click \"Change Key\" and paste your key again\n• It must start with sk-ant-";
+      } else if (e.message?.includes("SERVER_KEY_REJECTED")) {
+        // The backend has its own ANTHROPIC_API_KEY set, and that key is what
+        // Anthropic refused — changing the key in this UI cannot fix it.
+        msg = "Anthropic rejected the API key configured on the server.\n\n" +
+              e.message.replace("SERVER_KEY_REJECTED ", "").replace(/^\[\d+\]\s*/, "") + "\n\n" +
+              "Your own key is not the problem — the backend's ANTHROPIC_API_KEY env var needs fixing or removing.";
       } else if (e.message?.includes("[401]") || e.message?.includes("[403]")) {
-        msg = "API key rejected by proxy.\n\n• Verify your key is correct\n• Make sure key starts with sk-ant-\n• Check API key quota at console.anthropic.com";
+        // Anthropic's own rejection — quote its wording, never invent a cause.
+        msg = "Anthropic rejected your API key.\n\n" +
+              e.message.replace(/^\[\d+\]\s*/, "") + "\n\n" +
+              "• Verify the key at console.anthropic.com\n• Check the key's credit balance and rate limits";
       } else if (e.message?.includes("[502]")) {
         msg = "Backend proxy connection failed.\n\nThe proxy could not reach the Anthropic API. This usually means:\n• Backend proxy is not properly configured\n• Backend needs redeployment\n\nTry again in a few moments.";
       } else if (e.message?.includes("[504]") || e.message?.includes("timed out")) {
@@ -627,6 +678,11 @@ export default function ExtractorPage() {
       setPatchStatus("error");
       return;
     }
+    if (proxyUrl && sessionIsExpired()) {
+      setPatchError(SESSION_EXPIRED_MSG);
+      setPatchStatus("error");
+      return;
+    }
     setPatchStatus("loading"); setPatchError("");
     try {
        let parsed;
@@ -647,7 +703,7 @@ export default function ExtractorPage() {
          headers,
          body: fetchBody,
        });
-      if (!res.ok) { const e = await res.json(); throw new Error(e?.error?.message || "API error"); }
+      if (!res.ok) throw new Error(await readProxyError(res));
       let data = await res.json();
       if (Array.isArray(data)) data = data[0];
       if (!data || typeof data !== "object" || !data.content) throw new Error("Invalid patch API response");
@@ -670,7 +726,10 @@ export default function ExtractorPage() {
       if (!patchJson) throw new Error("No valid JSON returned.");
       setResult(JSON.parse(patchJson)); setStatus("done"); setTab("json");
       setPatchStatus("done");
-    } catch (e) { setPatchError(e.message); setPatchStatus("error"); }
+    } catch (e) {
+      setPatchError(isSessionError(e.message) ? SESSION_EXPIRED_MSG : e.message);
+      setPatchStatus("error");
+    }
   };
 
   const saveResultForEditor = useCallback(async () => {

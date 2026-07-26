@@ -148,7 +148,7 @@ export default function CompanyCard({
             onChange={handleFileChange}
           />
           <span>{files.length ? `${files.length} file${files.length === 1 ? "" : "s"} selected` : "Choose files"}</span>
-          <small>PDF, Word, Excel, CSV, TXT, images · max 100MB each</small>
+          <small>PDF, Word, Excel, CSV, TXT, images · up to 5 files, 4 MB total per order</small>
         </label>
 
         {files.length > 0 && (

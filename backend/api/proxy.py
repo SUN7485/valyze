@@ -50,7 +50,9 @@ async def proxy_anthropic(request: Request, current_user: dict = Depends(get_cur
     # Prefer a server-side company key when configured, so the browser never has
     # to hold an Anthropic key. Falls back to the client-supplied header, keeping
     # the existing per-analyst flow working until ANTHROPIC_API_KEY is set.
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip() or request.headers.get("x-api-key", "")
+    server_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    api_key = server_key or request.headers.get("x-api-key", "")
+    key_source = "server" if server_key else "client"
 
     if not api_key.startswith("sk-ant-"):
         raise HTTPException(status_code=401, detail="Missing or invalid Anthropic API key")
@@ -143,6 +145,12 @@ async def proxy_anthropic(request: Request, current_user: dict = Depends(get_cur
                 status_code=response.status_code,
                 detail=f"Anthropic returned non-JSON response (HTTP {response.status_code})",
             )
+
+        # A server-configured ANTHROPIC_API_KEY overrides the analyst's key, so when
+        # Anthropic rejects it there is nothing the analyst can fix in the UI. Say
+        # which key was used, or the error sends them hunting their own key forever.
+        if response.status_code in (401, 403) and isinstance(data, dict):
+            data = {**data, "valyze_key_source": key_source}
 
         print(f"[proxy] OK — {response.status_code} — {len(raw_body)} bytes in")
         return JSONResponse(content=data, status_code=response.status_code)
