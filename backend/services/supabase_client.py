@@ -3,6 +3,7 @@ Supabase client service for Valyze Credit Reports.
 Uses direct HTTP calls to avoid complex dependency issues.
 """
 
+import base64
 import json
 import os
 import re
@@ -17,6 +18,40 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
+
+
+def warn_if_key_is_public() -> Optional[str]:
+    """Flag a browser-safe key sitting in the server's privileged key slot.
+
+    A publishable/anon key still drives most of this app correctly, because every
+    app table carries RLS `using (true)` — so the misconfiguration stays invisible
+    until someone uploads a file and hits Storage, which does enforce RLS. Log it
+    at import so it surfaces in the deploy, not in a client's failed order.
+    """
+    key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY") or ""
+    problem = None
+    if key.startswith("sb_publishable_"):
+        problem = "a new-style PUBLISHABLE (public) key"
+    elif key.startswith("eyJ"):
+        try:
+            payload = key.split(".")[1]
+            payload += "=" * (-len(payload) % 4)
+            if json.loads(base64.urlsafe_b64decode(payload)).get("role") == "anon":
+                problem = "a legacy ANON key"
+        except Exception:
+            pass
+    if problem:
+        problem = (
+            f"[Supabase] SUPABASE_SERVICE_KEY holds {problem}. Storage uploads and "
+            "bucket administration require the secret/service_role key — expect portal "
+            "file submissions to fail. Fix: Supabase → Project Settings → API Keys → "
+            "Secret keys (sb_secret_…)."
+        )
+        logger.error(problem)
+    return problem
+
+
+warn_if_key_is_public()
 
 
 def get_headers() -> Dict[str, str]:

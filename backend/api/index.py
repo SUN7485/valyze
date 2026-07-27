@@ -169,7 +169,7 @@ async def ready_tables():
 
 
 @app.get("/ready/storage")
-async def ready_storage():
+async def ready_storage(request: Request):
     """Report why the portal file pipeline is or isn't usable.
 
     Storage failures are near-impossible to diagnose from the client: bucket
@@ -180,9 +180,31 @@ async def ready_storage():
     Deliberately leaks no secrets: the project ref and the key's `role` claim are
     both public-safe (the ref appears in every frontend bundle), and the key
     itself is never echoed.
+
+    Admin-gated: it describes backend configuration, which is not something to
+    serve anonymously even when no single field is itself a secret. Auth is
+    resolved in the body rather than as a `Depends` default because this module
+    imports api.auth lazily further down — referencing it in the signature would
+    NameError at import time and take the whole app with it. Accepts a Bearer
+    header or `?token=`, so it can be opened straight in a browser.
     """
     import base64
     import json as _json
+
+    try:
+        from api.auth import decode_token, require_admin
+    except Exception:
+        raise HTTPException(status_code=503, detail="Authentication is unavailable")
+
+    auth_header = request.headers.get("authorization") or ""
+    token = (
+        auth_header.split(" ", 1)[1].strip()
+        if auth_header.lower().startswith("bearer ")
+        else request.query_params.get("token")
+    )
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    require_admin(decode_token(token))
 
     key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY") or ""
     role = None
