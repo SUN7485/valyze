@@ -9,6 +9,13 @@ export default function Layout({ children }) {
     const { user, logout } = useAuth()
     const location = useLocation()
 
+    // The client portal is a standalone surface reached by a tokenised link, not
+    // part of the staff app. It renders its own full-page chrome, and a client
+    // must never be shown staff navigation (Reports / Clients / Invoices / …).
+    if (location.pathname.startsWith('/portal')) {
+        return <>{children}</>
+    }
+
     return (
         <div className="min-h-screen bg-[var(--color-background)] dark:bg-dark-bg text-[var(--color-text)] transition-colors duration-300">
             {/* Glassmorphism Navbar */}

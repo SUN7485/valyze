@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Loader2, X, Plus, Trash2, CheckCircle, Paperclip,
   ChevronLeft, ChevronRight, Check, Building2, FileText,
   ClipboardCheck, Gauge, Zap, AlertCircle, Send, ArrowLeft, CalendarClock,
+  Download, FileDown, Inbox, RefreshCw,
 } from 'lucide-react'
 import { useDarkMode } from '../hooks/useDarkMode'
 
@@ -22,6 +23,25 @@ async function portalRequest(path, options = {}) {
     throw err
   }
   return data
+}
+
+/* Order document. The endpoint authenticates from the Authorization header
+   only, so the file has to come back through fetch — the URL can't simply be
+   opened in a tab. format=html is printed to PDF by the browser; format=doc
+   comes back as a Word blob. */
+async function fetchOrderDocument(portalToken, orderNumber, format) {
+  const response = await fetch(
+    `${API_URL}/api/portal/order-document/${encodeURIComponent(orderNumber)}?format=${format}`,
+    { headers: { Authorization: `Bearer ${portalToken}` } },
+  )
+  if (!response.ok) {
+    const err = new Error(
+      format === 'doc' ? 'Could not download the Word file.' : 'Could not open the order document.',
+    )
+    err.status = response.status
+    throw err
+  }
+  return format === 'doc' ? response.blob() : response.text()
 }
 
 /* ---- Shared theme-aware class tokens (light + dark) ---- */
@@ -171,7 +191,7 @@ function LoginScreen({ token, initialMessage, onAuthenticated }) {
 }
 
 /* Order Form — guided multi-step wizard */
-function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode, onSessionExpired }) {
+function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode, onExit, onSessionExpired }) {
   const isBatch = orderMode === 'batch'
   const [step, setStep] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -299,6 +319,10 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode, onSess
   return (
     <div className={`${PAGE_CLS} p-4 md:p-6`}>
       <div className="max-w-2xl mx-auto">
+        <button onClick={onExit} className={`mb-5 inline-flex items-center gap-2 text-sm font-bold ${T_MUTED} hover:text-amber-500 transition-colors`}>
+          <ArrowLeft size={16} /> My Orders
+        </button>
+
         {/* Header */}
         <div className="flex items-end justify-between mb-6">
           <div>
@@ -567,8 +591,220 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode, onSess
   )
 }
 
+/* Download controls for one order — PDF (via the browser's print dialog) and
+   Word. Shared by the success screen, the order summary and the orders list. */
+function OrderDownloadButtons({ portalToken, orderNumber, onSessionExpired, compact = false }) {
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
+
+  const handlePdf = async () => {
+    if (!orderNumber || busy) return
+    // Opened synchronously so the click's user gesture still counts — a
+    // window.open() issued after the await gets eaten by the pop-up blocker.
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      setError('Please allow pop-ups for this site to download the PDF.')
+      return
+    }
+    printWindow.document.write("<p style='font:16px sans-serif;padding:24px'>Preparing your order document…</p>")
+    setBusy('pdf'); setError('')
+    try {
+      const html = await fetchOrderDocument(portalToken, orderNumber, 'html')
+      printWindow.document.open()
+      printWindow.document.write(html)
+      printWindow.document.close()
+      printWindow.focus()
+      setTimeout(() => printWindow.print(), 400)
+    } catch (err) {
+      printWindow.close()
+      if (err.status === 401) { onSessionExpired?.(); return }
+      setError(err.message || 'Could not open the order document.')
+    } finally { setBusy('') }
+  }
+
+  const handleWord = async () => {
+    if (!orderNumber || busy) return
+    setBusy('doc'); setError('')
+    try {
+      const blob = await fetchOrderDocument(portalToken, orderNumber, 'doc')
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `Order-${orderNumber}.doc`
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      if (err.status === 401) { onSessionExpired?.(); return }
+      setError(err.message || 'Could not download the Word file.')
+    } finally { setBusy('') }
+  }
+
+  const btn = compact
+    ? `px-3 py-1.5 text-[11px] ${SECONDARY_BTN} flex items-center gap-1.5 disabled:opacity-50`
+    : `flex-1 px-4 py-2.5 text-sm ${SECONDARY_BTN} flex items-center justify-center gap-2 disabled:opacity-50`
+
+  return (
+    <div className={compact ? '' : 'w-full'}>
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={handlePdf} disabled={!!busy} className={btn}>
+          {busy === 'pdf'
+            ? <><Loader2 size={compact ? 12 : 15} className="animate-spin" /> Preparing…</>
+            : <><Download size={compact ? 12 : 15} /> PDF</>}
+        </button>
+        <button type="button" onClick={handleWord} disabled={!!busy} className={btn}>
+          {busy === 'doc'
+            ? <><Loader2 size={compact ? 12 : 15} className="animate-spin" /> Preparing…</>
+            : <><FileDown size={compact ? 12 : 15} /> Word</>}
+        </button>
+      </div>
+      {error && <div className={`mt-2 p-2.5 ${ERROR_CLS} text-xs`}>{error}</div>}
+    </div>
+  )
+}
+
+/* My Orders — the portal home. Every order this client has placed, newest
+   first, each downloadable. Deliberately the only listing a client can reach. */
+function MyOrdersScreen({ clientName, portalToken, onNewOrder, onOpenOrder, onSessionExpired }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('')
+    try {
+      setData(await portalRequest('/api/portal/orders', {
+        headers: { Authorization: `Bearer ${portalToken}` },
+      }))
+    } catch (err) {
+      if (err.status === 401) { onSessionExpired?.(); return }
+      // 5xx bodies carry internal detail (PostgREST text) a client shouldn't see.
+      setError(err.status >= 500
+        ? "We couldn't load your orders just now. Please try again in a moment."
+        : err.message || 'Could not load your orders.')
+    } finally { setLoading(false) }
+  }, [portalToken, onSessionExpired])
+
+  useEffect(() => { load() }, [load])
+
+  const summary = data?.summary
+  const orders = data?.orders || []
+
+  return (
+    <div className={`${PAGE_CLS} p-4 md:p-6`}>
+      <div className="max-w-3xl mx-auto">
+        <div className="flex items-end justify-between mb-6">
+          <div>
+            <div className={`${BRAND_CLS} text-lg mb-1`}>VALYZE</div>
+            <h1 className={`${T_HEADING} text-2xl font-black`}>My Orders</h1>
+            <p className={`${T_MUTED} text-sm mt-1`}>Welcome, {clientName}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={load} disabled={loading}
+              className={`px-4 py-2.5 ${SECONDARY_BTN} text-sm flex items-center gap-2 disabled:opacity-50`}>
+              <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Refresh
+            </button>
+            <button type="button" onClick={onNewOrder} className={`px-5 py-2.5 ${PRIMARY_BTN} text-sm flex items-center gap-2`}>
+              <Plus size={16} /> New Order
+            </button>
+          </div>
+        </div>
+
+        {summary && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            {[
+              { label: 'Orders', value: summary.total_orders, cls: T_HEADING },
+              { label: 'Companies', value: summary.total_companies, cls: T_HEADING },
+              { label: 'Completed', value: summary.completed_companies, cls: 'text-emerald-500 dark:text-emerald-400' },
+              { label: 'In Progress', value: summary.in_progress_companies, cls: 'text-amber-500 dark:text-amber-400' },
+            ].map(tile => (
+              <div key={tile.label} className={`${CARD_CLS} rounded-2xl p-4`}>
+                <div className={`${T_FAINT} text-[10px] font-black uppercase tracking-wider mb-1`}>{tile.label}</div>
+                <div className={`${tile.cls} text-2xl font-black leading-none`}>{tile.value ?? 0}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {error && (
+          <div className={`mb-4 p-4 ${ERROR_CLS} flex items-center justify-between gap-3`}>
+            <span className="flex items-center gap-2"><AlertCircle size={16} />{error}</span>
+            <button type="button" onClick={load} className={`px-3 py-1.5 ${SECONDARY_BTN} text-xs flex-shrink-0`}>Try Again</button>
+          </div>
+        )}
+
+        {loading && !data ? (
+          <div className={`${CARD_CLS} rounded-2xl p-12 flex items-center justify-center`}>
+            <Loader2 size={28} className="text-amber-500 dark:text-amber-400 animate-spin" />
+          </div>
+        ) : !error && orders.length === 0 ? (
+          <div className={`${CARD_CLS} rounded-2xl p-12 text-center`}>
+            <Inbox size={34} className={`mx-auto mb-3 ${T_FAINT}`} />
+            <p className={`${T_MUTED} text-sm mb-5`}>You haven't placed any orders yet.</p>
+            <button type="button" onClick={onNewOrder} className={`px-6 py-3 ${PRIMARY_BTN} text-sm`}>
+              Place Your First Order
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {orders.map(order => {
+              const total = order.company_count || 0
+              const done = order.completed_count || 0
+              const pct = total ? Math.round((done / total) * 100) : 0
+              return (
+                <div key={order.order_number} className={`${CARD_CLS} rounded-2xl p-5`}>
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <button type="button" onClick={() => onOpenOrder(order)}
+                      className="text-amber-500 dark:text-amber-400 text-lg font-black hover:underline">
+                      {order.order_number}
+                    </button>
+                    <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300 flex-shrink-0">
+                      {titleizeStatus(order.status)}
+                    </span>
+                  </div>
+
+                  <div className={`flex flex-wrap gap-x-5 gap-y-1 ${T_FAINT} text-xs mb-3`}>
+                    <span>Submitted {formatDate(order.date_received || order.created_at)}</span>
+                    <span className="flex items-center gap-1"><CalendarClock size={11} /> Due {formatDate(order.due_date)}</span>
+                    {order.client_ref && <span>Ref {order.client_ref}</span>}
+                  </div>
+
+                  {order.companies?.length > 0 && (
+                    <div className={`${T_LABEL} text-sm mb-3 break-words`}>
+                      {order.companies.map(c => c.company_name).filter(Boolean).join(', ')}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-200 dark:bg-white/10 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-500" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className={`${T_FAINT} text-[11px] font-bold whitespace-nowrap`}>{done} of {total} complete</span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <button type="button" onClick={() => onOpenOrder(order)}
+                      className={`px-4 py-1.5 ${SECONDARY_BTN} text-[11px] flex items-center gap-1.5`}>
+                      <ClipboardCheck size={12} /> View Details
+                    </button>
+                    <OrderDownloadButtons
+                      portalToken={portalToken}
+                      orderNumber={order.order_number}
+                      onSessionExpired={onSessionExpired}
+                      compact
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /* Success Screen — lists every order created by the submission */
-function SuccessScreen({ result, onViewSummary, onSubmitAnother }) {
+function SuccessScreen({ result, portalToken, onViewSummary, onSubmitAnother, onSessionExpired }) {
   const orders = result?.orders?.length ? result.orders : (result?.order_number ? [{ order_number: result.order_number, order_id: result.order_id }] : [])
   return (
     <div className={`${PAGE_CLS} flex items-center justify-center p-4`}>
@@ -582,11 +818,23 @@ function SuccessScreen({ result, onViewSummary, onSubmitAnother }) {
             ? `${orders.length} orders were created — one per company.`
             : 'Your order has been received and is being processed.'}
         </p>
-        <div className="my-5 space-y-2 max-h-56 overflow-y-auto">
+        {/* Each order is downloadable straight away — no need to wait for the
+            analysts to finish, the document is the order confirmation. */}
+        <div className="my-5 space-y-2 max-h-72 overflow-y-auto">
           {orders.map((o, i) => (
-            <div key={o.order_id || o.order_number || i} className="bg-slate-50 dark:bg-white/5 rounded-xl px-4 py-3 flex items-center justify-between">
-              <span className="text-amber-500 dark:text-amber-400 text-lg font-black">{o.order_number || '-'}</span>
-              {o.company_name && <span className={`${T_MUTED} text-sm truncate ml-3`}>{o.company_name}</span>}
+            <div key={o.order_id || o.order_number || i} className="bg-slate-50 dark:bg-white/5 rounded-xl px-4 py-3 text-left">
+              <div className="flex items-center justify-between gap-3 mb-2.5">
+                <span className="text-amber-500 dark:text-amber-400 text-lg font-black">{o.order_number || '-'}</span>
+                {o.company_name && <span className={`${T_MUTED} text-sm truncate`}>{o.company_name}</span>}
+              </div>
+              {o.order_number && (
+                <OrderDownloadButtons
+                  portalToken={portalToken}
+                  orderNumber={o.order_number}
+                  onSessionExpired={onSessionExpired}
+                  compact
+                />
+              )}
             </div>
           ))}
         </div>
@@ -604,7 +852,7 @@ function SuccessScreen({ result, onViewSummary, onSubmitAnother }) {
 }
 
 /* Order Summary — portal-native status view (never links into the internal app) */
-function OrderSummaryScreen({ orders, portalToken, onBack, onSubmitAnother, onSessionExpired }) {
+function OrderSummaryScreen({ orders, portalToken, onBack, onMyOrders, onSubmitAnother, onSessionExpired }) {
   const list = orders?.length ? orders : []
   const [selected, setSelected] = useState(0)
   const [data, setData] = useState(null)
@@ -712,12 +960,24 @@ function OrderSummaryScreen({ orders, portalToken, onBack, onSubmitAnother, onSe
                 </ul>
               </div>
             )}
+
+            <div className={`${CARD_CLS} rounded-2xl p-6 mb-4`}>
+              <div className={`${T_FAINT} text-xs font-black uppercase tracking-wider mb-3`}>Download Order</div>
+              <OrderDownloadButtons
+                portalToken={portalToken}
+                orderNumber={order.order_number}
+                onSessionExpired={onSessionExpired}
+              />
+            </div>
           </>
         )}
 
-        <div className="flex items-center gap-3 mt-2">
+        <div className="flex items-center gap-3 mt-2 flex-wrap">
           <button onClick={onBack} className={`px-5 py-3.5 ${SECONDARY_BTN} text-sm flex items-center gap-2`}>
             <ChevronLeft size={16} /> Back
+          </button>
+          <button onClick={onMyOrders} className={`px-5 py-3.5 ${SECONDARY_BTN} text-sm flex items-center gap-2`}>
+            <Inbox size={16} /> My Orders
           </button>
           <button onClick={onSubmitAnother} className={`flex-1 py-3.5 ${PRIMARY_BTN} text-sm uppercase tracking-wider`}>
             Submit Another Order
@@ -729,10 +989,13 @@ function OrderSummaryScreen({ orders, portalToken, onBack, onSubmitAnother, onSe
 }
 
 /* Order Type Selection Screen */
-function OrderTypeScreen({ clientName, onSelect }) {
+function OrderTypeScreen({ clientName, onBack, onSelect }) {
   return (
     <div className={`${PAGE_CLS} flex items-center justify-center p-4`}>
       <div className="w-full max-w-lg">
+        <button onClick={onBack} className={`mb-6 inline-flex items-center gap-2 text-sm font-bold ${T_MUTED} hover:text-amber-500 transition-colors`}>
+          <ArrowLeft size={16} /> My Orders
+        </button>
         <div className="text-center mb-8">
           <div className={`${BRAND_CLS} text-xl mb-2`}>VALYZE</div>
           <h1 className={`${T_HEADING} text-2xl font-black mb-1`}>New Order</h1>
@@ -779,15 +1042,22 @@ export default function PortalPage() {
   const [clientName, setClientName] = useState('Client')
   const [orderMode, setOrderMode] = useState('single')
   const [lastResult, setLastResult] = useState(null)
+  const [summaryOrders, setSummaryOrders] = useState([])
   const [loginMessage, setLoginMessage] = useState('')
 
   const submitAnother = () => { setLastResult(null); setState('type-select') }
-  const sessionExpired = () => {
+  const goToMyOrders = () => { setLastResult(null); setSummaryOrders([]); setState('orders') }
+  const openOrder = (order) => { setSummaryOrders([order]); setState('summary') }
+
+  // Memoised: MyOrdersScreen's fetch effect depends on this, so a new identity
+  // on every render would re-fetch the order list in a loop.
+  const sessionExpired = useCallback(() => {
     setPortalToken('')
     setLastResult(null)
+    setSummaryOrders([])
     setLoginMessage('Your session expired. Please sign in again.')
     setState('login')
-  }
+  }, [])
 
   if (!token) {
     return (
@@ -810,13 +1080,23 @@ export default function PortalPage() {
             setPortalToken(pt)
             setClientName(cn)
             setLoginMessage('')
-            setState('type-select')
+            setState('orders')
           }}
+        />
+      )}
+      {state === 'orders' && (
+        <MyOrdersScreen
+          clientName={clientName}
+          portalToken={portalToken}
+          onNewOrder={() => setState('type-select')}
+          onOpenOrder={openOrder}
+          onSessionExpired={sessionExpired}
         />
       )}
       {state === 'type-select' && (
         <OrderTypeScreen
           clientName={clientName}
+          onBack={goToMyOrders}
           onSelect={(mode) => { setOrderMode(mode); setState('form') }}
         />
       )}
@@ -825,6 +1105,7 @@ export default function PortalPage() {
           portalToken={portalToken}
           clientName={clientName}
           orderMode={orderMode}
+          onExit={goToMyOrders}
           onSubmitSuccess={(result) => { setLastResult(result); setState('success') }}
           onSessionExpired={sessionExpired}
         />
@@ -832,15 +1113,25 @@ export default function PortalPage() {
       {state === 'success' && (
         <SuccessScreen
           result={lastResult}
-          onViewSummary={() => setState('summary')}
+          portalToken={portalToken}
+          onViewSummary={() => {
+            setSummaryOrders(lastResult?.orders?.length
+              ? lastResult.orders
+              : (lastResult?.order_number ? [{ order_number: lastResult.order_number, order_id: lastResult.order_id }] : []))
+            setState('summary')
+          }}
           onSubmitAnother={submitAnother}
+          onSessionExpired={sessionExpired}
         />
       )}
       {state === 'summary' && (
         <OrderSummaryScreen
-          orders={lastResult?.orders?.length ? lastResult.orders : (lastResult?.order_number ? [{ order_number: lastResult.order_number, order_id: lastResult.order_id }] : [])}
+          orders={summaryOrders}
           portalToken={portalToken}
-          onBack={() => setState('success')}
+          // Opened from the success screen there is a result to go back to;
+          // opened from the list there isn't, so fall back to My Orders.
+          onBack={() => setState(lastResult ? 'success' : 'orders')}
+          onMyOrders={goToMyOrders}
           onSubmitAnother={submitAnother}
           onSessionExpired={sessionExpired}
         />
