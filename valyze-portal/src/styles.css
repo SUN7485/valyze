@@ -656,10 +656,223 @@ select option {
   overflow-wrap: anywhere;
 }
 
+/* ---- Client dashboard ---- */
+
+.dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.summary-tile {
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  padding: 16px 18px;
+  background: var(--surface-soft);
+}
+
+.summary-tile span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.summary-tile strong {
+  font-size: 1.9rem;
+  line-height: 1;
+}
+
+.tone-done { color: var(--success); }
+.tone-active { color: var(--accent); }
+
+.panel-note {
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  padding: 22px;
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.panel-note p {
+  margin: 0 0 14px;
+}
+
+.panel-note p:last-child {
+  margin-bottom: 0;
+}
+
+.panel-error {
+  border-color: var(--danger);
+  color: var(--text);
+}
+
+.order-list {
+  list-style: none;
+  margin: 0 0 32px;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.order-row {
+  width: 100%;
+  display: block;
+  text-align: left;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  padding: 18px 20px;
+  background: var(--surface-soft);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.order-row:hover,
+.order-row:focus-visible {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.order-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.order-row-number {
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.order-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  margin-bottom: 8px;
+}
+
+.order-row-companies {
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+
+.status-pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.status-pill.tone-done { color: var(--success); }
+.status-pill.tone-active { color: var(--accent); }
+.status-pill.tone-waiting { color: var(--text-muted); }
+.status-pill.tone-cancelled { color: var(--danger); }
+
+.progress-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(232, 232, 232, 0.12);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--success);
+  transition: width 0.3s ease;
+}
+
+.progress-label {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.company-status-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.company-status-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.company-status-list li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.company-status-name {
+  overflow-wrap: anywhere;
+}
+
+.form-notice {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  text-align: left;
+}
+
 @media (max-width: 760px) {
   .review-list > div {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-actions .primary-button,
+  .dashboard-actions .secondary-button {
+    flex: 1 1 140px;
   }
 }
 

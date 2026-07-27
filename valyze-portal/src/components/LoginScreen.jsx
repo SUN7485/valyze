@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { auth } from "../api.js";
 
-export default function LoginScreen({ token, onAuthenticated }) {
+export default function LoginScreen({ token, notice, onAuthenticated }) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -49,6 +49,7 @@ export default function LoginScreen({ token, onAuthenticated }) {
         <h1>Client Order Portal</h1>
         <p className="login-subtitle">Enter the temporary password from your Valyze portal link.</p>
 
+        {notice && !error && <div className="form-notice">{notice}</div>}
         {error && <div className="form-error">{error}</div>}
 
         <label className="field-label" htmlFor="password">

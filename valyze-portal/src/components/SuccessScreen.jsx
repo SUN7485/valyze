@@ -1,13 +1,8 @@
 import { useState } from "react";
 import { fetchOrderDocumentHtml, fetchOrderDocumentBlob } from "../api.js";
+import { shortDate } from "../format.js";
 
-function shortDate(value) {
-  if (!value) return "N/A";
-  const text = String(value);
-  return text.length >= 10 ? text.slice(0, 10) : text;
-}
-
-export default function SuccessScreen({ result, portalToken, onReset }) {
+export default function SuccessScreen({ result, portalToken, onReset, onViewOrders }) {
   const files = result?.files || [];
   const fileCount = files.length;
 
@@ -164,7 +159,11 @@ export default function SuccessScreen({ result, portalToken, onReset }) {
 
         {!isBatch && downloadButtons(orders[0]?.order_number)}
 
-        <button className="primary-button" type="button" onClick={onReset}>
+        <button className="primary-button" type="button" onClick={onViewOrders}>
+          View My Orders
+        </button>
+
+        <button className="text-button" type="button" onClick={onReset}>
           Submit Another Order
         </button>
       </div>

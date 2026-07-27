@@ -1,13 +1,7 @@
 import { useMemo, useState } from "react";
 import CompanyCard from "./CompanyCard.jsx";
 import { submitOrderWithFiles } from "../api.js";
-
-const SERVICE_LEVELS = [
-  { value: "basic", label: "Basic (5-7 days)" },
-  { value: "standard", label: "Standard (3 days)" },
-  { value: "express", label: "Express (1-2 days)" },
-  { value: "urgent", label: "Urgent (24 hrs)" },
-];
+import { SERVICE_LEVELS, serviceLevelLabel } from "../format.js";
 
 const EMPTY_COMPANY = {
   company_name: "",
@@ -58,7 +52,7 @@ export default function OrderForm({
   clientName,
   portalToken,
   onSubmitSuccess,
-  onReset,
+  onBack,
 }) {
   const [order, setOrder] = useState(emptyOrder);
   const [companies, setCompanies] = useState([{ ...EMPTY_COMPANY }]);
@@ -424,14 +418,9 @@ export default function OrderForm({
         </div>
       )}
 
-      <button className="text-button" type="button" onClick={onReset}>
-        Submit Another Order
+      <button className="text-button" type="button" onClick={onBack}>
+        ← Back to My Orders
       </button>
     </div>
   );
-}
-
-function serviceLevelLabel(value) {
-  const match = SERVICE_LEVELS.find((level) => level.value === value);
-  return match ? match.label : value;
 }

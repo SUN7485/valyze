@@ -40,7 +40,9 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     const message = formatErrorMessage(data?.detail || data?.message || data?.error, response.status);
-    throw new Error(message);
+    // Carry the status so callers can tell an expired portal session (401 —
+    // bounce to the login screen) apart from a genuine failure.
+    throw Object.assign(new Error(message), { status: response.status });
   }
 
   return data;
@@ -83,6 +85,20 @@ export async function submitOrderWithFiles(portalToken, orderData, filesByCompan
   });
 }
 
+// Every order belonging to the signed-in client, plus a progress summary.
+export async function fetchMyOrders(portalToken) {
+  return request("/api/portal/orders", {
+    headers: { Authorization: `Bearer ${portalToken}` },
+  });
+}
+
+// One order's live status, companies and attached files.
+export async function fetchOrderStatus(portalToken, orderNumber) {
+  return request(`/api/portal/order-status/${encodeURIComponent(orderNumber)}`, {
+    headers: { Authorization: `Bearer ${portalToken}` },
+  });
+}
+
 // Order document — the portal token goes in the header (never the URL). Returns
 // raw HTML (converted to PDF client-side via the browser's print dialog) or a
 // Word (.doc) Blob. Not routed through request() because that JSON-parses.
@@ -91,7 +107,7 @@ export async function fetchOrderDocumentHtml(portalToken, orderNumber) {
     `${API_URL}/api/portal/order-document/${encodeURIComponent(orderNumber)}?format=html`,
     { headers: { Authorization: `Bearer ${portalToken}` } }
   );
-  if (!res.ok) throw new Error("Failed to load order document");
+  if (!res.ok) throw Object.assign(new Error("Failed to load order document"), { status: res.status });
   return res.text();
 }
 
@@ -100,6 +116,6 @@ export async function fetchOrderDocumentBlob(portalToken, orderNumber) {
     `${API_URL}/api/portal/order-document/${encodeURIComponent(orderNumber)}?format=doc`,
     { headers: { Authorization: `Bearer ${portalToken}` } }
   );
-  if (!res.ok) throw new Error("Failed to download Word file");
+  if (!res.ok) throw Object.assign(new Error("Failed to download Word file"), { status: res.status });
   return res.blob();
 }
