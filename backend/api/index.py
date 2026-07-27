@@ -168,6 +168,61 @@ async def ready_tables():
         return JSONResponse(content={"status": "error", "error": str(e)}, status_code=503)
 
 
+@app.get("/ready/storage")
+async def ready_storage():
+    """Report why the portal file pipeline is or isn't usable.
+
+    Storage failures are near-impossible to diagnose from the client: bucket
+    endpoints are governed by RLS on `storage.buckets`, so a non-service_role key
+    is told "Bucket not found" for a bucket that plainly exists, and every cause
+    collapses into the same 503. This reports the distinguishing facts.
+
+    Deliberately leaks no secrets: the project ref and the key's `role` claim are
+    both public-safe (the ref appears in every frontend bundle), and the key
+    itself is never echoed.
+    """
+    import base64
+    import json as _json
+
+    key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY") or ""
+    role = None
+    if key.count(".") == 2:
+        try:
+            payload = key.split(".")[1]
+            payload += "=" * (-len(payload) % 4)
+            role = _json.loads(base64.urlsafe_b64decode(payload)).get("role")
+        except Exception:
+            role = "undecodable"
+
+    diag = {
+        "supabase_url": os.getenv("SUPABASE_URL") or None,
+        "service_key_set": bool(os.getenv("SUPABASE_SERVICE_KEY")),
+        "key_role": role,
+        "key_is_service_role": role == "service_role",
+    }
+    if role != "service_role":
+        diag["diagnosis"] = (
+            "This backend is NOT running with a service_role key. Bucket administration "
+            "and uploads into a private bucket both require service_role. Set "
+            "SUPABASE_SERVICE_KEY on the BACKEND Vercel project (Production scope), then redeploy."
+        )
+
+    # Actually exercise the pipeline the portal uses, so the answer is observed
+    # rather than inferred from the key alone.
+    try:
+        from api.portal import PORTAL_STORAGE_BUCKET
+        from services.supabase_client import ensure_storage_bucket
+
+        diag["bucket"] = PORTAL_STORAGE_BUCKET
+        diag["bucket_ready"] = ensure_storage_bucket(PORTAL_STORAGE_BUCKET)
+    except Exception as e:
+        diag["bucket_ready"] = False
+        diag["bucket_error"] = str(e)
+
+    diag["status"] = "ok" if diag.get("bucket_ready") else "error"
+    return JSONResponse(content=diag, status_code=200 if diag["status"] == "ok" else 503)
+
+
 # Debug — shows which routers loaded and all routes
 @app.get("/routes")
 async def list_routes():

@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import urllib.parse
@@ -24,7 +25,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from api.auth import JWT_ALGORITHM, JWT_SECRET
-from api.orders import assign_analyst, generate_order_number, _build_order_detail
+from api.orders import (
+    assign_analyst,
+    generate_order_number,
+    _build_order_detail,
+    _progress_from_companies,
+)
 from services.order_documents import build_order_html, WORD_MIME
 from services.supabase_client import (
     create_order as sb_create_order,
@@ -36,6 +42,8 @@ from services.supabase_client import (
     create_signed_url,
     ensure_storage_bucket,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["portal"])
 
@@ -203,9 +211,22 @@ def _supabase_request(
         timeout=30,
     )
     if response.status_code >= 400:
+        # The portal serves EXTERNAL clients and index.py forwards HTTPException
+        # detail verbatim, so the PostgREST body — table names, column names, PG
+        # error codes — must never travel in the response. It goes to the log
+        # instead, where analysts still get the full diagnostic.
+        # `params` is deliberately not logged: _get_session_by_token filters on
+        # the portal link token, which is a live credential.
+        logger.error(
+            "[portal] Supabase %s %s failed (%s): %s",
+            method,
+            path,
+            response.status_code,
+            response.text,
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Supabase request failed ({response.status_code}): {response.text[:200]}",
+            detail="A server error occurred. Please try again.",
         )
     if not response.text:
         return None
@@ -539,7 +560,14 @@ async def _ensure_file_pipeline_ready() -> None:
     if not await asyncio.to_thread(ensure_storage_bucket, PORTAL_STORAGE_BUCKET):
         raise HTTPException(
             status_code=503,
-            detail="File storage is unavailable. Your order was not submitted — please try again shortly.",
+            # Not "try again shortly": every cause of this is a server-side
+            # misconfiguration that retrying cannot clear, and saying otherwise
+            # sends clients into pointless retry loops.
+            detail=(
+                "File storage is misconfigured on our side, so your order was not submitted. "
+                "Retrying won't help — please contact Valyze support. "
+                "(Staff: check /ready/storage for the cause.)"
+            ),
         )
     if not await asyncio.to_thread(_order_files_table_ready):
         raise HTTPException(
@@ -878,6 +906,100 @@ async def submit_order_with_files(
         raise HTTPException(status_code=400, detail=f"Invalid order payload: {exc}") from exc
 
     return await _submit_order_payload(body, portal_client, files, file_company_indexes)
+
+
+@router.get("/orders")
+async def list_my_orders(
+    portal_client: Dict[str, str] = Depends(get_portal_current_client),
+):
+    """Every order belonging to the calling client, with progress.
+
+    Two queries total: the client's orders, then all of their companies in one
+    `in.()` lookup. Progress is counted from `order_companies.status` rather than
+    the denormalised `orders.completed_count`, so the client can never be shown a
+    stale number, and the same fetch supplies each order's company breakdown
+    without a round trip per order.
+    """
+    client_id = portal_client["client_id"]
+
+    orders = await asyncio.to_thread(
+        _supabase_request,
+        "GET",
+        "/orders",
+        params={
+            "client_id": f"eq.{client_id}",
+            "select": (
+                "id,order_number,status,service_level,report_type,client_ref,"
+                "company_count,completed_count,due_date,date_received,created_at"
+            ),
+            "order": "created_at.desc.nullslast",
+        },
+    ) or []
+
+    order_ids = [str(order["id"]) for order in orders if order.get("id")]
+    companies: List[Dict[str, Any]] = []
+    if order_ids:
+        companies = await asyncio.to_thread(
+            _supabase_request,
+            "GET",
+            "/order_companies",
+            params={
+                "order_id": f"in.({','.join(order_ids)})",
+                "select": "id,order_id,company_name,country,status,sort_order",
+                "order": "sort_order.asc",
+            },
+        ) or []
+
+    companies_by_order: Dict[str, List[Dict[str, Any]]] = {}
+    for company in companies:
+        companies_by_order.setdefault(str(company.get("order_id")), []).append(company)
+
+    public_orders: List[Dict[str, Any]] = []
+    totals = {"total": 0, "completed": 0, "in_progress": 0, "pending": 0}
+
+    for order in orders:
+        order_companies = companies_by_order.get(str(order.get("id")), [])
+        progress = _progress_from_companies(order_companies)
+        for key in totals:
+            totals[key] += progress[key]
+
+        public_orders.append({
+            "order_number": order.get("order_number"),
+            "status": order.get("status"),
+            "service_level": order.get("service_level"),
+            "report_type": order.get("report_type"),
+            "client_ref": order.get("client_ref"),
+            # Company rows are the source of truth; the column is the fallback
+            # for an order whose companies failed to write.
+            "company_count": progress["total"] or int(order.get("company_count") or 0),
+            "completed_count": progress["completed"],
+            "due_date": order.get("due_date"),
+            "date_received": order.get("date_received"),
+            "created_at": order.get("created_at"),
+            "companies": [
+                {
+                    "company_name": company.get("company_name"),
+                    "country": company.get("country"),
+                    "status": company.get("status") or "pending",
+                }
+                for company in order_companies
+            ],
+        })
+
+    return {
+        "orders": public_orders,
+        "summary": {
+            "total_orders": len(public_orders),
+            "completed_orders": sum(
+                1 for order in public_orders
+                if order["company_count"] and order["completed_count"] >= order["company_count"]
+            ),
+            "total_companies": totals["total"],
+            "completed_companies": totals["completed"],
+            "in_progress_companies": totals["in_progress"],
+            "pending_companies": totals["pending"],
+        },
+    }
 
 
 @router.get("/order-status/{order_number}")
