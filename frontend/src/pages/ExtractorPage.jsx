@@ -330,6 +330,7 @@ export default function ExtractorPage() {
 
   const [files, setFiles]               = useState([]);
   const [filesLoading, setFilesLoading] = useState(false);
+  const [portalFileWarning, setPortalFileWarning] = useState("");
   const [status, setStatus]             = useState("idle");
   const [stage, setStage]               = useState(0);
   const [elapsed, setElapsed]           = useState(0);
@@ -375,20 +376,25 @@ export default function ExtractorPage() {
     if (!reportId) return
     const loadPortalFiles = async () => {
       setFilesLoading(true)
+      setPortalFileWarning("")
       try {
         const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
         const token = localStorage.getItem('valyze_token') || ''
         const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
         const res = await fetch(`${baseUrl}/api/upload/portal-files/${reportId}`, { headers: authHeaders })
-        if (!res.ok) return
+        if (!res.ok) {
+          setPortalFileWarning(`Could not check for portal files (server said ${res.status}). Attach documents manually.`)
+          return
+        }
         const data = await res.json()
         if (!data.files?.length) return
         const fetched = []
+        const failed = []
         for (const f of data.files) {
-          if (!f.download_path) continue
+          if (!f.download_path) { failed.push(f.filename || 'unnamed file'); continue }
           try {
             const fileRes = await fetch(`${baseUrl}${f.download_path}`, { headers: authHeaders })
-            if (!fileRes.ok) continue
+            if (!fileRes.ok) { failed.push(f.filename || 'unnamed file'); continue }
             const blob = await fileRes.blob()
             const mimeMap = {
               pdf: 'application/pdf',
@@ -399,10 +405,20 @@ export default function ExtractorPage() {
             }
             const mimeType = mimeMap[f.file_type] || 'application/octet-stream'
             fetched.push(new File([blob], f.filename, { type: mimeType }))
-          } catch {}
+          } catch { failed.push(f.filename || 'unnamed file') }
         }
         if (fetched.length) setFiles(fetched)
-      } catch {} finally {
+        // Never fail silently: extracting against a partial document set produces a
+        // confidently wrong report, which is worse than not extracting at all.
+        if (failed.length) {
+          setPortalFileWarning(
+            `${failed.length} of ${data.files.length} portal file(s) failed to load: ${failed.join(', ')}. ` +
+            `Attach them manually before extracting — the report would otherwise be built from incomplete documents.`
+          )
+        }
+      } catch (e) {
+        setPortalFileWarning(`Could not load portal files (${e.message || e}). Attach documents manually.`)
+      } finally {
         setFilesLoading(false)
       }
     }
@@ -425,6 +441,17 @@ export default function ExtractorPage() {
     stopClock();
     setStatus("idle"); setStage(0); setElapsed(0); setLogMsg(""); setError("");
   };
+
+  // Upfront size check. The hard guard at extract time only fires after every file
+  // has been read and rasterised, so an oversized batch costs a long wait before it
+  // fails. Warn from the raw sizes instead — approximate (PDFs are downscaled and
+  // the body is gzipped, text shrinks a lot, scans much less), so this flags risk
+  // rather than predicting failure.
+  const totalBytes = files.reduce((s, f) => s + f.size, 0);
+  const SERVER_LIMIT_BYTES = 4.5 * 1024 * 1024;
+  const sizeRisk = totalBytes > SERVER_LIMIT_BYTES
+    ? "over"
+    : totalBytes > 0.75 * SERVER_LIMIT_BYTES ? "near" : null;
 
   const compressBody = async (obj) => {
     const json = JSON.stringify(obj);
@@ -897,12 +924,29 @@ export default function ExtractorPage() {
               ⏳ Loading portal files…
             </div>
           )}
+          {portalFileWarning && (
+            <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-2xl p-4 mb-3 text-amber-800 dark:text-amber-200 text-sm">
+              ⚠️ {portalFileWarning}
+            </div>
+          )}
           {files.map((f,i)=>(
             <div key={i} className="flex items-center justify-between gap-4 bg-white/70 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 mb-2">
               <span className="text-sm text-[var(--color-text-secondary)] truncate">{fIcon(f)} {f.name} <span className="text-[var(--color-text-muted)]">({(f.size/1024).toFixed(0)} KB)</span></span>
               <button onClick={()=>setFiles(p=>p.filter((_,j)=>j!==i))} className="text-xl text-rose-500 hover:text-rose-600">✕</button>
             </div>
           ))}
+          {sizeRisk && (
+            <div className={`rounded-2xl p-4 mb-2 text-sm border ${
+              sizeRisk === "over"
+                ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/20 text-rose-700 dark:text-rose-300"
+                : "bg-amber-50 dark:bg-amber-500/10 border-amber-300 dark:border-amber-500/30 text-amber-800 dark:text-amber-200"
+            }`}>
+              {sizeRisk === "over" ? "⛔" : "⚠️"} {files.length} file{files.length === 1 ? "" : "s"}, {(totalBytes/1024/1024).toFixed(1)} MB total
+              {sizeRisk === "over"
+                ? " — over the server's 4.5 MB limit. Extraction will likely fail. Remove some files and run them as a second extraction."
+                : " — close to the server's 4.5 MB limit. Scanned PDFs may push it over; consider splitting into two runs."}
+            </div>
+          )}
         </>}
 
         {status === "loading" && (
