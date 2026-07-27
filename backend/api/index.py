@@ -194,12 +194,46 @@ async def ready_storage():
         except Exception:
             role = "undecodable"
 
+    # Shape of the key, never its value. `role` comes back null when the value
+    # isn't a 3-part JWT at all — which is what Supabase's newer `sb_secret_…` /
+    # `sb_publishable_…` keys look like, and also what a truncated or
+    # quote-wrapped paste looks like. Distinguishing those is the whole game.
+    if key.startswith("sb_secret_"):
+        key_format = "sb_secret (new-style secret key)"
+    elif key.startswith("sb_publishable_"):
+        key_format = "sb_publishable (new-style PUBLIC key — cannot do storage admin)"
+    elif key.startswith("eyJ"):
+        key_format = "jwt"
+    elif not key:
+        key_format = "empty"
+    else:
+        key_format = "unrecognised"
+
     diag = {
         "supabase_url": os.getenv("SUPABASE_URL") or None,
         "service_key_set": bool(os.getenv("SUPABASE_SERVICE_KEY")),
+        "key_format": key_format,
+        "key_length": len(key),
+        "key_looks_quoted": key.startswith(('"', "'")) or key.endswith(('"', "'")),
+        "key_has_whitespace": key != key.strip(),
         "key_role": role,
         "key_is_service_role": role == "service_role",
     }
+
+    # Raw storage responses. Status codes and Supabase's own error bodies carry no
+    # secrets, and they separate "denied" from "absent" — which the bucket
+    # endpoints otherwise conflate under RLS.
+    try:
+        import requests as _rq
+
+        from services.supabase_client import get_storage_base_url
+
+        _h = {"apikey": key, "Authorization": f"Bearer {key}"}
+        for label, path in (("probe_by_name", "/bucket/portal-uploads"), ("list_buckets", "/bucket")):
+            r = _rq.get(f"{get_storage_base_url()}{path}", headers=_h, timeout=15)
+            diag[label] = {"http": r.status_code, "body": r.text[:200]}
+    except Exception as e:
+        diag["storage_probe_error"] = str(e)
     if role != "service_role":
         diag["diagnosis"] = (
             "This backend is NOT running with a service_role key. Bucket administration "
