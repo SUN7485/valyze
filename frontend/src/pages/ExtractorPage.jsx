@@ -4,7 +4,8 @@ import * as mammoth from 'mammoth'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url'
 import { useDarkMode } from '../hooks/useDarkMode'
-import { companiesAPI } from '../api/client'
+import { companiesAPI, reportAPI } from '../api/client'
+import { MODEL_EXTRACT, MODEL_PATCH, TOOL_WEB_SEARCH, ANTHROPIC_VERSION, MAX_TOKENS_EXTRACT } from '../config/ai'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -143,6 +144,7 @@ OUTPUT: Single valid JSON only. No markdown. No code blocks. Start { end }.
 REQUIRED FIELDS:
 report_id (VCR-YYYYMMDD-XXXX), report_date, current_year, client_name, client_reference, analyst_name, analyst_id, analyst_department, analyst_email, analyst_phone, qa_reviewer_name, qa_review_date, order_comment,
 company_name, legal_name, trade_names, cr_number, unified_number, investment_license_no, license_type, issue_date, expiry_date, capital, company_type, company_duration, company_status, company_status_badge, status_badge, incorporation_date, incorporation_state, country, city, company_address, headquarters_address, phone, fax, email, website, auditor_name, sic_codes, industry, employee_count,
+former_company_name, former_address, former_owners, former_registration_details,
 show_egypt_fields (bool), tax_registration_number, tax_card_number, trade_license_number, social_insurance_number, gafi_registration, industrial_license_number, import_license_number, export_license_number, lei_number,
 show_saudi_fields (bool), zakat_certificate, zakat_number, zakat_status, zakat_alert, vat_registration_number, gosi_registration, nitaqat_band, municipality_license,
 show_uae_fields (bool), trn_vat, ded_number, freezone_license,
@@ -300,7 +302,7 @@ const buildApiHeaders = (apiKey, isDirect) => {
     return {
       "Content-Type": "application/json",
       "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
+      "anthropic-version": ANTHROPIC_VERSION,
       "anthropic-dangerous-direct-browser-access": "true",
     };
   }
@@ -308,11 +310,63 @@ const buildApiHeaders = (apiKey, isDirect) => {
   return {
     "Content-Type": "application/json",
     "x-api-key": apiKey,
-    "anthropic-version": "2023-06-01",
+    "anthropic-version": ANTHROPIC_VERSION,
     "Content-Encoding": "gzip",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 };
+
+/* Identity / registration / ownership only. Kept deliberately small: the whole
+   report would blow the ~4.5 MB Vercel body limit, and the model only needs
+   these four areas to write history and spot conflicts. */
+const PRIOR_REF_FIELDS = [
+  'company_name', 'legal_name', 'trade_names',
+  'company_address', 'headquarters_address', 'country', 'city',
+  'cr_number', 'unified_number', 'investment_license_no', 'license_type',
+  'issue_date', 'expiry_date', 'capital', 'company_type', 'company_status',
+  'incorporation_date', 'incorporation_state',
+  'ultimate_beneficial_owner', 'parent_company', 'subsidiaries',
+  'report_date',
+]
+
+function referenceSubset(report) {
+  if (!report) return null
+  const fields = report.fields || {}
+  const out = {}
+  for (const key of PRIOR_REF_FIELDS) {
+    const d = fields[key]
+    const v = (d && typeof d === 'object') ? d.value : d
+    if (v !== null && v !== undefined && String(v).trim() !== '') out[key] = v
+  }
+  const shareholders = report.arrays?.shareholders
+  if (Array.isArray(shareholders) && shareholders.length) out.shareholders = shareholders
+  return Object.keys(out).length ? out : null
+}
+
+function priorReportPromptBlock(subset, meta) {
+  if (!subset) return ''
+  const asOf = subset.report_date || meta?.updated_at || 'unknown date'
+  return `
+
+## PRIOR REPORT — REFERENCE DATA (may be out of date)
+A previous Valyze report exists for this company, dated ${asOf}. It is provided as
+REFERENCE ONLY. The attached documents are the current source of truth and always win.
+
+${JSON.stringify(subset, null, 2)}
+
+Use the prior report for these purposes and no others:
+1. HISTORY. Where a value in the current documents differs from the prior report, record the
+   previous value as history. Populate these fields when and only when they differ:
+   former_company_name, former_address, former_owners, former_registration_details.
+   Write them as plain readable sentences, e.g. "Formerly registered as X until 2024".
+2. CONFLICTS. Where the prior report and the current documents disagree on a material fact,
+   do NOT silently pick one. Append one line per conflict to order_comment, in this exact shape:
+   CONFLICT | <field> | prior: <old value> | current: <new value> | reason: <why they differ, or "unknown">
+   Give a reason only when the documents actually support one. Never guess a reason.
+3. NOTHING ELSE. Never copy a value from the prior report into a current field. If the current
+   documents do not state a fact, leave that field empty — an empty field is correct, an imported
+   stale value is not.`
+}
 
 export default function ExtractorPage() {
   const navigate = useNavigate()
@@ -321,6 +375,59 @@ export default function ExtractorPage() {
   const proxyUrl = `${(import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')}/api/proxy`
   const hasReportId = Boolean(reportId)
   const [themeDarkMode, setThemeDarkMode] = useState(darkMode)
+
+  /* The order details the backend already seeded onto this report when the
+     analyst clicked Start (see start_company_work in api/orders.py). Shown in
+     the header so the analyst can see which company they are working on
+     before any extraction has run. */
+  const [orderContext, setOrderContext] = useState(null)
+
+  useEffect(() => {
+    if (!reportId) return
+    let cancelled = false
+    const val = (f) => {
+      const d = f
+      const v = (d && typeof d === 'object') ? d.value : d
+      return (v === null || v === undefined) ? '' : String(v).trim()
+    }
+    reportAPI.getReport(reportId)
+      .then((res) => {
+        if (cancelled) return
+        const fields = res?.data?.fields || {}
+        setOrderContext({
+          company_name: val(fields.company_name),
+          cr_number: val(fields.cr_number),
+          country: val(fields.country),
+          client_name: val(fields.client_name),
+        })
+      })
+      .catch(() => { /* header context is a nicety — never block extraction on it */ })
+    return () => { cancelled = true }
+  }, [reportId])
+
+  /* Look for a prior report on this company using the seeded order details,
+     before any extraction has run. Uses the same normalized name/CR matcher
+     the duplicate check already relies on (services/company_intel.py). */
+  useEffect(() => {
+    const cn = orderContext?.company_name
+    const cr = orderContext?.cr_number
+    if (!cn && !cr) return
+    let cancelled = false
+    setPriorRef({ status: "loading", data: null, meta: null })
+    companiesAPI.lookup({ company_name: cn, cr_number: cr, country: orderContext?.country })
+      .then((res) => {
+        if (cancelled) return
+        const priors = (res.data?.reports || []).filter((r) => String(r.id) !== String(reportId))
+        if (!priors.length) { setPriorRef({ status: "none", data: null, meta: null }); return }
+        const newest = priors[0]  // company_intel sorts by updated_at desc
+        return reportAPI.getReport(newest.id).then((full) => {
+          if (cancelled) return
+          setPriorRef({ status: "done", data: referenceSubset(full?.data), meta: newest })
+        })
+      })
+      .catch(() => { if (!cancelled) setPriorRef({ status: "error", data: null, meta: null }) })
+    return () => { cancelled = true }
+  }, [orderContext, reportId])
 
   useEffect(() => {
     const handleThemeChange = (event) => setThemeDarkMode(event.detail?.darkMode ?? document.documentElement.classList.contains('dark'))
@@ -349,6 +456,12 @@ export default function ExtractorPage() {
   const [apiKey, setApiKey]             = useState(() => localStorage.getItem("valyze_api_key") || "");
   const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem("valyze_api_key"));
   const [dupCheck, setDupCheck]         = useState({ status: "idle", dossier: null });
+  /* A prior Valyze report on the same company, pulled BEFORE extraction and fed
+     to the model as reference data so it can record history (former name,
+     former address, former owners) and flag conflicts. Reference only — it must
+     never populate a current field. */
+  const [priorRef, setPriorRef]         = useState({ status: "idle", data: null, meta: null });
+  const [usePriorRef, setUsePriorRef]   = useState(true);
 
   useEffect(() => { if (apiKey) localStorage.setItem("valyze_api_key", apiKey); }, [apiKey]);
 
@@ -526,12 +639,16 @@ export default function ExtractorPage() {
       let finalText = "";
 
       const apiBody = {
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 16000,
-        system: SYSTEM_PROMPT,
+        model: MODEL_EXTRACT,
+        max_tokens: MAX_TOKENS_EXTRACT,
+        system: SYSTEM_PROMPT + (
+          usePriorRef && priorRef.status === "done"
+            ? priorReportPromptBlock(priorRef.data, priorRef.meta)
+            : ""
+        ),
         messages: msgs,
       };
-      if (useWebSearch) apiBody.tools = [{ type: "web_search_20250305", name: "web_search" }];
+      if (useWebSearch) apiBody.tools = [{ type: TOOL_WEB_SEARCH, name: "web_search" }];
 
       // Pre-flight size check — warn before sending
       const compressedEstimate = estimateCompressedSize(apiBody);
@@ -717,7 +834,7 @@ export default function ExtractorPage() {
        const patchUseUrl = proxyUrl || "https://api.anthropic.com/v1/messages";
        const patchIsDirect = !proxyUrl;
        const patchPayload = {
-         model: "claude-haiku-4-5-20251001",
+         model: MODEL_PATCH,
          max_tokens: 16000,
          system: "You are a JSON patch engine. Apply ONLY the listed changes. DO NOT rename fields, reorder, or add fields unless explicitly told. Return ONLY the complete updated JSON. Start with { end with }. No markdown.",
          messages: [{ role: "user", content: `Here is the full JSON:\n${JSON.stringify(parsed, null, 2)}\n\n## CHANGES TO APPLY:\n${patchInstructions}\n\nReturn only the complete patched JSON.` }]
@@ -869,8 +986,20 @@ export default function ExtractorPage() {
           <div className="flex items-center gap-4 min-w-0">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-500 flex items-center justify-center text-white text-xl shadow-lg shadow-blue-500/20 flex-shrink-0">⚡</div>
             <div className="min-w-0">
-              <div className="text-base md:text-lg font-black text-[var(--color-text)] truncate">Valyze AI Document Extractor</div>
-              <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">Smart PDF extraction · Hybrid OCR · Claude Sonnet 4</div>
+              {orderContext?.company_name ? (
+                <>
+                  <div className="text-base md:text-lg font-black text-[var(--color-text)] truncate">{orderContext.company_name}</div>
+                  <div className="text-xs text-[var(--color-text-secondary)] mt-0.5 truncate">
+                    {[orderContext.cr_number, orderContext.country, orderContext.client_name].filter(Boolean).join(' · ')
+                      || 'Smart PDF extraction · Hybrid OCR · Claude Sonnet 4'}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-base md:text-lg font-black text-[var(--color-text)] truncate">Valyze AI Document Extractor</div>
+                  <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">Smart PDF extraction · Hybrid OCR · Claude Sonnet 4</div>
+                </>
+              )}
               {hasReportId && <div className="text-[11px] text-[var(--color-text-muted)] mt-1 font-mono truncate">Report: {reportId}</div>}
             </div>
           </div>
@@ -880,6 +1009,33 @@ export default function ExtractorPage() {
             </button>
           )}
         </div>
+
+      {priorRef.status === "done" && status !== "done" && (
+        <div className="border-b border-[var(--color-border)] p-4 md:p-5 bg-amber-50/60 dark:bg-amber-400/5">
+          <div className="flex items-start gap-3">
+            <div className="text-lg leading-none mt-0.5">🗂️</div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-bold text-[var(--color-text)]">
+                Prior report found — {priorRef.data?.report_date || priorRef.meta?.updated_at?.slice(0, 10) || 'date unknown'}
+              </div>
+              <div className="text-xs text-[var(--color-text-secondary)] mt-1">
+                Its name, address, registration details and owners will be sent as <strong>reference data</strong>.
+                The attached documents always win — the prior report is only used to record history
+                (former name / address / owners) and to flag conflicts into the order comment.
+              </div>
+              <label className="mt-2.5 flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={usePriorRef}
+                  onChange={(e) => setUsePriorRef(e.target.checked)}
+                  className="w-4 h-4 rounded accent-amber-500 cursor-pointer"
+                />
+                <span className="text-xs font-semibold text-[var(--color-text)]">Use as reference data</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
 
       {(showKeyInput || !apiKey) && status !== "loading" && status !== "done" && (
         <div className="border-b border-[var(--color-border)] p-5 md:p-6 bg-white/60 dark:bg-white/[0.02]">
