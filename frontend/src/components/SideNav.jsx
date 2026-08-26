@@ -70,8 +70,9 @@ const CRITICAL_FIELDS = {
 }
 
 export default function SideNav({ currentPage, onPageChange, report, onDeletePage }) {
-    const { getCompletionPercentage } = useReport()
+    const { getCompletionPercentage, hasRealData } = useReport()
     const completion = getCompletionPercentage()
+    const extracted = hasRealData()
     const getPageStatus = (id) => {
         const fields = PAGE_FIELDS[id] || []
         if (fields.length === 0) return 'done' // Calculated/Decorative pages
@@ -178,17 +179,21 @@ export default function SideNav({ currentPage, onPageChange, report, onDeletePag
             <div className="p-5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 space-y-3">
                 <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider">
                     <span className="text-slate-500 dark:text-slate-500">Analysis Progress</span>
-                    <span className="text-primary">{completion}%</span>
+                    <span className={extracted ? 'text-primary' : 'text-slate-400 dark:text-slate-500'}>
+                        {extracted ? `${completion}%` : 'Not extracted'}
+                    </span>
                 </div>
                 <div className="w-full bg-slate-200 dark:bg-white/10 rounded-full h-1.5 overflow-hidden shadow-inner">
                     <div
                         className="bg-primary h-full rounded-full shadow-md shadow-primary/20 transition-all duration-1000 ease-out"
-                        style={{ width: `${completion}%` }}
+                        style={{ width: `${extracted ? completion : 0}%` }}
                     />
                 </div>
                 <div className="flex items-center gap-1.5 text-[8px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-600 italic">
-                    <Activity size={9} className="animate-pulse" />
-                    {completion === 100 ? 'Analysis Validated' : 'Heuristic Review Active'}
+                    <Activity size={9} className={extracted ? 'animate-pulse' : ''} />
+                    {!extracted
+                        ? 'Awaiting Extraction'
+                        : completion === 100 ? 'Analysis Validated' : 'Heuristic Review Active'}
                 </div>
             </div>
         </div>

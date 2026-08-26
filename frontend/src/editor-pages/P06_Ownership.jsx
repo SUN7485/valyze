@@ -14,6 +14,10 @@ export default function P06_Ownership() {
   )
   const isCorrect = Math.abs(totalPct - 100) < 0.1
 
+  const hasPreviousRecords = [
+    'former_company_name', 'former_address', 'former_owners', 'former_registration_details',
+  ].some(f => String(getFieldValue(f) ?? '').trim() !== '')
+
   return (
     <div className="p-6 space-y-6 animate-in fade-in duration-500">
       <div className="border-b border-gray-100 dark:border-white/5 pb-4">
@@ -157,6 +161,53 @@ export default function P06_Ownership() {
           />
         </div>
       </div>
+
+      {/* Previous Records — populated from a prior Valyze report on the same
+          company. Renders only when the extractor actually found history, so a
+          first-time report shows nothing here. */}
+      {hasPreviousRecords && (
+        <div className="bg-white dark:bg-white/5 rounded-2xl shadow-sm border border-gray-100 dark:border-white/10 p-8">
+          <h3 className="text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em] mb-2">
+            Previous Records
+          </h3>
+          <p className="text-[11px] text-gray-400 dark:text-slate-500 mb-6">
+            Carried over from an earlier report on this company. Conflicts are listed in the order comment.
+          </p>
+          <div className="grid grid-cols-1 gap-6">
+            <FieldInput
+              label="Former Company Name"
+              fieldName="former_company_name"
+              type="text"
+              placeholder="e.g. Formerly registered as X until 2024"
+              helpText="Previous registered or trading name."
+            />
+            <FieldInput
+              label="Former Address"
+              fieldName="former_address"
+              type="textarea"
+              rows={2}
+              placeholder="Previous registered address..."
+              helpText="Address on file in the earlier report."
+            />
+            <FieldInput
+              label="Former Owners"
+              fieldName="former_owners"
+              type="textarea"
+              rows={3}
+              placeholder="e.g. The former owner is..."
+              helpText="Shareholders or UBOs recorded previously."
+            />
+            <FieldInput
+              label="Former Registration Details"
+              fieldName="former_registration_details"
+              type="textarea"
+              rows={3}
+              placeholder="Previous CR number, licence details..."
+              helpText="Registration information that has since changed."
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

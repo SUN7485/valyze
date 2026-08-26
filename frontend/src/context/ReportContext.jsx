@@ -53,6 +53,9 @@ const PAGE_FIELDS = {
          'auditor_name', 'license_alert', 'license_icon', 'tax_alert', 'tax_icon'
      ],
      6: ['capital', 'incorporation_date', 'registration_number'],
+     // NOTE: former_* history fields are deliberately NOT tracked here. They are
+     // optional (only present when a prior report existed), so counting them
+     // would drop the completion percentage of every first-time report.
      7: ['parent_company', 'subsidiaries', 'affiliates'],
      8: ['industry', 'employee_count', 'employee_location', 'facilities_count', 'main_facility_location', 'markets_count', 'markets_regions', 'main_suppliers', 'key_customers'],
      9: ['primary_bank', 'total_banks', 'banking_notes'],
@@ -337,6 +340,29 @@ export function ReportProvider({ children }) {
         return counts
     }, [report])
 
+    /* Has anything actually been extracted into this report?
+       `start_company_work` (backend/api/orders.py) seeds a handful of fields
+       from the order the moment an analyst clicks Start — company_name, country,
+       cr_number, client_name, analyst_name, report_date, current_year — all
+       written with source "system". That is ~10% of the tracked fields, so a
+       never-extracted report reads as "10% complete" when it is in fact empty.
+       Keying on the source rather than a hardcoded field list means this keeps
+       working if the backend seeds more fields later. */
+    const hasRealData = useCallback(() => {
+        const fields = report?.fields || {}
+        for (const data of Object.values(fields)) {
+            const isObj = typeof data === 'object' && data !== null
+            if (isObj && data.source === 'system') continue
+            const value = isObj ? data.value : data
+            if (value !== null && value !== undefined && String(value).trim() !== '') return true
+        }
+        const arrays = report?.arrays || {}
+        for (const list of Object.values(arrays)) {
+            if (Array.isArray(list) && list.length > 0) return true
+        }
+        return false
+    }, [report])
+
     // Get overall completion percentage based on tracked fields
     const getCompletionPercentage = useCallback(() => {
         let total = 0
@@ -400,6 +426,7 @@ export function ReportProvider({ children }) {
         getArray,
         getFieldCounts,
         getCompletionPercentage,
+        hasRealData,
         clearReport,
         setError,
         getEffectiveCurrency,
