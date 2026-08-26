@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 from html import escape
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -177,7 +178,7 @@ async def delivery_queue(user: Dict[str, Any] = Depends(get_current_user)):
     )
     linked_ids = [r["report_id"] for r in linked if r.get("report_id")]
     if linked_ids:
-        ids = ",".join(f'"{i}"' for i in linked_ids)
+        ids = ",".join(quote(str(i), safe="") for i in linked_ids)
         for r in _get(
             f"{get_base_url()}/reports?select={report_fields}&id=in.({ids})&limit=500",
             "reports by order",
@@ -286,11 +287,14 @@ async def team_kpi(days: int = 30, user: Dict[str, Any] = Depends(get_current_us
     days = max(1, min(int(days or 30), 365))
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
+    # An ISO timestamp ends in "+00:00", and a bare "+" in a query string decodes
+    # to a SPACE — PostgREST then rejects the whole filter. Always percent-encode
+    # a timestamp before putting it in a URL.
     url = (
         f"{get_base_url()}/reports"
         "?select=id,company_name,analyst,status,created_at,updated_at,"
         "qa_verdict,qa_checked_at,qa_finding_count,qa_critical_count,qa_major_count,qa_minor_count"
-        f"&updated_at=gte.{since}&order=updated_at.desc&limit=2000"
+        f"&updated_at=gte.{quote(since, safe='')}&order=updated_at.desc&limit=2000"
     )
     try:
         resp = requests.get(url, headers=get_headers(), timeout=25)

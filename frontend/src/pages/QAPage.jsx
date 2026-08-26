@@ -134,6 +134,9 @@ export default function QAPage() {
     const [importText, setImportText] = useState('')
     // null = not attempted, true = stored on the report, false = local only
     const [verdictSaved, setVerdictSaved] = useState(null)
+    // Same key the Extractor stores — one key, entered or changed from either page.
+    const [apiKey, setApiKey] = useState(() => localStorage.getItem('valyze_api_key') || '')
+    const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem('valyze_api_key'))
 
     const clockRef = useRef(null)
     const abortRef = useRef(null)
@@ -193,8 +196,7 @@ export default function QAPage() {
 
     const runCheck = useCallback(async () => {
         if (!report) { setError('Report has not loaded yet.'); setStatus('error'); return }
-        const apiKey = localStorage.getItem('valyze_api_key') || ''
-        if (!apiKey) { setError('No Anthropic API key saved. Open the Extractor and add your key first.'); setStatus('error'); return }
+        if (!apiKey) { setError('Add your Anthropic API key above, then run the review.'); setShowKeyInput(true); setStatus('error'); return }
         if (sessionIsExpired()) { setError('Your Valyze session has expired. Sign in again, then re-run the check.'); setStatus('error'); return }
 
         setStatus('loading'); setStage(0); setError(''); setElapsed(0); setLogMsg('Reading report…')
@@ -269,7 +271,7 @@ export default function QAPage() {
         } finally {
             clearInterval(clockRef.current)
         }
-    }, [report, persist, reportId])
+    }, [report, persist, reportId, apiKey])
 
     const applyOne = useCallback(async (finding, index) => {
         const k = keyOf(finding, index)
@@ -332,13 +334,64 @@ export default function QAPage() {
                             {reportId && <div className="text-[11px] text-[var(--color-text-muted)] mt-1 font-mono truncate">Report: {reportId}</div>}
                         </div>
                     </div>
-                    <button
-                        onClick={() => navigate(`/editor/${reportId}`)}
-                        className="px-4 py-2 rounded-xl border border-[var(--color-border)] bg-white/70 dark:bg-white/5 text-[var(--color-text-secondary)] hover:text-primary hover:border-primary/50 transition-all text-xs font-bold flex-shrink-0"
-                    >
-                        ← Editor
-                    </button>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                        {!showKeyInput && status !== 'loading' && (
+                            <button
+                                onClick={() => setShowKeyInput(true)}
+                                className="px-4 py-2 rounded-xl border border-[var(--color-border)] bg-white/70 dark:bg-white/5 text-[var(--color-text-secondary)] hover:text-primary hover:border-primary/50 transition-all text-xs font-bold"
+                            >
+                                🔑 Change Key
+                            </button>
+                        )}
+                        <button
+                            onClick={() => navigate(`/editor/${reportId}`)}
+                            className="px-4 py-2 rounded-xl border border-[var(--color-border)] bg-white/70 dark:bg-white/5 text-[var(--color-text-secondary)] hover:text-primary hover:border-primary/50 transition-all text-xs font-bold"
+                        >
+                            ← Editor
+                        </button>
+                    </div>
                 </div>
+
+                {(showKeyInput || !apiKey) && status !== 'loading' && (
+                    <div className="border-b border-[var(--color-border)] p-5 md:p-6 bg-white/60 dark:bg-white/[0.02]">
+                        <div className="flex flex-col md:flex-row gap-4 md:items-center">
+                            <div className="flex-1 min-w-0">
+                                <div className="text-xs font-black uppercase tracking-widest text-[var(--color-text-muted)] mb-2">
+                                    🔐 Anthropic API Key
+                                </div>
+                                <input
+                                    type="password"
+                                    value={apiKey}
+                                    onChange={e => setApiKey(e.target.value)}
+                                    placeholder="sk-ant-api03-..."
+                                    className="input-field font-mono"
+                                />
+                                <div className="text-[11px] text-[var(--color-text-muted)] mt-2">
+                                    Shared with the Extractor — saving here changes it in both.
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-2 md:w-44">
+                                <button
+                                    onClick={() => {
+                                        if (apiKey.startsWith('sk-ant-')) {
+                                            localStorage.setItem('valyze_api_key', apiKey)
+                                            setShowKeyInput(false)
+                                            setError('')
+                                        }
+                                    }}
+                                    disabled={!apiKey.startsWith('sk-ant-')}
+                                    className="px-4 py-3 rounded-xl border border-transparent bg-emerald-500 text-white font-bold text-xs disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-[var(--color-surface)] disabled:text-[var(--color-text-muted)] hover:bg-emerald-600 transition-all"
+                                >
+                                    ✓ Save Key
+                                </button>
+                                <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer"
+                                   className="text-[11px] text-[var(--color-text-muted)] hover:text-primary text-center">
+                                    Get API Key →
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div className="p-5 md:p-6">
                     {/* Running */}
