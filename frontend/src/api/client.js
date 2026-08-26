@@ -426,4 +426,35 @@ export const invoicesAPI = {
         }),
 }
 
+// ---------------------------------------------------------------------------
+// Delivery API — QA verdicts and the admin send queue
+// ---------------------------------------------------------------------------
+
+export const deliveryAPI = {
+
+    // Any analyst may record a QA outcome for a report they worked on.
+    saveQaVerdict: (reportId, body) =>
+        api.patch(`/delivery/qa/${reportId}`, body),
+
+    // Admin only — completed reports that have not been delivered yet.
+    getQueue: () =>
+        api.get('/delivery/queue'),
+
+    // Admin only — QA findings + invoice for one report (the review page).
+    getReview: (reportId) =>
+        api.get(`/delivery/${reportId}/review`),
+
+    // Admin only — team performance over a rolling window (days).
+    getKpi: (days = 30) =>
+        api.get('/delivery/kpi', { params: { days } }),
+
+    // Admin only — invoice numbers straight from pricing_engine, never from AI.
+    getInvoice: (reportId) =>
+        api.get(`/delivery/${reportId}/invoice`),
+
+    // Admin only, and refused unless DELIVERY_SEND_ENABLED is set server-side.
+    send: (reportId) =>
+        api.post(`/delivery/${reportId}/send`),
+}
+
 export default api

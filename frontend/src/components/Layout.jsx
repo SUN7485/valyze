@@ -2,7 +2,7 @@ import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useDarkMode } from '../hooks/useDarkMode'
 import { useAuth } from '../context/AuthContext'
-import { Sun, Moon, Info, Shield, FileText, ClipboardList, ListChecks, Receipt, LogOut, Building2, Users, Boxes } from 'lucide-react'
+import { Sun, Moon, Info, Shield, FileText, ClipboardList, ListChecks, Receipt, LogOut, Building2, Users, Boxes, Send, TrendingUp } from 'lucide-react'
 
 export default function Layout({ children }) {
     const { darkMode, toggleDarkMode } = useDarkMode()
@@ -110,6 +110,36 @@ export default function Layout({ children }) {
                             <Receipt size={14} />
                             Invoices
                         </Link>
+
+                        {/* Delivery is the admin send gate — same roles the backend
+                            accepts in require_admin (admin | super_admin). */}
+                        {(user?.role === 'admin' || user?.role === 'super_admin') && (
+                            <Link
+                                to="/admin/delivery"
+                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${
+                                    location.pathname.startsWith('/admin/delivery')
+                                        ? 'bg-primary text-white shadow-md shadow-primary/20'
+                                        : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary'
+                                }`}
+                            >
+                                <Send size={14} />
+                                Delivery
+                            </Link>
+                        )}
+
+                        {(user?.role === 'admin' || user?.role === 'super_admin') && (
+                            <Link
+                                to="/admin/kpi"
+                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${
+                                    location.pathname.startsWith('/admin/kpi')
+                                        ? 'bg-primary text-white shadow-md shadow-primary/20'
+                                        : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary'
+                                }`}
+                            >
+                                <TrendingUp size={14} />
+                                Team
+                            </Link>
+                        )}
 
                         {user?.role === 'super_admin' && (
                             <Link

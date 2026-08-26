@@ -21,6 +21,10 @@ const InvoiceDetailPage = lazy(() => import('./pages/InvoiceDetailPage'))
 const ClientsPage = lazy(() => import('./pages/ClientsPage'))
 const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage'))
 const ExtractorPage = lazy(() => import('./pages/ExtractorPage'))
+const QAPage = lazy(() => import('./pages/QAPage'))
+const AdminDeliveryPage = lazy(() => import('./pages/AdminDeliveryPage'))
+const TeamKPIPage = lazy(() => import('./pages/TeamKPIPage'))
+const DeliveryReviewPage = lazy(() => import('./pages/DeliveryReviewPage'))
 const CompaniesPage = lazy(() => import('./pages/CompaniesPage'))
 const UsersPage = lazy(() => import('./pages/UsersPage'))
 const PortalPage = lazy(() => import('./pages/PortalPage'))
@@ -70,6 +74,10 @@ function AppRoutes() {
         <Route path="/done/:reportId" element={<ProtectedRoute><DonePage /></ProtectedRoute>} />
         <Route path="/extractor" element={<ProtectedRoute><ExtractorPage /></ProtectedRoute>} />
         <Route path="/extractor/:reportId" element={<ProtectedRoute><ExtractorPage /></ProtectedRoute>} />
+        <Route path="/qa/:reportId" element={<ProtectedRoute><QAPage /></ProtectedRoute>} />
+        <Route path="/admin/delivery" element={<ProtectedRoute><AdminDeliveryPage /></ProtectedRoute>} />
+        <Route path="/admin/kpi" element={<ProtectedRoute><TeamKPIPage /></ProtectedRoute>} />
+        <Route path="/admin/delivery/:reportId" element={<ProtectedRoute><DeliveryReviewPage /></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute><UsersPage /></ProtectedRoute>} />
 
         {/* Catch-all */}
