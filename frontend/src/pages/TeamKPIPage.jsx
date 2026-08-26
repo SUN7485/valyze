@@ -37,17 +37,21 @@ const num = (v) => (v === null || v === undefined ? '—' : String(v))
 export default function TeamKPIPage() {
     const navigate = useNavigate()
     const [days, setDays] = useState(30)
+    // Empty strings mean "use the rolling preset above". Filling either one
+    // switches the page to an explicit range.
+    const [dateFrom, setDateFrom] = useState('')
+    const [dateTo, setDateTo] = useState('')
     const [data, setData] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [forbidden, setForbidden] = useState(false)
 
-    const load = useCallback(async (period) => {
+    const load = useCallback(async (period, from, to) => {
         setLoading(true)
         setError('')
         setForbidden(false)
         try {
-            const res = await deliveryAPI.getKpi(period)
+            const res = await deliveryAPI.getKpi({ days: period, dateFrom: from, dateTo: to })
             setData(res.data)
         } catch (e) {
             if (e?.response?.status === 403) setForbidden(true)
@@ -57,7 +61,7 @@ export default function TeamKPIPage() {
         }
     }, [])
 
-    useEffect(() => { load(days) }, [load, days])
+    useEffect(() => { load(days, dateFrom, dateTo) }, [load, days, dateFrom, dateTo])
 
     if (forbidden) {
         return (
@@ -94,9 +98,9 @@ export default function TeamKPIPage() {
                         {PERIODS.map(p => (
                             <button
                                 key={p.days}
-                                onClick={() => setDays(p.days)}
+                                onClick={() => { setDateFrom(''); setDateTo(''); setDays(p.days) }}
                                 className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all
-                                    ${days === p.days
+                                    ${days === p.days && !dateFrom && !dateTo
                                         ? 'bg-primary text-white'
                                         : 'bg-white dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10'}`}
                             >
@@ -105,7 +109,7 @@ export default function TeamKPIPage() {
                         ))}
                     </div>
                     <button
-                        onClick={() => load(days)}
+                        onClick={() => load(days, dateFrom, dateTo)}
                         disabled={loading}
                         className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg
                                    text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-white/5
@@ -116,11 +120,51 @@ export default function TeamKPIPage() {
                 </div>
             </div>
 
+            {/* Custom range. Either bound may be left blank: only a start means
+                "from then until now", only an end means "everything up to then". */}
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    Custom range
+                </span>
+                <input
+                    type="date"
+                    value={dateFrom}
+                    max={dateTo || undefined}
+                    onChange={e => setDateFrom(e.target.value)}
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10
+                               bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 text-xs"
+                />
+                <span className="text-slate-400 dark:text-slate-500">to</span>
+                <input
+                    type="date"
+                    value={dateTo}
+                    min={dateFrom || undefined}
+                    onChange={e => setDateTo(e.target.value)}
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10
+                               bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 text-xs"
+                />
+                {(dateFrom || dateTo) && (
+                    <>
+                        <button
+                            onClick={() => { setDateFrom(''); setDateTo('') }}
+                            className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider
+                                       text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-white/5
+                                       hover:bg-slate-200 dark:hover:bg-white/10 transition-all"
+                        >
+                            Clear
+                        </button>
+                        <span className="text-[11px] text-primary font-bold">
+                            {dateFrom || 'the beginning'} → {dateTo || 'today'} (end date included)
+                        </span>
+                    </>
+                )}
+            </div>
+
             {error && (
                 <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-sm flex items-start gap-2">
                     <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0 break-words">{error}</div>
-                    <button onClick={() => load(days)} className="text-[10px] font-bold uppercase tracking-wider underline">Retry</button>
+                    <button onClick={() => load(days, dateFrom, dateTo)} className="text-[10px] font-bold uppercase tracking-wider underline">Retry</button>
                 </div>
             )}
 
@@ -176,7 +220,9 @@ export default function TeamKPIPage() {
                         {analysts.length === 0 && (
                             <div className="p-8 text-center text-sm text-slate-500 dark:text-slate-400">
                                 <div className="font-bold text-slate-700 dark:text-slate-200">
-                                    No reports in the last {days} days.
+                                    {dateFrom || dateTo
+                                        ? `No reports between ${dateFrom || 'the beginning'} and ${dateTo || 'today'}.`
+                                        : `No reports in the last ${days} days.`}
                                 </div>
                                 <div className="text-xs mt-1">
                                     This page counts reports by their <code className="font-mono">updated_at</code>.

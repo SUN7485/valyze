@@ -449,8 +449,12 @@ export const deliveryAPI = {
         api.get(`/delivery/${reportId}/review`),
 
     // Admin only — team performance over a rolling window (days).
-    getKpi: (days = 30) =>
-        api.get('/delivery/kpi', { params: { days } }),
+    getKpi: ({ days = 30, dateFrom = null, dateTo = null } = {}) =>
+        api.get('/delivery/kpi', {
+            params: (dateFrom || dateTo)
+                ? { date_from: dateFrom || undefined, date_to: dateTo || undefined }
+                : { days },
+        }),
 
     // Admin only — invoice numbers straight from pricing_engine, never from AI.
     getInvoice: (reportId) =>

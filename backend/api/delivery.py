@@ -275,7 +275,12 @@ def _quality_score(reports: int, critical: int, major: int, minor: int) -> Optio
 
 
 @router.get("/kpi")
-async def team_kpi(days: int = 30, user: Dict[str, Any] = Depends(get_current_user)):
+async def team_kpi(
+    days: int = 30,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
     """Team performance over a rolling window, per analyst. Admin only.
 
     Every number here is counted from report rows — nothing is estimated and no
@@ -284,8 +289,31 @@ async def team_kpi(days: int = 30, user: Dict[str, Any] = Depends(get_current_us
     """
     require_admin(user)
 
-    days = max(1, min(int(days or 30), 365))
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    # An explicit date range wins over the rolling window. date_to is inclusive:
+    # a user picking "to 27 Aug" means the whole of the 27th, so we advance to the
+    # start of the next day rather than cutting the range off at midnight.
+    if date_from or date_to:
+        try:
+            start = (
+                datetime.fromisoformat(date_from).replace(tzinfo=timezone.utc)
+                if date_from else datetime(1970, 1, 1, tzinfo=timezone.utc)
+            )
+            end = (
+                datetime.fromisoformat(date_to).replace(tzinfo=timezone.utc) + timedelta(days=1)
+                if date_to else datetime.now(timezone.utc) + timedelta(days=1)
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Dates must be YYYY-MM-DD.")
+        if start >= end:
+            raise HTTPException(status_code=400, detail="The start date must be before the end date.")
+        days = max(1, (end - start).days)
+    else:
+        days = max(1, min(int(days or 30), 3650))
+        end = datetime.now(timezone.utc) + timedelta(days=1)
+        start = datetime.now(timezone.utc) - timedelta(days=days)
+
+    since = start.isoformat()
+    until = end.isoformat()
 
     # An ISO timestamp ends in "+00:00", and a bare "+" in a query string decodes
     # to a SPACE — PostgREST then rejects the whole filter. Always percent-encode
@@ -294,7 +322,9 @@ async def team_kpi(days: int = 30, user: Dict[str, Any] = Depends(get_current_us
         f"{get_base_url()}/reports"
         "?select=id,company_name,analyst,status,created_at,updated_at,"
         "qa_verdict,qa_checked_at,qa_finding_count,qa_critical_count,qa_major_count,qa_minor_count"
-        f"&updated_at=gte.{quote(since, safe='')}&order=updated_at.desc&limit=2000"
+        f"&updated_at=gte.{quote(since, safe='')}"
+        f"&updated_at=lt.{quote(until, safe='')}"
+        "&order=updated_at.desc&limit=5000"
     )
     try:
         resp = requests.get(url, headers=get_headers(), timeout=25)
@@ -312,9 +342,32 @@ async def team_kpi(days: int = 30, user: Dict[str, Any] = Depends(get_current_us
             "critical": 0, "major": 0, "minor": 0, "findings": 0,
         }
 
+    # reports.analyst was historically never populated (it was mapped from a field
+    # name that does not exist). Rather than require a backfill, fall back to the
+    # analyst the order assigned, so old reports attribute correctly too.
+    fallback: Dict[str, str] = {}
+    missing = [r["id"] for r in rows if not (r.get("analyst") or "").strip()]
+    if missing:
+        for chunk_start in range(0, len(missing), 100):
+            ids = ",".join(quote(str(i), safe="") for i in missing[chunk_start:chunk_start + 100])
+            try:
+                oc = requests.get(
+                    f"{get_base_url()}/order_companies"
+                    f"?select=report_id,analyst_assigned&report_id=in.({ids})",
+                    headers=get_headers(), timeout=20,
+                )
+                oc.raise_for_status()
+                for row in oc.json():
+                    who = (row.get("analyst_assigned") or "").strip()
+                    if who and row.get("report_id"):
+                        fallback[row["report_id"]] = who
+            except requests.RequestException as exc:
+                logger.error(f"[DELIVERY] analyst fallback lookup failed: {exc}")
+                break
+
     by_analyst: Dict[str, Dict[str, Any]] = {}
     for r in rows:
-        name = (r.get("analyst") or "").strip() or "Unassigned"
+        name = (r.get("analyst") or "").strip() or fallback.get(r.get("id"), "") or "Unassigned"
         a = by_analyst.setdefault(name, blank(name))
         a["reports"] += 1
         if r.get("status") == "completed":
@@ -371,6 +424,9 @@ async def team_kpi(days: int = 30, user: Dict[str, Any] = Depends(get_current_us
     return {
         "days": days,
         "since": since,
+        "until": until,
+        "date_from": date_from,
+        "date_to": date_to,
         "team": team,
         "analysts": analysts,
         "severity_weights": SEVERITY_WEIGHT,

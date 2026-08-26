@@ -125,7 +125,10 @@ def create_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]
         "client_reference": get_field_value("client_reference"),
         "country": get_field_value("country"),
         "address": get_field_value("address"),
-        "analyst": get_field_value("analyst"),
+        # The report schema field is "analyst_name" (see start_company_work and the
+        # extractor prompt); there is no bare "analyst" field, so this column was
+        # always NULL and every report showed as Unassigned on the team page.
+        "analyst": get_field_value("analyst_name") or get_field_value("analyst"),
     }
     print(f"[SUPABASE] Data to send: {json.dumps(data, default=str)[:200]}...")
     print(f"[SUPABASE] Headers: {get_headers()}")
@@ -665,7 +668,10 @@ def update_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]
         "client_reference": get_field_value("client_reference"),
         "country": get_field_value("country"),
         "address": get_field_value("address"),
-        "analyst": get_field_value("analyst"),
+        # The report schema field is "analyst_name" (see start_company_work and the
+        # extractor prompt); there is no bare "analyst" field, so this column was
+        # always NULL and every report showed as Unassigned on the team page.
+        "analyst": get_field_value("analyst_name") or get_field_value("analyst"),
     }
 
     try:
