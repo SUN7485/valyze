@@ -58,13 +58,23 @@ const SECONDARY_BTN = 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-wh
 const ERROR_CLS = 'bg-red-500/10 border border-red-500/30 rounded-xl text-red-600 dark:text-red-400 text-sm'
 
 /* Constants */
+/* Tier promises (2026-08 revision): Basic 5-7 days · Standard 3 days ·
+   Express 1-2 days · Urgent 24 hours. Keys mirror backend SPEED_TIER_MAP in
+   api/portal.py — the two must not drift. One colour per tier. */
+const TIER_CLASS = {
+  Basic: 'bg-slate-200 text-slate-600 dark:bg-slate-100/10 dark:text-slate-300',
+  Standard: 'bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-400',
+  Express: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-100/10 dark:text-cyan-300',
+  Urgent: 'bg-rose-100 text-rose-700 dark:bg-rose-100/10 dark:text-rose-300',
+}
+
 const SPEED_TIERS = {
-  '7_days': { label: '7 Days', tier: 'Basic', tierClass: 'bg-slate-200 text-slate-600 dark:bg-slate-100/10 dark:text-slate-300' },
-  '5_days': { label: '5 Days', tier: 'Standard', tierClass: 'bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-400' },
-  '3_days': { label: '3 Days', tier: 'Express', tierClass: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-100/10 dark:text-cyan-300' },
-  '2_days': { label: '2 Days', tier: 'Express', tierClass: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-100/10 dark:text-cyan-300' },
-  '1_day': { label: '1 Day', tier: 'Urgent', tierClass: 'bg-rose-100 text-rose-700 dark:bg-rose-100/10 dark:text-rose-300' },
-  '24_hours': { label: '24 Hours', tier: 'Urgent', tierClass: 'bg-rose-100 text-rose-700 dark:bg-rose-100/10 dark:text-rose-300' },
+  '7_days': { label: '7 Days', tier: 'Basic', promise: '5-7 days', tierClass: TIER_CLASS.Basic },
+  '5_days': { label: '5 Days', tier: 'Basic', promise: '5-7 days', tierClass: TIER_CLASS.Basic },
+  '3_days': { label: '3 Days', tier: 'Standard', promise: '3 days', tierClass: TIER_CLASS.Standard },
+  '2_days': { label: '2 Days', tier: 'Express', promise: '1-2 days', tierClass: TIER_CLASS.Express },
+  '1_day': { label: '1 Day', tier: 'Express', promise: '1-2 days', tierClass: TIER_CLASS.Express },
+  '24_hours': { label: '24 Hours', tier: 'Urgent', promise: '24 hours', tierClass: TIER_CLASS.Urgent },
 }
 
 const SUPPORTED_COUNTRIES = [
@@ -189,6 +199,21 @@ function LoginScreen({ token, initialMessage, onAuthenticated }) {
     </div>
   )
 }
+
+/* One label/value pair in the review step. Renders nothing when the value is
+   blank, so a sparsely-filled company never shows empty rows. */
+function ReviewField({ label, value, wide = false }) {
+  const text = String(value ?? '').trim()
+  if (!text) return null
+  return (
+    <div className={wide ? 'col-span-2' : ''}>
+      <div className={`${T_FAINT} text-[11px]`}>{label}</div>
+      <div className={`${T_HEADING} text-xs font-semibold break-words`}>{text}</div>
+    </div>
+  )
+}
+
+const fileSizeKb = (bytes) => `${Math.max(1, Math.round((bytes || 0) / 1024))} KB`
 
 /* Order Form — guided multi-step wizard */
 function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode, onExit, onSessionExpired }) {
@@ -383,7 +408,7 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode, onExit
               <label className={`block ${T_LABEL} text-sm font-bold mb-3`}>Service Speed</label>
               <select value={speed} onChange={e => setSpeed(e.target.value)} className={FIELD_CLS + ' mb-3'}>
                 {Object.entries(SPEED_TIERS).map(([key, val]) => (
-                  <option key={key} value={key} className="bg-white text-slate-800 dark:bg-gray-900 dark:text-white">{val.label}</option>
+                  <option key={key} value={key} className="bg-white text-slate-800 dark:bg-gray-900 dark:text-white">{val.tier} · {val.promise}</option>
                 ))}
               </select>
               <div className="flex items-center gap-2">
@@ -535,7 +560,7 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode, onExit
             <div className={`${CARD_CLS} rounded-2xl p-6 space-y-4`}>
               <h2 className={`${T_HEADING} font-black text-sm uppercase tracking-wider`}>Review your order</h2>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><div className={`${T_FAINT} text-xs`}>Speed</div><div className={`${T_HEADING} font-bold`}>{selectedTier?.label} · {selectedTier?.tier}</div></div>
+                <div><div className={`${T_FAINT} text-xs`}>Service Level</div><div className={`${T_HEADING} font-bold`}>{selectedTier?.tier} · {selectedTier?.promise}</div></div>
                 <div><div className={`${T_FAINT} text-xs`}>Report Types</div><div className={`${T_HEADING} font-bold`}>{reportTypes.map(t => REPORT_TYPE_OPTIONS.find(o => o.value === t)?.label || t).join(', ')}</div></div>
                 <div><div className={`${T_FAINT} text-xs`}>Documents</div><div className={`${T_HEADING} font-bold`}>{totalFiles} file(s)</div></div>
                 <div><div className={`${T_FAINT} text-xs`}>Companies</div><div className={`${T_HEADING} font-bold`}>{namedCompanies.length} → {namedCompanies.length} order(s)</div></div>
@@ -545,13 +570,35 @@ function OrderForm({ portalToken, clientName, onSubmitSuccess, orderMode, onExit
                 <div className="space-y-2">
                   {namedCompanies.map((c, idx) => {
                     const realIdx = companies.findIndex(cc => cc === c)
+                    const attached = filesPerCompany[realIdx] || []
                     return (
-                      <div key={idx} className="bg-slate-50 dark:bg-white/5 rounded-xl px-3 py-2 flex items-center justify-between">
-                        <div>
-                          <div className={`${T_HEADING} font-bold text-sm`}>{c.company_name}{c.client_ref ? <span className={`${T_FAINT} font-normal`}> · {c.client_ref}</span> : null}</div>
-                          <div className={`${T_FAINT} text-xs`}>{[c.country, c.registration_no, c.requested_limit].filter(Boolean).join(' · ') || 'No extra details'}</div>
+                      <div key={idx} className="bg-slate-50 dark:bg-white/5 rounded-xl px-3 py-2.5">
+                        <div className={`${T_HEADING} font-bold text-sm`}>{c.company_name}{c.client_ref ? <span className={`${T_FAINT} font-normal`}> · {c.client_ref}</span> : null}</div>
+
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 mt-2">
+                          <ReviewField label="Country" value={c.country} />
+                          <ReviewField label="Registration / CR Number" value={c.registration_no} />
+                          <ReviewField label="VAT Number" value={c.vat_no} />
+                          <ReviewField label="Phone" value={c.phone} />
+                          <ReviewField label="Registered Address" value={c.address} wide />
+                          <ReviewField label="Requested Credit Limit" value={c.requested_limit} />
+                          <ReviewField label="Comments" value={c.comments} wide />
                         </div>
-                        <span className={`text-[10px] ${T_FAINT} font-bold`}>{(filesPerCompany[realIdx]?.length || 0)} files</span>
+
+                        <div className="mt-2.5 pt-2 border-t border-slate-200 dark:border-white/10">
+                          <div className={`${T_FAINT} text-[11px] font-bold`}>
+                            {attached.length ? `${attached.length} file(s)` : 'No files attached'}
+                          </div>
+                          {attached.length > 0 && (
+                            <ul className="mt-1 space-y-0.5">
+                              {attached.map((f, fi) => (
+                                <li key={fi} className={`${T_FAINT} text-[11px] break-all`}>
+                                  {f.name} <span className="opacity-70">· {fileSizeKb(f.size)}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
                       </div>
                     )
                   })}

@@ -263,6 +263,11 @@ def _public_company(company: Dict[str, Any]) -> Dict[str, Any]:
         "client_ref": company.get("client_ref"),
         "country": company.get("country"),
         "registration_no": company.get("registration_no"),
+        "vat_no": company.get("vat_no"),
+        "phone": company.get("phone"),
+        "address": company.get("address"),
+        "requested_limit": company.get("requested_limit"),
+        "comments": company.get("comments"),
         "status": company.get("status"),
         "analyst_assigned": company.get("analyst_assigned"),
         "report_id": company.get("report_id"),
@@ -319,6 +324,10 @@ def _build_order_detail(
             "client_name": client_data.get("client_name") or _client_name_from_order(order),
             "valyze_id": client_data.get("valyze_id"),
             "email": client_data.get("email"),
+            # Self-hiding in the rendered document if the clients table has no
+            # such columns — _row() drops empty values.
+            "vat_no": client_data.get("vat_no"),
+            "address": client_data.get("address"),
         },
         "client_ref": order.get("client_ref"),
         "date_received": order.get("date_received"),
@@ -720,8 +729,15 @@ async def download_order(order_id: str, user: dict = Depends(get_current_user)):
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(f"{safe_label}/order-summary.txt", _order_summary_text(order, companies, client))
-        archive.writestr(f"{safe_label}/order.json", json.dumps(detail, indent=2, default=str))
+        # The styled order document, not raw JSON — same renderer the client
+        # receives. The browser turns it into a PDF (Print -> Save as PDF), which
+        # keeps Arabic/RTL company names correct; a server-side PDF lib would not.
+        archive.writestr(f"{safe_label}/{safe_label}.html", build_order_html(detail))
+        archive.writestr(
+            f"{safe_label}/README.txt",
+            "Open the .html file in any browser, then Print -> Save as PDF.\n"
+            "The attached client documents are in the files/ folder.\n",
+        )
 
         used_names: Dict[str, int] = {}
         for file in files:

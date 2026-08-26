@@ -42,7 +42,12 @@ def build_order_html(detail: Dict[str, Any]) -> str:
             '<table class="kv">'
             + _row("Country", c.get("country"))
             + _row("Registration No", c.get("registration_no"))
+            + _row("VAT No", c.get("vat_no"))
+            + _row("Address", c.get("address"))
+            + _row("Phone", c.get("phone"))
+            + _row("Requested Limit", c.get("requested_limit"))
             + _row("Client Ref", c.get("client_ref"))
+            + _row("Comments", c.get("comments"))
             + _row("Status", c.get("status"))
             + _row("Analyst", c.get("analyst_assigned"))
             + "</table></div>"
@@ -109,6 +114,8 @@ def build_order_html(detail: Dict[str, Any]) -> str:
     {_row('Name', client.get('client_name'))}
     {_row('Valyze ID', client.get('valyze_id'))}
     {_row('Email', client.get('email'))}
+    {_row('VAT No', client.get('vat_no'))}
+    {_row('Address', client.get('address'))}
   </table>
   <h2>Companies ({len(companies)})</h2>
   {company_rows or '<div class="muted">No companies.</div>'}

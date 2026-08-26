@@ -53,13 +53,16 @@ security = HTTPBearer(auto_error=False)
 SERVICE_LEVELS = {"basic", "standard", "express", "urgent"}
 REPORT_TYPES = {"standard", "full"}
 
-# Speed-to-service-level mapping
+# Speed-to-service-level mapping.
+# Tier promises (2026-08 revision): Basic 5-7 days · Standard 3 days ·
+# Express 1-2 days · Urgent 24 hours. The six speed keys are effectively a DB
+# enum (orders.speed) — never rename or remove one, only remap.
 SPEED_TIER_MAP = {
     "7_days": "basic",
-    "5_days": "standard",
-    "3_days": "express",
+    "5_days": "basic",
+    "3_days": "standard",
     "2_days": "express",
-    "1_day": "urgent",
+    "1_day": "express",
     "24_hours": "urgent",
 }
 VALID_SPEEDS = set(SPEED_TIER_MAP.keys())
@@ -85,7 +88,7 @@ SPEED_DURATION_DAYS = {
     "3_days": 3,
     "2_days": 2,
     "1_day": 1,
-    "24_hours": 0,  # Same day
+    "24_hours": 1,  # Urgent = 24 hours = the next working day
 }
 
 def _calculate_due_date(speed: str, country: Optional[str] = None) -> str:

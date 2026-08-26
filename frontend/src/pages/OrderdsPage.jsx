@@ -11,13 +11,22 @@ const STATUS_TABS = [
     { value: 'overdue', label: 'Overdue' },
 ]
 
+/* One colour per service-level tier, so the analyst badge and the badge the
+   client saw in the portal agree. Mirrors SPEED_TIER_MAP in api/portal.py. */
+const TIER_CLASS = {
+    Basic: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-700',
+    Standard: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800/40',
+    Express: 'bg-cyan-100 text-cyan-700 border-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-300 dark:border-cyan-800/40',
+    Urgent: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800/40',
+}
+
 const SPEED_LEVELS = {
-    '7_days': { label: '7 Days', className: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-700' },
-    '5_days': { label: '5 Days', className: 'bg-primary/15 text-primary border-primary/25 dark:bg-primary/20 dark:text-primary' },
-    '3_days': { label: '3 Days', className: 'bg-cyan-100 text-cyan-700 border-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-300 dark:border-cyan-800/40' },
-    '2_days': { label: '2 Days', className: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800/40' },
-    '1_day': { label: '1 Day', className: 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800/40' },
-    '24_hours': { label: '24 Hours', className: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800/40' },
+    '7_days': { label: '7 Days', tier: 'Basic', className: TIER_CLASS.Basic },
+    '5_days': { label: '5 Days', tier: 'Basic', className: TIER_CLASS.Basic },
+    '3_days': { label: '3 Days', tier: 'Standard', className: TIER_CLASS.Standard },
+    '2_days': { label: '2 Days', tier: 'Express', className: TIER_CLASS.Express },
+    '1_day': { label: '1 Day', tier: 'Express', className: TIER_CLASS.Express },
+    '24_hours': { label: '24 Hours', tier: 'Urgent', className: TIER_CLASS.Urgent },
 }
 
 const SPEED_FILTERS = [
