@@ -440,6 +440,10 @@ export const deliveryAPI = {
     getQueue: () =>
         api.get('/delivery/queue'),
 
+    // Admin only — why is a page empty? Counts only, no report content.
+    diagnose: () =>
+        api.get('/delivery/diagnose'),
+
     // Admin only — QA findings + invoice for one report (the review page).
     getReview: (reportId) =>
         api.get(`/delivery/${reportId}/review`),

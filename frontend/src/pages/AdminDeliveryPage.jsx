@@ -36,6 +36,7 @@ export default function AdminDeliveryPage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [forbidden, setForbidden] = useState(false)
+    const [diag, setDiag] = useState(null)
 
     const [sending, setSending] = useState(null)
     const [rowError, setRowError] = useState({})
@@ -48,6 +49,7 @@ export default function AdminDeliveryPage() {
             const res = await deliveryAPI.getQueue()
             setItems(res.data?.items || [])
             setSendEnabled(Boolean(res.data?.send_enabled))
+            setDiag(res.data?.diagnostics || null)
         } catch (e) {
             if (e?.response?.status === 403) setForbidden(true)
             else setError(e?.response?.data?.detail || e.message || 'Could not load the delivery queue.')
@@ -143,9 +145,25 @@ export default function AdminDeliveryPage() {
                 <div className="p-10 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-center">
                     <Send size={28} className="mx-auto text-slate-300 dark:text-slate-600 mb-3" />
                     <div className="text-sm font-bold text-slate-900 dark:text-white">Nothing waiting</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        Every completed report has already been delivered.
-                    </div>
+                    {diag && (
+                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                            {diag.candidate_reports === 0 ? (
+                                <>
+                                    No report is marked finished yet. A report reaches this queue when an
+                                    analyst marks its company <strong>complete</strong> in the Work Queue,
+                                    or when its own status becomes <code className="font-mono">complete</code>.
+                                    <div className="mt-1">
+                                        {diag.completed_order_companies} completed order-companies found.
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    {diag.candidate_reports} finished report(s) found;
+                                    {' '}{diag.already_delivered} already delivered.
+                                </>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
 

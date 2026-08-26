@@ -142,23 +142,61 @@ async def delivery_queue(user: Dict[str, Any] = Depends(get_current_user)):
     """Reports that are finished and not yet sent to the client. Admin only."""
     require_admin(user)
 
-    url = (
-        f"{get_base_url()}/reports"
-        "?select=id,company_name,cr_number,country,analyst,status,updated_at,"
-        "client_reference,qa_verdict,qa_checked_at,qa_finding_count,delivered_at"
-        "&status=eq.completed&order=updated_at.desc&limit=200"
+    report_fields = (
+        "id,company_name,cr_number,country,analyst,status,updated_at,client_reference,"
+        "qa_verdict,qa_checked_at,qa_finding_count,delivered_at"
     )
-    try:
-        resp = requests.get(url, headers=get_headers(), timeout=20)
-        resp.raise_for_status()
-        rows = resp.json()
-    except requests.RequestException as exc:
-        logger.error(f"[DELIVERY] queue fetch failed: {exc}")
-        raise HTTPException(status_code=500, detail="Could not load the delivery queue")
+
+    def _get(url: str, what: str) -> List[Dict[str, Any]]:
+        try:
+            resp = requests.get(url, headers=get_headers(), timeout=20)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException as exc:
+            logger.error(f"[DELIVERY] {what} fetch failed: {exc}")
+            raise HTTPException(status_code=500, detail="Could not load the delivery queue")
+
+    # A report is deliverable when the ANALYST says so (order_companies.status ==
+    # 'completed', set by complete_company_work) — that is the human signal, and
+    # it is the table the send path already walks for the client's address.
+    # We also accept reports whose own status is terminal, to cover reports
+    # created outside the order flow.
+    #
+    # NOTE: reports.status is "complete", NOT "completed" (see generate.py) while
+    # order_companies.status IS "completed". Filtering reports on "completed"
+    # matches nothing — that mismatch made this queue permanently empty.
+    TERMINAL_REPORT_STATUSES = ("complete", "completed")
+
+    by_id: Dict[str, Dict[str, Any]] = {}
+
+    linked = _get(
+        f"{get_base_url()}/order_companies"
+        "?select=report_id,analyst_assigned,updated_at"
+        "&status=eq.completed&report_id=not.is.null&limit=500",
+        "order_companies",
+    )
+    linked_ids = [r["report_id"] for r in linked if r.get("report_id")]
+    if linked_ids:
+        ids = ",".join(f'"{i}"' for i in linked_ids)
+        for r in _get(
+            f"{get_base_url()}/reports?select={report_fields}&id=in.({ids})&limit=500",
+            "reports by order",
+        ):
+            by_id[r["id"]] = r
+
+    for r in _get(
+        f"{get_base_url()}/reports?select={report_fields}"
+        f"&status=in.({','.join(TERMINAL_REPORT_STATUSES)})"
+        "&order=updated_at.desc&limit=500",
+        "reports by status",
+    ):
+        by_id.setdefault(r["id"], r)
 
     items: List[Dict[str, Any]] = []
-    for r in rows:
+    delivered = 0
+    for r in by_id.values():
         if r.get("delivered_at"):
+            delivered += 1
             continue
         qa = _qa_state(r)
         items.append({
@@ -175,7 +213,19 @@ async def delivery_queue(user: Dict[str, Any] = Depends(get_current_user)):
             "sendable": qa["verdict"] == "pass",
         })
 
-    return {"items": items, "send_enabled": SEND_ENABLED}
+    items.sort(key=lambda x: x.get("completed_at") or "", reverse=True)
+
+    return {
+        "items": items,
+        "send_enabled": SEND_ENABLED,
+        "mail": transport_status(),
+        # So an empty queue is explainable instead of mysterious.
+        "diagnostics": {
+            "completed_order_companies": len(linked),
+            "candidate_reports": len(by_id),
+            "already_delivered": delivered,
+        },
+    }
 
 
 def _order_for_report(
@@ -466,6 +516,75 @@ async def send_report(
         # would email the client twice.
         "marked_delivered": marked,
     }
+
+
+@router.get("/diagnose")
+async def diagnose(user: Dict[str, Any] = Depends(get_current_user)):
+    """Why is a page empty? Counts only — no report content.
+
+    Answers the three questions an empty Delivery or Team page raises: are there
+    reports at all, what statuses do they carry, and did migration 011 actually
+    apply.
+    """
+    require_admin(user)
+
+    out: Dict[str, Any] = {}
+
+    try:
+        resp = requests.get(
+            f"{get_base_url()}/reports?select=status,updated_at,analyst&limit=2000",
+            headers=get_headers(), timeout=25,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+    except requests.RequestException as exc:
+        logger.error(f"[DELIVERY] diagnose failed: {exc}")
+        raise HTTPException(status_code=500, detail="Could not read the reports table")
+
+    statuses: Dict[str, int] = {}
+    for r in rows:
+        key = str(r.get("status") or "(null)")
+        statuses[key] = statuses.get(key, 0) + 1
+
+    now = datetime.now(timezone.utc)
+    def newer_than(days: int) -> int:
+        cutoff = (now - timedelta(days=days)).isoformat()
+        return sum(1 for r in rows if (r.get("updated_at") or "") >= cutoff)
+
+    out["reports_total"] = len(rows)
+    out["reports_by_status"] = statuses
+    out["updated_last_7d"] = newer_than(7)
+    out["updated_last_30d"] = newer_than(30)
+    out["updated_last_90d"] = newer_than(90)
+    out["reports_with_analyst"] = sum(1 for r in rows if (r.get("analyst") or "").strip())
+
+    # Did migration 011 land? Ask for one QA column and see if PostgREST knows it.
+    try:
+        probe = requests.get(
+            f"{get_base_url()}/reports?select=qa_verdict&limit=1",
+            headers=get_headers(), timeout=15,
+        )
+        out["migration_011_applied"] = probe.status_code == 200
+    except requests.RequestException:
+        out["migration_011_applied"] = None
+
+    try:
+        oc = requests.get(
+            f"{get_base_url()}/order_companies?select=status&limit=2000",
+            headers=get_headers(), timeout=25,
+        )
+        oc.raise_for_status()
+        oc_status: Dict[str, int] = {}
+        for r in oc.json():
+            key = str(r.get("status") or "(null)")
+            oc_status[key] = oc_status.get(key, 0) + 1
+        out["order_companies_by_status"] = oc_status
+    except requests.RequestException:
+        out["order_companies_by_status"] = None
+
+    out["mail"] = transport_status()
+    out["send_enabled"] = SEND_ENABLED
+    return out
 
 
 @router.get("/mail-status")

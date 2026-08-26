@@ -18,6 +18,7 @@ const PERIODS = [
     { days: 7, label: '7 days' },
     { days: 30, label: '30 days' },
     { days: 90, label: '90 days' },
+    { days: 365, label: '1 year' },
 ]
 
 // Score bands. Deliberately generous at the top: a credit report with zero
@@ -174,7 +175,14 @@ export default function TeamKPIPage() {
 
                         {analysts.length === 0 && (
                             <div className="p-8 text-center text-sm text-slate-500 dark:text-slate-400">
-                                No reports in this window.
+                                <div className="font-bold text-slate-700 dark:text-slate-200">
+                                    No reports in the last {days} days.
+                                </div>
+                                <div className="text-xs mt-1">
+                                    This page counts reports by their <code className="font-mono">updated_at</code>.
+                                    Try a longer window above — if a year is also empty, no reports have been
+                                    touched since the QA columns were added.
+                                </div>
                             </div>
                         )}
 
