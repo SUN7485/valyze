@@ -10,7 +10,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useReport } from '../context/ReportContext'
 import { deliveryAPI } from '../api/client'
-import { MODEL_QA, ANTHROPIC_VERSION, MAX_TOKENS_QA } from '../config/ai'
+import { MODEL_QA, ANTHROPIC_VERSION, MAX_TOKENS_QA, EFFORT_QA } from '../config/ai'
+import { runToCompletion, parseJsonResult } from '../lib/claudeTurns'
 
 const PROXY_URL = `${(import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')}/api/proxy`
 
@@ -80,25 +81,6 @@ const readProxyError = async (res) => {
     } catch {
         return `[${res.status}] HTTP ${res.status}`
     }
-}
-
-// The model is told to return bare JSON, but a stray sentence or a markdown fence
-// is the classic failure. Find the first { and bracket-count to its match,
-// skipping braces that live inside strings.
-const extractJsonObject = (text) => {
-    const start = text.indexOf('{')
-    if (start === -1) return null
-    let depth = 0, inStr = false, esc = false
-    for (let i = start; i < text.length; i++) {
-        const ch = text[i]
-        if (esc) { esc = false; continue }
-        if (ch === '\\') { esc = true; continue }
-        if (ch === '"') { inStr = !inStr; continue }
-        if (inStr) continue
-        if (ch === '{') depth++
-        else if (ch === '}') { depth--; if (depth === 0) return text.slice(start, i + 1) }
-    }
-    return null
 }
 
 /* A QA result is only usable if it has the shape we apply from. Anything else is
@@ -205,42 +187,65 @@ export default function QAPage() {
 
         try {
             setStage(1); setLogMsg('Claude is reviewing the report…')
-            const res = await fetch(PROXY_URL, {
-                method: 'POST',
-                signal: abortRef.current.signal,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': apiKey,
-                    'anthropic-version': ANTHROPIC_VERSION,
-                    ...(localStorage.getItem('valyze_token')
-                        ? { Authorization: `Bearer ${localStorage.getItem('valyze_token')}` }
-                        : {}),
-                },
-                body: JSON.stringify({
-                    model: MODEL_QA,
-                    max_tokens: MAX_TOKENS_QA,
-                    system: QA_SYSTEM_PROMPT,
-                    messages: [{
-                        role: 'user',
-                        content: [{
-                            type: 'text',
-                            text: `Review this Valyze credit report and return the QA JSON.\n\n${JSON.stringify(report, null, 2)}`,
-                        }],
-                    }],
-                }),
-            })
-            if (!res.ok) throw new Error(await readProxyError(res))
 
-            setStage(2); setLogMsg('Parsing findings…')
-            const data = await res.json()
-            if (!data?.content || !Array.isArray(data.content)) {
-                throw new Error(data?.error?.message || data?.detail || 'Invalid API response.')
+            // Cut-off findings lists, refusals and non-JSON replies are handled — and
+            // tested — in lib/claudeTurns.js, shared with the Extractor.
+            const send = async (body) => {
+                const res = await fetch(PROXY_URL, {
+                    method: 'POST',
+                    signal: abortRef.current.signal,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': apiKey,
+                        'anthropic-version': ANTHROPIC_VERSION,
+                        ...(localStorage.getItem('valyze_token')
+                            ? { Authorization: `Bearer ${localStorage.getItem('valyze_token')}` }
+                            : {}),
+                    },
+                    body: JSON.stringify(body),
+                })
+                if (!res.ok) throw new Error(await readProxyError(res))
+                return res.json()
             }
-            const text = data.content.filter(b => b.type === 'text').map(b => b.text).join('')
-            const jsonStr = extractJsonObject(text)
-            if (!jsonStr) throw new Error('The model did not return JSON.')
 
-            const parsed = JSON.parse(jsonStr)
+            let parsed
+            try {
+                const run = await runToCompletion({
+                    send,
+                    onProgress: setLogMsg,
+                    request: {
+                        model: MODEL_QA,
+                        max_tokens: MAX_TOKENS_QA,
+                        output_config: { effort: EFFORT_QA },
+                        system: QA_SYSTEM_PROMPT,
+                        messages: [{
+                            role: 'user',
+                            content: [{
+                                type: 'text',
+                                text: `Review this Valyze credit report and return the QA JSON.\n\n${JSON.stringify(report, null, 2)}`,
+                            }],
+                        }],
+                    },
+                })
+                setStage(2); setLogMsg('Parsing findings…')
+                parsed = parseJsonResult(run)
+            } catch (e) {
+                // The shared messages talk about documents; a QA run needs QA advice.
+                if (e.code === 'TRUNCATED') {
+                    throw new Error(
+                        'Claude ran out of output room before it finished the QA JSON.\n\n'
+                        + 'The findings list is longer than one response can hold:\n'
+                        + '• Re-run the check — it often fits on a second attempt\n'
+                        + '• Fix the clearest problems in the Editor first, then re-run: fewer findings means a shorter reply'
+                    )
+                }
+                if (e.code === 'REFUSAL') {
+                    throw new Error(e.message.replace('complete this request', 'review this report')
+                        .replace('• If it repeats, send the documents in smaller batches',
+                            '• If it repeats, review the report by hand and record the verdict manually'))
+                }
+                throw e
+            }
             const invalid = validateQaResult(parsed)
             if (invalid) throw new Error(`QA result rejected — ${invalid}`)
             if (!parsed.checked_at) parsed.checked_at = new Date().toISOString()

@@ -5,7 +5,8 @@ import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url'
 import { useDarkMode } from '../hooks/useDarkMode'
 import { companiesAPI, reportAPI } from '../api/client'
-import { MODEL_EXTRACT, MODEL_PATCH, TOOL_WEB_SEARCH, ANTHROPIC_VERSION, MAX_TOKENS_EXTRACT } from '../config/ai'
+import { MODEL_EXTRACT, MODEL_PATCH, TOOL_WEB_SEARCH, ANTHROPIC_VERSION, MAX_TOKENS_EXTRACT, EFFORT_EXTRACT } from '../config/ai'
+import { runToCompletion, parseJsonResult } from '../lib/claudeTurns'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -585,6 +586,11 @@ export default function ExtractorPage() {
   // because the 4.5 MB limit includes multipart overhead, headers, etc.
   const MAX_SAFE_COMPRESSED_BYTES = 3.5 * 1024 * 1024;
 
+  // Each Messages call is capped at 300s by the proxy; allow a little over that client-side.
+  const PER_CALL_TIMEOUT_MS = 360000;
+  // A whole run: the first call plus up to four continuations.
+  const RUN_TIMEOUT_MS = 15 * 60 * 1000;
+
   const extract = async () => {
     if (!files.length) return;
     if (!apiKey || !apiKey.startsWith("sk-ant-")) {
@@ -600,7 +606,9 @@ export default function ExtractorPage() {
     setStatus("loading"); setStage(0); setResult(null); setError(""); setElapsed(0); setLogMsg("Reading files…");
     clockRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
     abortRef.current = new AbortController();
-    const hardTimeout = setTimeout(() => abortRef.current?.abort(), 360000);
+    // Whole-run ceiling. Each call has its own limit (PER_CALL_TIMEOUT_MS); this only
+    // stops a run that keeps needing continuations from going on indefinitely.
+    const hardTimeout = setTimeout(() => abortRef.current?.abort(), RUN_TIMEOUT_MS);
 
     try {
       const blocks = [];
@@ -635,18 +643,16 @@ export default function ExtractorPage() {
 
       setStage(1); setLogMsg("Preparing payload…");
 
-      const msgs = [{ role: "user", content: blocks }];
-      let finalText = "";
-
       const apiBody = {
         model: MODEL_EXTRACT,
         max_tokens: MAX_TOKENS_EXTRACT,
+        output_config: { effort: EFFORT_EXTRACT },
         system: SYSTEM_PROMPT + (
           usePriorRef && priorRef.status === "done"
             ? priorReportPromptBlock(priorRef.data, priorRef.meta)
             : ""
         ),
-        messages: msgs,
+        messages: [{ role: "user", content: blocks }],
       };
       if (useWebSearch) apiBody.tools = [{ type: TOOL_WEB_SEARCH, name: "web_search" }];
 
@@ -664,82 +670,43 @@ export default function ExtractorPage() {
         );
       }
 
-      const maxLoops = useWebSearch ? 8 : 1;
-
-      for (let i = 0; i < maxLoops; i++) {
+      // One Messages call, through the proxy (gzipped) or straight to Anthropic.
+      // A run may make several of these (continuations, paused searches), so the
+      // time limit is per call — the proxy already caps each one at 300s.
+      const send = async (payload) => {
         const useUrl = proxyUrl || "https://api.anthropic.com/v1/messages";
         const isDirect = !proxyUrl;
-        const payload = i === 0 ? apiBody : { ...apiBody, messages: msgs };
-        let fetchBody = JSON.stringify(payload);
         const headers = buildApiHeaders(apiKey, isDirect);
-        if (!isDirect) {
-          const compressed = await compressBody(payload);
-          fetchBody = compressed;
+        const fetchBody = isDirect ? JSON.stringify(payload) : await compressBody(payload);
+        const callTimer = setTimeout(() => abortRef.current?.abort(), PER_CALL_TIMEOUT_MS);
+        try {
+          const res = await fetch(useUrl, { method: "POST", headers, signal: abortRef.current.signal, body: fetchBody });
+          if (!res.ok) throw new Error(await readProxyError(res));
+          const data = await res.json();
+          // The proxy has been seen wrapping the message in a one-element array.
+          return Array.isArray(data) ? data[0] : data;
+        } finally {
+          clearTimeout(callTimer);
         }
-        const res = await fetch(useUrl, {
-          method: "POST",
-          headers,
-          signal: abortRef.current.signal,
-          body: fetchBody,
+      };
+
+      // Cut-off answers, paused web searches and refusals are all handled — and
+      // tested — in lib/claudeTurns.js.
+      const run = await runToCompletion({ send, request: apiBody, onProgress: setLogMsg });
+      if (run.continuations || run.pauses) {
+        console.info("[extractor] run needed extra turns", {
+          continuations: run.continuations, pauses: run.pauses, usage: run.usage,
         });
-        if (!res.ok) throw new Error(await readProxyError(res));
-        let data = await res.json();
-        if (Array.isArray(data)) data = data[0];
-        if (!data || typeof data !== "object") {
-          throw new Error(`Invalid API response: ${JSON.stringify(data)}`);
-        }
-        // Validate response structure
-        if (!data.content || !Array.isArray(data.content)) {
-          const errMsg = data?.error?.message || data?.detail || JSON.stringify(data);
-          throw new Error(`Invalid API response: ${errMsg}`);
-        }
-        const txt = data.content.filter(b => b.type === "text").map(b => b.text).join("");
-        if (txt) finalText = txt;
-        if (data.stop_reason === "end_turn") break;
-        if (data.stop_reason === "tool_use") {
-          setLogMsg("Claude is searching the web…");
-          msgs.push({ role: "assistant", content: data.content });
-          msgs.push({ role: "user", content: data.content.filter(b => b.type === "tool_use").map(b => ({ type: "tool_result", tool_use_id: b.id, content: JSON.stringify(b.input) })) });
-        } else break;
       }
 
       setStage(2); setLogMsg("Parsing JSON…");
-
-      // Robust JSON extraction: find the first { then count brackets to find matching }
-      // (The old greedy regex /\{[\s\S]*\}/ captured trailing text, breaking JSON.parse)
-      const extractJsonObject = (text) => {
-        const start = text.indexOf("{");
-        if (start === -1) return null;
-        let depth = 0;
-        let inString = false;
-        let escape = false;
-        for (let i = start; i < text.length; i++) {
-          const ch = text[i];
-          if (escape) { escape = false; continue; }
-          if (ch === "\\") { escape = true; continue; }
-          if (ch === '"') { inString = !inString; continue; }
-          if (inString) continue;
-          if (ch === "{") depth++;
-          else if (ch === "}") {
-            depth--;
-            if (depth === 0) return text.slice(start, i + 1);
-}
-
-        }
-        // Fallback: if bracket matching failed, try greedy match
-        const greedy = text.match(/\{[\s\S]*\}/);
-        return greedy ? greedy[0] : null;
-      };
-
-      const jsonStr = extractJsonObject(finalText);
-      if (!jsonStr) throw new Error("No valid JSON returned. Try again — if it persists, try splitting large PDFs.");
-      setResult(JSON.parse(jsonStr));
+      setResult(parseJsonResult(run));
       setStage(3); setLogMsg("Done!"); setStatus("done");
 
       } catch (e) {
       let msg;
       if (e.name === "AbortError") {
-        msg = "Timed out after 6 minutes.\n\n• Make sure Web Search is OFF\n• Try splitting large PDFs\n• Try again";
+        msg = "The extraction timed out.\n\n• Make sure Web Search is OFF\n• Try splitting large PDFs\n• Try again";
       } else if (e.message?.includes("too large") || e.message?.includes("limit") || e.message?.includes("4.5 MB") || e.message?.includes("3.5 MB")) {
         // Pre-flight size check or server-side 413
         msg = e.message;

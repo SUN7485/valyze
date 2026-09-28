@@ -27,6 +27,13 @@ extraction), edit in the **Editor**, generate narratives/PDF, and bill via **Inv
 - **Extraction is client-side.** `ExtractorPage.jsx` calls Anthropic in the browser
   (via `/api/proxy`) using the user's own API key. `backend/api/extract.py` is legacy.
 - **Vercel body limit ~4.5 MB.** Large payloads 413. The proxy path gzips requests.
+- **Model ids live only in `frontend/src/config/ai.js`.** Changing one is not a config
+  tweak: Opus 5 thinks by default and `max_tokens` caps thinking *plus* the answer, and
+  newer tokenizers count the same text as up to 1.35× more tokens. The swap from Sonnet 4
+  silently truncated extractions mid-JSON. Re-check `max_tokens`/`effort` on every swap.
+- **Every Claude call from the browser goes through `frontend/src/lib/claudeTurns.js`**
+  (`runToCompletion` + `parseJsonResult`). It resumes `max_tokens` cut-offs and web-search
+  `pause_turn`s and never returns a nested fragment as the answer. Do not re-inline that loop.
 - **Auth model** — `backend/api/auth.py`. Users are persisted in Supabase `app_users`
   (seeded from 6 bootstrap accounts on first run; in-memory fallback if DB is down).
   Set `JWT_SECRET` in the deployment env. If it's unset in prod, `auth.py` derives a
@@ -46,6 +53,7 @@ extraction), edit in the **Editor**, generate narratives/PDF, and bill via **Inv
 
 ## Commands
 - Frontend: `cd frontend && npm run dev` · build/verify: `npx vite build`
+- Claude-call tests (no API key needed): `cd frontend && node --test src/lib/claudeTurns.test.mjs`
 - Backend local: `cd backend && uvicorn main:app --reload`
 - Backend syntax check: `python -c "import ast; ast.parse(open('api/<f>.py').read())"`
 
