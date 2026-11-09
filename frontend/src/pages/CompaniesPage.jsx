@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { companiesAPI } from '../api/client'
 import {
@@ -157,17 +157,25 @@ export default function CompaniesPage() {
     const [dossier, setDossier] = useState(null)
     const [dossierLoading, setDossierLoading] = useState(false)
 
+    // Only the newest request may update the screen: a slow response for an old
+    // query (or a previously clicked company) must not overwrite the current one.
+    const searchSeq = useRef(0)
+    const dossierSeq = useRef(0)
+
     const runSearch = useCallback(async (q) => {
+        const seq = ++searchSeq.current
         setLoading(true)
         setError('')
         try {
             const res = await companiesAPI.search(q)
+            if (seq !== searchSeq.current) return
             setCompanies(res.data?.companies || [])
         } catch (e) {
+            if (seq !== searchSeq.current) return
             setError(e.message || 'Failed to load companies')
             setCompanies([])
         } finally {
-            setLoading(false)
+            if (seq === searchSeq.current) setLoading(false)
         }
     }, [])
 
@@ -178,6 +186,7 @@ export default function CompaniesPage() {
     }, [query, runSearch])
 
     const openCompany = async (company) => {
+        const seq = ++dossierSeq.current
         setSelectedKey(company.key)
         setDossierLoading(true)
         setDossier(null)
@@ -187,12 +196,13 @@ export default function CompaniesPage() {
                 cr_number: company.cr_numbers?.[0],
                 country: company.countries?.[0],
             })
-            setDossier(res.data)
+            if (seq === dossierSeq.current) setDossier(res.data)
         } catch (e) {
+            if (seq !== dossierSeq.current) return
             setDossier(null)
             setError(e.message || 'Failed to load company')
         } finally {
-            setDossierLoading(false)
+            if (seq === dossierSeq.current) setDossierLoading(false)
         }
     }
 

@@ -15,7 +15,7 @@ const COUNTRY_OPTIONS = [
 ]
 
 export default function P05_CompanyProfile() {
-  const { getFieldValue, updateField, report, getArray } = useReport()
+  const { getFieldValue, updateField, report, getArray, updateArray } = useReport()
   const [initialized, setInitialized] = useState(false)
   const [crDuplicateWarning, setCrDuplicateWarning] = useState(null)
   const [companyDuplicateWarning, setCompanyDuplicateWarning] = useState(null)

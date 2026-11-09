@@ -127,6 +127,7 @@ export default function App() {
           portalToken={portalToken}
           onSubmitSuccess={handleSubmitSuccess}
           onBack={goToDashboard}
+          onSessionExpired={handleSessionExpired}
         />
       )}
 

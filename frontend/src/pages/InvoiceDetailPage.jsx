@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Download, Loader2, RefreshCw, Shield, X, Edit3, Save } from 'lucide-react'
 import { invoicesAPI } from '../api/client'
+import { useAuth } from '../context/AuthContext'
+import { openPendingWindow, showHtmlInWindow } from '../lib/htmlDocument'
 
 const STATUS_STYLES = {
     draft: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
@@ -68,6 +70,20 @@ function getDiscountPct(invoice, subtotal, discountAmount) {
     if (Number.isFinite(discountAmount) && subtotal > 0) return Number(((discountAmount / subtotal) * 100).toFixed(2))
     return 0
 }
+// Mirrors the server (api/invoices.py), which ignores client totals and
+// recomputes: line = qty × unit_price, subtotal = Σ lines, discount capped at the
+// subtotal, total = subtotal − discount. Negative inputs are clamped to 0.
+function recomputeDraft(draft) {
+    const line_items = draft.line_items.map(item => {
+        const qty = Math.max(0, Number(item.qty) || 0)
+        const unit = Math.max(0, Number(item.unit_price) || 0)
+        return { ...item, total: qty * unit }
+    })
+    const subtotal = line_items.reduce((sum, it) => sum + it.total, 0)
+    const discount = Math.min(Math.max(0, Number(draft.discount_amount) || 0), subtotal)
+    return { ...draft, line_items, subtotal, total: subtotal - discount }
+}
+
 function getTotals(invoice, lineItems) {
     const subtotalFromLines = lineItems.reduce((sum, item) => sum + calcLineTotal(item), 0)
     const subtotal = Number(invoice?.subtotal ?? subtotalFromLines) || subtotalFromLines
@@ -76,16 +92,11 @@ function getTotals(invoice, lineItems) {
     const discountAmount = Number.isFinite(explicitDiscount) ? explicitDiscount : Math.max(0, subtotal - total)
     return { subtotal, discountAmount, discountPct: getDiscountPct(invoice, subtotal, discountAmount), total }
 }
-function extractHtml(response) {
-    if (typeof response.data === 'string') return response.data
-    if (typeof response.data?.html === 'string') return response.data.html
-    if (response.data?.invoice_html) return response.data.invoice_html
-    return ''
-}
 
 export default function InvoiceDetailPage() {
     const { invoiceId } = useParams()
     const navigate = useNavigate()
+    const { isAdmin } = useAuth()
     const [invoice, setInvoice] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -117,7 +128,7 @@ export default function InvoiceDetailPage() {
 
     const startEdit = () => {
         if (!invoice) return
-        setEditDraft({
+        setEditDraft(recomputeDraft({
             unit_price: Number(invoice.unit_price) || 0,
             subtotal: Number(invoice.subtotal) || 0,
             discount_amount: Number(invoice.discount_amount) || 0,
@@ -133,7 +144,7 @@ export default function InvoiceDetailPage() {
             report_type: invoice.report_type || '',
             company_count: invoice.company_count || lineItems.length || 0,
             currency: invoice.currency || 'USD',
-        })
+        }))
         setEditing(true)
     }
 
@@ -141,15 +152,7 @@ export default function InvoiceDetailPage() {
         setEditDraft(prev => {
             const updated = { ...prev, line_items: [...prev.line_items] }
             updated.line_items[index] = { ...updated.line_items[index], [field]: value }
-            if (field === 'qty' || field === 'unit_price') {
-                const qty = Number(updated.line_items[index].qty) || 0
-                const unit = Number(updated.line_items[index].unit_price) || 0
-                updated.line_items[index].total = qty * unit
-            }
-            const newSubtotal = updated.line_items.reduce((s, it) => s + (Number(it.total) || 0), 0)
-            updated.subtotal = newSubtotal
-            updated.total = Math.max(0, newSubtotal - (Number(updated.discount_amount) || 0))
-            return updated
+            return recomputeDraft(updated)
         })
     }
 
@@ -182,27 +185,20 @@ export default function InvoiceDetailPage() {
     }
 
     const handleDownloadPdf = async () => {
+        // Open the tab before any await: a window.open() after an await has lost
+        // the click's user gesture and the pop-up blocker eats it.
+        const win = openPendingWindow('Preparing invoice…')
+        if (!win) { setError('Please allow pop-ups for this site to download the PDF.'); return }
         try {
             setDownloading(true)
             setError('')
-            const token = localStorage.getItem('valyze_token') || ''
-            const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
-            const url = `${baseUrl}/api/invoices/${invoiceId}/html`
-            const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-            const rawHtml = await resp.text()
+            const resp = await invoicesAPI.getHtml(invoiceId)
+            const rawHtml = typeof resp.data === 'string' ? resp.data : ''
             if (!rawHtml) throw new Error('Invoice HTML was empty')
-            // Open in new tab for print/save as PDF
-            const win = window.open('', '_blank')
-            if (win) {
-                win.document.write(rawHtml)
-                win.document.close()
-                win.focus()
-                setTimeout(() => {
-                    try { win.print() } catch (err) { /* user can Ctrl+P */ }
-                }, 500)
-            }
+            // Sandboxed view with a print button; prints once rendered.
+            showHtmlInWindow(win, rawHtml, { title: `Invoice ${invoice?.invoice_number || ''}`.trim(), autoPrint: true })
         } catch (e) {
+            win.close()
             setError(`Failed to download: ${e.message}`)
         } finally {
             setDownloading(false)
@@ -247,7 +243,7 @@ export default function InvoiceDetailPage() {
 
     const displayItems = editing ? editDraft.line_items : lineItems
     const displaySubtotal = editing ? editDraft.subtotal : totals.subtotal
-    const displayDiscount = editing ? editDraft.discount_amount : totals.discountAmount
+    const displayDiscount = editing ? editDraft.subtotal - editDraft.total : totals.discountAmount
     const displayTotal = editing ? editDraft.total : totals.total
     const discountPct = editing ? getDiscountPct(editDraft, editDraft.subtotal, editDraft.discount_amount) : totals.discountPct
 
@@ -269,7 +265,7 @@ export default function InvoiceDetailPage() {
                     >
                         <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
                     </button>
-                    {!editing ? (
+                    {!isAdmin ? null : !editing ? (
                         <button onClick={startEdit} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-black uppercase tracking-wider hover:scale-[1.01] active:scale-95 transition-all disabled:opacity-50 shadow-md">
                             <Edit3 size={14} /> Edit
                         </button>
@@ -286,7 +282,7 @@ export default function InvoiceDetailPage() {
                         {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                         Download PDF
                     </button>
-                    {!editing && (
+                    {isAdmin && !editing && (
                         <>
                             <button
                                 onClick={() => handleUpdateStatus('sent')}

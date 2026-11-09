@@ -2,49 +2,57 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { CheckCircle2, ShieldCheck } from 'lucide-react'
 import { reportAPI } from '../api/client'
+import { printHtml } from '../lib/htmlDocument'
 import { useReport } from '../context/ReportContext'
 
 export default function DonePage() {
     const { reportId } = useParams()
     const navigate = useNavigate()
-    const { report, loadReport, clearReport, getFieldValue } = useReport()
+    const { report, loadReport, getFieldValue } = useReport()
 
     const [loading, setLoading] = useState(true)
     const [pdfStatus, setPdfStatus] = useState(null)
     const [generating, setGenerating] = useState(false)
+    const [actionError, setActionError] = useState('')
 
     useEffect(() => {
-        if (reportId) {
-            loadReport(reportId)
-            checkPDF()
-        }
-    }, [reportId])
+        if (!reportId) return
+        let cancelled = false
+        setLoading(true)
+        Promise.all([
+            loadReport(reportId),
+            reportAPI.getPDFStatus(reportId).then(res => res.data).catch(() => null),
+        ]).then(([, status]) => {
+            if (cancelled) return
+            setPdfStatus(status)
+            setLoading(false)
+        })
+        return () => { cancelled = true }
+    }, [reportId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    const checkPDF = async () => {
-        try {
-            const res = await reportAPI.getPDFStatus(reportId)
-            setPdfStatus(res.data)
-        } catch {}
-    }
-
+    // The PDF is produced in the browser: the server renders the report HTML and
+    // the print dialog's "Save as PDF" writes the file.
     const handleGeneratePDF = async () => {
         setGenerating(true)
+        setActionError('')
         try {
-            await reportAPI.generatePDF(reportId)
-            await checkPDF()
+            const res = await reportAPI.generatePDF(reportId)
+            if (!res.data?.html) throw new Error('No HTML returned')
+            printHtml(res.data.html)
         } catch (err) {
-            alert('PDF generation failed: ' + err.message)
+            setActionError('PDF generation failed: ' + err.message)
         } finally {
             setGenerating(false)
         }
     }
 
-    const handleDownload = () => {
-        window.location.href = reportAPI.getDownloadURL(reportId)
-    }
-
-    const handlePreview = () => {
-        window.open(reportAPI.getPreviewURL(reportId), '_blank')
+    const handlePreview = async () => {
+        setActionError('')
+        try {
+            await reportAPI.openPreview(reportId)
+        } catch (err) {
+            setActionError(err.message || 'Could not open the preview')
+        }
     }
 
     const stats = {
@@ -104,25 +112,25 @@ export default function DonePage() {
                 <div className="card-solid p-5 mb-4">
                     <h2 className="text-base font-semibold mb-3 text-[var(--color-text)]">PDF Report</h2>
                     
-                    {pdfStatus?.pdf_exists ? (
+                    {actionError && (
+                        <p className="text-rose-600 dark:text-rose-400 text-sm font-medium mb-3">{actionError}</p>
+                    )}
+                    {pdfStatus?.can_generate ? (
                         <div className="space-y-3">
-                            <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">
-                                PDF ready ({pdfStatus.pdf_size_kb} KB)
+                            <p className="text-[var(--color-text-secondary)] text-sm">
+                                The PDF is created in your browser — choose "Save as PDF" in the print dialog.
                             </p>
                             <div className="flex gap-3">
                                 <button
-                                    onClick={() => window.open(
-                                        reportAPI.getDownloadURL(reportId)
-                                    )}
-                                    className="px-5 py-2.5 bg-primary text-white 
-                                               rounded-lg hover:brightness-110 font-semibold text-sm transition-all"
+                                    onClick={handleGeneratePDF}
+                                    disabled={generating}
+                                    className="px-5 py-2.5 bg-primary text-white
+                                               rounded-lg hover:brightness-110 font-semibold text-sm transition-all disabled:opacity-50"
                                 >
-                                    Download PDF
+                                    {generating ? 'Preparing PDF...' : 'Download PDF'}
                                 </button>
                                 <button
-                                    onClick={() => window.open(
-                                        reportAPI.getPreviewURL(reportId), '_blank'
-                                    )}
+                                    onClick={handlePreview}
                                     className="px-5 py-2.5 border border-[var(--color-border)] 
                                                rounded-lg hover:bg-[var(--color-border-soft)] text-sm font-semibold transition-all"
                                 >
@@ -131,20 +139,9 @@ export default function DonePage() {
                             </div>
                         </div>
                     ) : (
-                        <div className="space-y-3">
-                            <p className="text-[var(--color-text-muted)] text-sm">
-                                PDF not yet generated
-                            </p>
-                            <button
-                                onClick={handleGeneratePDF}
-                                disabled={generating}
-                                className="px-5 py-2.5 bg-emerald-600 text-white 
-                                           rounded-lg hover:bg-emerald-700 font-semibold text-sm transition-all
-                                           disabled:opacity-50"
-                            >
-                                {generating ? 'Generating PDF...' : 'Generate PDF Now'}
-                            </button>
-                        </div>
+                        <p className="text-[var(--color-text-muted)] text-sm">
+                            {pdfStatus ? 'This report has no company data yet — extract or enter data first.' : 'Could not check the PDF status.'}
+                        </p>
                     )}
                 </div>
             </div>
@@ -159,7 +156,7 @@ export default function DonePage() {
                     ← Back to Editor
                 </button>
                 <button
-                    onClick={() => navigate('/upload')}
+                    onClick={() => navigate('/')}
                     className="px-4 py-2 border border-[var(--color-border)] rounded-lg 
                                hover:bg-[var(--color-border-soft)] text-[var(--color-text-secondary)] text-sm font-medium transition-all"
                 >

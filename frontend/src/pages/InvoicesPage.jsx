@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Download, Eye, Loader2, RefreshCw, FileText, X, Wallet, CheckCircle2, Clock } from 'lucide-react'
 import { invoicesAPI } from '../api/client'
+import { useAuth } from '../context/AuthContext'
+import { printHtml } from '../lib/htmlDocument'
 
 const STATUS_STYLES = {
     draft: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
@@ -64,39 +66,9 @@ function getTotal(invoice) {
     return invoice.total_amount ?? invoice.total ?? invoice.grand_total ?? ''
 }
 
-function extractHtml(response) {
-    if (typeof response.data === 'string') return response.data
-    if (typeof response.data?.html === 'string') return response.data.html
-    if (response.data?.invoice_html) return response.data.invoice_html
-    return ''
-}
-
-function downloadHtmlFile(html, filename) {
-    try {
-        const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = filename
-        link.style.display = 'none'
-        document.body.appendChild(link)
-        link.click()
-        setTimeout(() => {
-            document.body.removeChild(link)
-            URL.revokeObjectURL(url)
-        }, 200)
-    } catch (e) {
-        console.error('[InvoiceDownload] Blob download failed:', e)
-        const win = window.open('', '_blank')
-        if (win) {
-            win.document.write(html)
-            win.document.close()
-        }
-    }
-}
-
 export default function InvoicesPage() {
     const navigate = useNavigate()
+    const { isAdmin } = useAuth()
     const [invoices, setInvoices] = useState([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -144,36 +116,12 @@ export default function InvoicesPage() {
         try {
             setDownloading(prev => ({ ...prev, [invoice.id]: true }))
             setError('')
-            const token = localStorage.getItem('valyze_token') || ''
-            const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
-            const url = `${baseUrl}/api/invoices/${invoice.id}/html`
-            const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-            if (!response.ok) throw new Error(`HTTP ${response.status}`)
-            const html = await response.text()
+            const response = await invoicesAPI.getHtml(invoice.id)
+            const html = typeof response.data === 'string' ? response.data : ''
             if (!html) throw new Error('Invoice HTML was empty')
-            // Use window.print() to open print dialog → user can Save as PDF
-            const iframe = document.createElement('iframe')
-            iframe.style.position = 'fixed'
-            iframe.style.top = '-9999px'
-            iframe.style.left = '-9999px'
-            iframe.style.width = '210mm'
-            iframe.style.height = '297mm'
-            document.body.appendChild(iframe)
-            const doc = iframe.contentDocument || iframe.contentWindow.document
-            doc.open()
-            doc.write(html)
-            doc.close()
-            setTimeout(() => {
-                try {
-                    iframe.contentWindow.focus()
-                    iframe.contentWindow.print()
-                } catch (err) {
-                    // Fallback: open in new tab
-                    const win = window.open('', '_blank')
-                    if (win) { win.document.write(html); win.document.close() }
-                }
-                setTimeout(() => document.body.removeChild(iframe), 1200)
-            }, 800)
+            // Print dialog → "Save as PDF". Rendered in a sandboxed iframe so the
+            // server HTML never runs with this app's origin.
+            printHtml(html)
         } catch (e) {
             console.error('[InvoiceDownload] Error:', e)
             setError(`Failed to download: ${e.message}`)
@@ -302,12 +250,14 @@ export default function InvoicesPage() {
                                                     <button onClick={() => handleDownload(invoice)} disabled={downloading[invoice.id]} className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-50" title="Download Invoice">
                                                         {downloading[invoice.id] ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
                                                     </button>
+                                                    {isAdmin && <>
                                                     <button onClick={() => handleUpdateStatus(invoice, 'sent')} disabled={status !== 'draft' || updating[invoice.id]} className="px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 hover:bg-blue-100 hover:text-blue-700 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-blue-900/30 dark:hover:text-blue-300 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
                                                         {updating[invoice.id] ? 'Updating' : 'Mark Sent'}
                                                     </button>
                                                     <button onClick={() => handleUpdateStatus(invoice, 'paid')} disabled={status !== 'sent' || updating[invoice.id]} className="px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 hover:bg-emerald-100 hover:text-emerald-700 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-emerald-900/30 dark:hover:text-emerald-300 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
                                                         {updating[invoice.id] ? 'Updating' : 'Mark Paid'}
                                                     </button>
+                                                    </>}
                                                 </div>
                                             </td>
                                         </tr>

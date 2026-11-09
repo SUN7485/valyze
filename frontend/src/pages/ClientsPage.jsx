@@ -6,6 +6,7 @@ import {
   CheckCircle2, ArrowRight,
 } from 'lucide-react'
 import { clientsAPI } from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
 // Visual config per client type
 const TYPE_STYLE = {
@@ -367,13 +368,15 @@ function ClientCard({ client, selected, onToggleSelect, onView, onEdit, onDelete
                 >
                     <Edit3 size={16} />
                 </button>
-                <button
-                    onClick={onDelete}
-                    className="p-2 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-all"
-                    title="Delete"
-                >
-                    <Trash2 size={16} />
-                </button>
+                {onDelete && (
+                    <button
+                        onClick={onDelete}
+                        className="p-2 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-all"
+                        title="Delete"
+                    >
+                        <Trash2 size={16} />
+                    </button>
+                )}
             </div>
         </div>
     )
@@ -403,6 +406,7 @@ function StatCard({ icon: Icon, label, value, tint }) {
 
 export default function ClientsPage() {
     const navigate = useNavigate()
+    const { isAdmin } = useAuth()
     const [clients, setClients] = useState([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -458,7 +462,11 @@ export default function ClientsPage() {
 
     const handleDelete = async () => {
         if (!deleteTarget.clientId) return
-        await clientsAPI.delete(deleteTarget.clientId)
+        try {
+            await clientsAPI.delete(deleteTarget.clientId)
+        } catch (e) {
+            setError('Delete failed: ' + e.message)
+        }
         setDeleteTarget({ open: false, clientId: null, name: '' })
         fetchClients()
     }
@@ -508,7 +516,7 @@ export default function ClientsPage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    {selectedIds.size > 0 && (
+                    {isAdmin && selectedIds.size > 0 && (
                         <button
                             onClick={handleBulkDelete}
                             disabled={savingAction.bulkDelete}
@@ -599,7 +607,7 @@ export default function ClientsPage() {
                             onToggleSelect={() => toggleSelect(client.id)}
                             onView={() => navigate(`/clients/${client.id}`)}
                             onEdit={() => { setEditingClient(client); setShowForm(true) }}
-                            onDelete={() => setDeleteTarget({ open: true, clientId: client.id, name: client.client_name })}
+                            onDelete={isAdmin ? () => setDeleteTarget({ open: true, clientId: client.id, name: client.client_name }) : null}
                         />
                     ))}
                 </div>

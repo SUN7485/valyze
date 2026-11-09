@@ -1,8 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, Ban, CalendarClock, CheckCircle2, Clock, Download, Edit3, ExternalLink, FileCheck, FileText, Loader2, PlayCircle, PencilLine, RefreshCw, Trash2, User, UserCheck, X } from 'lucide-react'
-import { invoicesAPI, ordersAPI } from '../api/client'
+import { invoicesAPI, ordersAPI, downloadOrderSubmission } from '../api/client'
+import OrderFileLinksModal from '../components/OrderFileLinksModal'
 import { useAuth } from '../context/AuthContext'
+import { useAnalysts } from '../hooks/useAnalysts'
+import { normalizeStatus, formatDate, formatDateTime, analystLabel } from '../lib/orderHelpers'
+import { openPendingWindow, showHtmlInWindow } from '../lib/htmlDocument'
 
 const STATUS_LABELS = {
     pending: 'Pending',
@@ -11,15 +15,6 @@ const STATUS_LABELS = {
     invoiced: 'Invoiced',
     cancelled: 'Cancelled',
 }
-
-const ANALYST_OPTIONS = [
-    { value: '', label: 'Unassigned' },
-    { value: 'waleed@valyze.com', label: 'Waleed' },
-    { value: 'mohamed@valyze.com', label: 'Mohamed' },
-    { value: 'mahmoud@valyze.com', label: 'Mahmoud' },
-    { value: 'amani@valyze.com', label: 'Amani' },
-    { value: 'sally@valyze.com', label: 'Sally' },
-]
 
 const SERVICE_LEVEL_OPTIONS = [
     { value: 'basic', label: 'Basic' },
@@ -56,26 +51,8 @@ const COUNTRY_FLAGS = {
     gb: '🇬🇧', uk: '🇬🇧', 'united kingdom': '🇬🇧',
 }
 
-function normalizeStatus(status) {
-    return String(status || 'pending').toLowerCase()
-}
-
 function normalizeServiceLevel(level) {
     return String(level || 'standard').toLowerCase()
-}
-
-function formatDate(value) {
-    if (!value) return '-'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return '-'
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function formatDateTime(value) {
-    if (!value) return '-'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return '-'
-    return date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function formatFileSize(value) {
@@ -223,11 +200,12 @@ function InfoItem({ label, value, icon }) {
 }
 
 function OrderHeaderCard({ order, onEditNotes, savingNotes }) {
+    const { analysts } = useAnalysts()
     const progress = getProgress(order)
     const client = order?.client || {}
     const clientId = order?.client_id || client?.id
     const clientName = client?.client_name || order?.client_name || 'Unknown Client'
-    const analyst = order?.auto_assigned_analyst || order?.analyst_assigned || 'Unassigned'
+    const analyst = analystLabel(analysts, order?.auto_assigned_analyst || order?.analyst_assigned)
 
     return (
         <div className="glass-card p-6 mb-6 cursor-default">
@@ -502,13 +480,14 @@ function CompaniesSection({ orderId, companies, onStarted, onCompleted }) {
     )
 }
 
-function BottomActionBar({ order, onGenerateInvoice, generating }) {
+function BottomActionBar({ order, onGenerateInvoice, generating, isAdmin }) {
     const navigate = useNavigate()
     const companies = order?.companies || []
     const allCompaniesComplete = companies.length > 0 && companies.every(company => normalizeStatus(company.status) === 'completed')
     const hasInvoice = Boolean(order?.invoice)
     const invoiceId = getInvoiceId(order)
-    const canGenerateInvoice = allCompaniesComplete && !hasInvoice && order?.status !== 'invoiced'
+    // Generating an invoice is admin-only on the server.
+    const canGenerateInvoice = isAdmin && allCompaniesComplete && !hasInvoice && order?.status !== 'invoiced'
 
     if (!canGenerateInvoice && !hasInvoice) return null
 
@@ -548,8 +527,11 @@ function BottomActionBar({ order, onGenerateInvoice, generating }) {
     )
 }
 
-function AdminActionsPanel({ order, onUpdated, isAdmin }) {
+// Admin-only panel: reassigning, service level, cancelling and deleting are all
+// admin actions on the server.
+function AdminActionsPanel({ order, onUpdated }) {
     const navigate = useNavigate()
+    const { analysts } = useAnalysts()
     const [serviceLevel, setServiceLevel] = useState(order?.service_level || 'standard')
     const [analyst, setAnalyst] = useState(order?.auto_assigned_analyst || '')
     const [saving, setSaving] = useState(null)
@@ -585,6 +567,20 @@ function AdminActionsPanel({ order, onUpdated, isAdmin }) {
         }
     }
 
+    // The dedicated cancel endpoint also cancels the order's open companies.
+    async function handleCancel() {
+        setSaving('cancel')
+        setError('')
+        try {
+            await ordersAPI.cancel(order.id)
+            onUpdated({ status: 'cancelled' }, { refetch: true })
+        } catch (e) {
+            setError(e.message || 'Failed to cancel order')
+        } finally {
+            setSaving(null)
+        }
+    }
+
     return (
         <div className="glass-card p-6 mb-6 cursor-default">
             <h2 className="text-xl font-black text-slate-800 dark:text-white tracking-tight mb-1">Order Management</h2>
@@ -608,13 +604,17 @@ function AdminActionsPanel({ order, onUpdated, isAdmin }) {
                         disabled={isCancelled}
                         className="w-full px-3 py-2 bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg text-sm dark:text-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary mb-3 disabled:opacity-50"
                     >
-                        {ANALYST_OPTIONS.map(a => (
-                            <option key={a.value} value={a.value} className="bg-white dark:bg-slate-900">{a.label}</option>
+                        {!analyst && <option value="" disabled className="bg-white dark:bg-slate-900">Choose an analyst…</option>}
+                        {analyst && !analysts.some(a => a.email === analyst) && (
+                            <option value={analyst} className="bg-white dark:bg-slate-900">{analyst}</option>
+                        )}
+                        {analysts.map(a => (
+                            <option key={a.email} value={a.email} className="bg-white dark:bg-slate-900">{a.name || a.email}</option>
                         ))}
                     </select>
                     <button
-                        onClick={() => applyUpdate({ auto_assigned_analyst: analyst || null }, 'analyst')}
-                        disabled={saving === 'analyst' || isCancelled}
+                        onClick={() => applyUpdate({ auto_assigned_analyst: analyst }, 'analyst')}
+                        disabled={saving === 'analyst' || isCancelled || !analyst}
                         className="w-full py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg font-black text-[10px] uppercase tracking-widest hover:opacity-80 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
                     >
                         {saving === 'analyst' ? <Loader2 size={12} className="animate-spin" /> : <UserCheck size={12} />}
@@ -676,7 +676,7 @@ function AdminActionsPanel({ order, onUpdated, isAdmin }) {
                                     No
                                 </button>
                                 <button
-                                    onClick={() => { setConfirmCancel(false); applyUpdate({ status: 'cancelled' }, 'cancel') }}
+                                    onClick={() => { setConfirmCancel(false); handleCancel() }}
                                     disabled={saving === 'cancel'}
                                     className="flex-1 py-2 bg-rose-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
                                 >
@@ -688,7 +688,7 @@ function AdminActionsPanel({ order, onUpdated, isAdmin }) {
                 </div>
 
                 {/* Delete order (admin only) */}
-                {isAdmin && (
+                {(
                     <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 p-4">
                         <div className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">
                             <Trash2 size={12} /> Delete Order
@@ -734,8 +734,7 @@ function AdminActionsPanel({ order, onUpdated, isAdmin }) {
 export default function OrderDetailPage() {
     const navigate = useNavigate()
     const { orderId } = useParams()
-    const { user } = useAuth()
-    const isAdmin = ['admin', 'super_admin'].includes(user?.role)
+    const { isAdmin } = useAuth()
     const [order, setOrder] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -744,19 +743,22 @@ export default function OrderDetailPage() {
     const [generatingInvoice, setGeneratingInvoice] = useState(false)
     const [companyActions, setCompanyActions] = useState({})
     const [downloading, setDownloading] = useState(false)
+    const [fileLinks, setFileLinks] = useState(null)
 
+    // Only the newest request may update the page (order switched / refresh).
+    const requestSeq = useRef(0)
     const fetchOrder = useCallback(async () => {
         if (!orderId) return
-
+        const seq = ++requestSeq.current
         try {
             setLoading(true)
             setError('')
             const response = await ordersAPI.getOne(orderId)
-            setOrder(response.data)
+            if (seq === requestSeq.current) setOrder(response.data)
         } catch (e) {
-            setError(e.message || 'Failed to load order')
+            if (seq === requestSeq.current) setError(e.message || 'Failed to load order')
         } finally {
-            setLoading(false)
+            if (seq === requestSeq.current) setLoading(false)
         }
     }, [orderId])
 
@@ -775,6 +777,8 @@ export default function OrderDetailPage() {
         updateCompany(companyId, { report_id: reportId, status: 'in_progress' })
     }, [updateCompany])
 
+    // The complete endpoint returns the order's status afterwards (`order_status`),
+    // so the header and invoice bar update without a reload.
     const handleCompanyCompleted = useCallback((companyId, progress, orderStatus) => {
         updateCompany(companyId, { status: 'completed' })
         setOrder(current => ({
@@ -782,7 +786,9 @@ export default function OrderDetailPage() {
             progress: progress || current.progress,
             status: orderStatus || current.status,
         }))
-    }, [updateCompany])
+        // Completing the last company can create the invoice server-side; pick it up.
+        if (orderStatus && orderStatus !== 'in_progress' && orderStatus !== 'pending') fetchOrder()
+    }, [updateCompany, fetchOrder])
 
     const handleSaveNotes = async (data) => {
         if (!order) return
@@ -805,14 +811,8 @@ export default function OrderDetailPage() {
         try {
             setDownloading(true)
             setError('')
-            const response = await ordersAPI.downloadOrder(order.id)
-            const blob = new Blob([response.data], { type: 'application/zip' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `${order.order_number || order.id}.zip`
-            a.click()
-            URL.revokeObjectURL(url)
+            const links = await downloadOrderSubmission(order.id, `${order.order_number || order.id}.zip`)
+            if (links) setFileLinks(links)
         } catch (e) {
             setError(e.message || 'Failed to download submission')
         } finally {
@@ -825,17 +825,13 @@ export default function OrderDetailPage() {
         // Open the tab synchronously, inside the click handler: a window.open()
         // issued after an await has lost the user gesture and the pop-up blocker
         // eats it — which shows up only on slow connections.
-        const w = window.open('', '_blank')
+        const w = openPendingWindow('Preparing the order document…')
         if (!w) { setError('Please allow pop-ups to download the PDF.'); return }
-        w.document.write("<p style='font:16px sans-serif;padding:24px'>Preparing the order document…</p>")
         try {
             setError('')
             const res = await ordersAPI.getOrderDocumentHtml(order.id)
-            w.document.open()
-            w.document.write(res.data)
-            w.document.close()
-            w.focus()
-            setTimeout(() => w.print(), 400)
+            // Sandboxed — the server HTML never runs with this app's origin.
+            showHtmlInWindow(w, res.data, { title: `Order ${order.order_number || order.id}`, autoPrint: true })
         } catch (e) {
             w.close()
             setError(e.message || 'Failed to open PDF view')
@@ -878,6 +874,7 @@ export default function OrderDetailPage() {
 
     return (
         <div className="py-8 px-6 max-w-7xl mx-auto pb-36">
+            <OrderFileLinksModal files={fileLinks} onClose={() => setFileLinks(null)} />
             <button
                 onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/orderds'))}
                 className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-primary transition-colors"
@@ -952,11 +949,15 @@ export default function OrderDetailPage() {
 
                     <OrderHeaderCard order={order} onEditNotes={() => setNotesOpen(true)} savingNotes={savingNotes} />
 
-                    <AdminActionsPanel
-                        order={order}
-                        onUpdated={(patch) => setOrder(current => ({ ...current, ...patch }))}
-                        isAdmin={isAdmin}
-                    />
+                    {isAdmin && (
+                        <AdminActionsPanel
+                            order={order}
+                            onUpdated={(patch, opts) => {
+                                setOrder(current => ({ ...current, ...patch }))
+                                if (opts?.refetch) fetchOrder()
+                            }}
+                        />
+                    )}
 
                     <OrderFilesSection files={order.files || []} onDownloadAll={handleDownloadSubmission} downloading={downloading} />
 
@@ -971,6 +972,7 @@ export default function OrderDetailPage() {
                         order={order}
                         onGenerateInvoice={handleGenerateInvoice}
                         generating={generatingInvoice}
+                        isAdmin={isAdmin}
                     />
 
                     <NotesModal

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react'
+import React, { createContext, useContext, useState, useCallback, useMemo, useRef } from 'react'
 import { reportAPI } from '../api/client'
 
 const ReportContext = createContext(null)
@@ -72,6 +72,13 @@ const PAGE_FIELDS = {
      20: ['company_name']
 }
 
+// The id a loaded report belongs to (GET /report/{id} returns it as report_id).
+const idOf = (report) => (report ? String(report.report_id ?? report.id ?? '') : '')
+
+const CONFLICT_MESSAGE =
+    'Someone else changed this report while you were editing. It has been reloaded with ' +
+    'their changes — please check the field and re-apply your edit.'
+
 export function ReportProvider({ children }) {
 
     const [reportId, setReportId] = useState(
@@ -86,52 +93,130 @@ export function ReportProvider({ children }) {
         }
     )
     const [report, setReport] = useState(null)
-    const [reportUpdatedAt, setReportUpdatedAt] = useState(null)
-    const [conflictModal, setConflictModal] = useState(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
     const [extractionStats, setExtractionStats] = useState(null)
+    // Autosave state shown in the editor header: pending edits and the last failure.
+    const [pendingSaves, setPendingSaves] = useState(0)
+    const [saveError, setSaveError] = useState(null)
 
-    // Save reportId to localStorage
+    // The id whose data `report` may hold. Responses for any other id are dropped,
+    // so opening report A then B never shows (or writes) A's data under B.
+    const currentIdRef = useRef(reportId)
+
+    /* Per-report edit state:
+         updatedAt — the server's updated_at as this browser last saw it, sent as
+                     last_known_updated_at so a concurrent edit by someone else 409s
+         queue     — a promise chain. Edits to one report run strictly one after
+                     another, each with the updated_at the previous one returned, so
+                     our own debounced saves never 409 each other. */
+    const editStateRef = useRef({})
+    const editState = (id) => {
+        if (!editStateRef.current[id]) editStateRef.current[id] = { updatedAt: null, queue: Promise.resolve() }
+        return editStateRef.current[id]
+    }
+
+    const enqueue = (id, task) => {
+        const st = editState(id)
+        const run = st.queue.then(task, task)
+        st.queue = run.catch(() => {})
+        return run
+    }
+
+    // Save reportId to localStorage. Switching to a different report clears the
+    // one in memory immediately — never render A's fields under B's URL.
     const saveReportId = useCallback((id) => {
-        setReportId(id)
-        if (id) {
-            localStorage.setItem('current_report_id', id)
+        const next = id ? String(id) : null
+        if (currentIdRef.current !== next) {
+            currentIdRef.current = next
+            setReport(null)
+            setExtractionStats(null)
+            setError(null)
+            setSaveError(null)
+            setLoading(false)
+        }
+        setReportId(next)
+        if (next) {
+            localStorage.setItem('current_report_id', next)
         } else {
             localStorage.removeItem('current_report_id')
         }
     }, [])
 
-    // Load report from backend
+    // Fetch one report and, if it is still the current one, show it.
+    const fetchReport = useCallback(async (id) => {
+        const res = await reportAPI.getReport(id)
+        const data = res.data
+        editState(id).updatedAt = data?.updated_at || null
+        if (currentIdRef.current === id) {
+            setReport(data)
+            setExtractionStats(data?.extraction_stats || null)
+        }
+        return data
+    }, [])
+
+    // Load report from backend. Runs behind any queued edits for the same report,
+    // so the copy it shows already includes them.
     const loadReport = useCallback(async (id) => {
-        const targetId = id || reportId
+        const targetId = id ? String(id) : currentIdRef.current
         if (!targetId) {
             setLoading(false)
             return null
         }
+        if (targetId !== currentIdRef.current) saveReportId(targetId)
 
         setLoading(true)
         setError(null)
         try {
-            const res = await reportAPI.getReport(targetId)
-            console.log('[ReportContext] Report data loaded:', res.data)
-            console.log('[ReportContext] Total fields:', Object.keys(res.data.fields || {}).length)
-            const allFields = res.data.fields || {}
-            console.log('[ReportContext] Cash flow fields:', Object.entries(allFields).filter(([k]) =>
-                k.includes('cash') || k.includes('flow') || k.includes('cfo') || k.includes('cfi') || k.includes('cff') || k.includes('operating') || k.includes('investing') || k.includes('financing')
-            ).map(([k, v]) => ({ name: k, value: v?.value, source: v?.source })))
-            console.log('[ReportContext] All field names:', Object.keys(allFields).sort())
-            setReport(res.data)
-            setExtractionStats(res.data.extraction_stats)
-            return res.data
+            return await enqueue(targetId, () => fetchReport(targetId))
         } catch (err) {
             console.error('Failed to load report:', err)
-            setError(err.message || 'Failed to load report')
+            if (currentIdRef.current === targetId) setError(err.message || 'Failed to load report')
             return null
         } finally {
-            setLoading(false)
+            if (currentIdRef.current === targetId) setLoading(false)
         }
-    }, [reportId])
+    }, [saveReportId, fetchReport]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    /* Run one write for report `id` through its queue. On failure the report is
+       reloaded (so the screen shows what the server really holds) and the error is
+       RE-THROWN — callers (FieldInput's "Saved" tick, QA's "applied" marks) must
+       only report success when the write actually happened. */
+    const runEdit = useCallback((id, request) => {
+        setPendingSaves(n => n + 1)
+        const run = enqueue(id, async () => {
+            const st = editState(id)
+            try {
+                const res = await request(st.updatedAt)
+                // A response without updated_at (older backend) leaves us unable to
+                // track the version — skip the check next time rather than 409 on
+                // our own write.
+                st.updatedAt = res?.data?.updated_at || null
+                if (currentIdRef.current === id) setSaveError(null)
+                return res
+            } catch (err) {
+                const conflict = err?.status === 409
+                try { await fetchReport(id) } catch { /* keep the original error */ }
+                const message = conflict ? CONFLICT_MESSAGE : `Save failed: ${err?.message || 'unknown error'}`
+                if (currentIdRef.current === id) setSaveError(message)
+                const wrapped = new Error(message)
+                wrapped.status = err?.status
+                wrapped.conflict = conflict
+                wrapped.cause = err
+                throw wrapped
+            }
+        }).finally(() => setPendingSaves(n => Math.max(0, n - 1)))
+        // Fire-and-forget callers (toggles, effects) still see the failure in the
+        // saveError banner; this only stops an "unhandled rejection" console error.
+        // Callers that await still receive the rejection.
+        run.catch(() => {})
+        return run
+    }, [fetchReport]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Apply a local change only if `id` is still the report on screen.
+    const patchLocal = (id, fn) => {
+        setReport(prev => (prev && idOf(prev) === id ? fn(prev) : prev))
+    }
 
     // Get single field value
     const getFieldValue = useCallback((fieldName) => {
@@ -165,7 +250,6 @@ export function ReportProvider({ children }) {
         const field = report.fields[fieldName]
         if (!field) return false
         if (typeof field === 'object') {
-            console.log(`isFieldLocked(${fieldName}): source=${field.source}, locked=${field.locked}`)
             // Never lock fields that were imported via easy_way_import
             if (field.source === 'easy_way_import') return false
             return field.locked ?? false
@@ -174,42 +258,34 @@ export function ReportProvider({ children }) {
     }, [report])
 
     // Update single field
-    const updateField = useCallback(async (fieldName, value) => {
-        if (!reportId) return
+    const updateField = useCallback((fieldName, value) => {
+        const id = reportId
+        if (!id) return Promise.resolve()
 
         // Optimistic update
-        setReport(prev => {
-            if (!prev) return prev
-            return {
-                ...prev,
-                fields: {
-                    ...prev.fields,
-                    [fieldName]: {
-                        ...(prev.fields[fieldName] || {}),
-                        value: value,
-                        confidence: 'high',
-                        source: 'user'
-                    }
+        patchLocal(id, prev => ({
+            ...prev,
+            fields: {
+                ...prev.fields,
+                [fieldName]: {
+                    ...(prev.fields?.[fieldName] || {}),
+                    value: value,
+                    confidence: 'high',
+                    source: 'user'
                 }
             }
-        })
+        }))
 
-        try {
-            await reportAPI.updateField(reportId, fieldName, value)
-        } catch (err) {
-            console.error('Field update failed:', err)
-            // Reload to get correct state
-            await loadReport()
-        }
-    }, [reportId, loadReport])
+        return runEdit(id, (lastKnown) => reportAPI.updateField(id, fieldName, value, lastKnown))
+    }, [reportId, runEdit]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Delete a field (set to empty string)
-    const deleteField = useCallback(async (fieldName) => {
-        if (!reportId) return
+    const deleteField = useCallback((fieldName) => {
+        const id = reportId
+        if (!id) return Promise.resolve()
 
         // Optimistic update - remove field or set to empty
-        setReport(prev => {
-            if (!prev) return prev
+        patchLocal(id, prev => {
             const newFields = { ...prev.fields }
             if (newFields[fieldName]) {
                 newFields[fieldName] = {
@@ -222,24 +298,21 @@ export function ReportProvider({ children }) {
             return { ...prev, fields: newFields }
         })
 
-        try {
-            await reportAPI.updateField(reportId, fieldName, '')
-        } catch (err) {
-            console.error('Field delete failed:', err)
-            await loadReport()
-        }
-    }, [reportId, loadReport])
+        return runEdit(id, (lastKnown) => reportAPI.updateField(id, fieldName, '', lastKnown))
+    }, [reportId, runEdit]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Delete all fields for a page
-    const deletePage = useCallback(async (pageId) => {
-        if (!reportId) return
+    // Delete all fields for a page — one bulk write, one version check.
+    const deletePage = useCallback((pageId) => {
+        const id = reportId
+        if (!id) return Promise.resolve()
 
-        const fieldsToDelete = PAGE_FIELDS[pageId] || []
-        if (fieldsToDelete.length === 0) return
+        // Only fields the report actually holds: the server rejects unknown names.
+        const present = report && idOf(report) === id ? (report.fields || {}) : {}
+        const fieldsToDelete = (PAGE_FIELDS[pageId] || []).filter(f => f in present)
+        if (fieldsToDelete.length === 0) return Promise.resolve()
 
         // Optimistic update
-        setReport(prev => {
-            if (!prev) return prev
+        patchLocal(id, prev => {
             const newFields = { ...prev.fields }
             fieldsToDelete.forEach(f => {
                 if (newFields[f]) {
@@ -254,40 +327,26 @@ export function ReportProvider({ children }) {
             return { ...prev, fields: newFields }
         })
 
-        try {
-            // Delete each field
-            for (const field of fieldsToDelete) {
-                await reportAPI.updateField(reportId, field, '')
-            }
-        } catch (err) {
-            console.error('Page delete failed:', err)
-            await loadReport()
-        }
-    }, [reportId, loadReport])
+        const payload = Object.fromEntries(fieldsToDelete.map(f => [f, '']))
+        return runEdit(id, (lastKnown) => reportAPI.updateFieldsBulk(id, payload, lastKnown))
+    }, [reportId, report, runEdit]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Update array
-    const updateArray = useCallback(async (arrayName, data) => {
-        if (!reportId) return
+    const updateArray = useCallback((arrayName, data) => {
+        const id = reportId
+        if (!id) return Promise.resolve()
 
         // Optimistic update
-        setReport(prev => {
-            if (!prev) return prev
-            return {
-                ...prev,
-                arrays: {
-                    ...prev.arrays,
-                    [arrayName]: data
-                }
+        patchLocal(id, prev => ({
+            ...prev,
+            arrays: {
+                ...prev.arrays,
+                [arrayName]: data
             }
-        })
+        }))
 
-        try {
-            await reportAPI.updateArray(reportId, arrayName, data)
-        } catch (err) {
-            console.error('Array update failed:', err)
-            await loadReport()
-        }
-    }, [reportId, loadReport])
+        return runEdit(id, (lastKnown) => reportAPI.updateArray(id, arrayName, data, lastKnown))
+    }, [reportId, runEdit]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Trigger recalculation
     const recalculate = useCallback(async () => {
@@ -391,11 +450,12 @@ export function ReportProvider({ children }) {
     const clearReport = useCallback(() => {
         saveReportId(null)
         setReport(null)
-        setReportUpdatedAt(null)
         setError(null)
         setExtractionStats(null)
-        setConflictModal(null)
+        setSaveError(null)
     }, [saveReportId])
+
+    const clearSaveError = useCallback(() => setSaveError(null), [])
 
     // Get effective currency - from field or derived from country
     const getEffectiveCurrency = useCallback(() => {
@@ -405,14 +465,15 @@ export function ReportProvider({ children }) {
         return getCurrencyFromCountry(country)
     }, [report])
 
-    const contextValue = {
+    const contextValue = useMemo(() => ({
         reportId,
         report,
-        reportUpdatedAt,
         loading,
         error,
         extractionStats,
-        conflictModal,
+        pendingSaves,
+        saveError,
+        clearSaveError,
         saveReportId,
         loadReport,
         getFieldValue,
@@ -430,8 +491,13 @@ export function ReportProvider({ children }) {
         clearReport,
         setError,
         getEffectiveCurrency,
-        setConflictModal,
-    }
+    }), [
+        reportId, report, loading, error, extractionStats, pendingSaves, saveError,
+        clearSaveError, saveReportId, loadReport, getFieldValue, getFieldConfidence,
+        isFieldLocked, updateField, deleteField, deletePage, updateArray, recalculate,
+        getArray, getFieldCounts, getCompletionPercentage, hasRealData, clearReport,
+        getEffectiveCurrency,
+    ])
 
     return (
         <ReportContext.Provider value={contextValue}>

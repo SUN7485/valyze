@@ -4,8 +4,8 @@ import * as mammoth from 'mammoth'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url'
 import { useDarkMode } from '../hooks/useDarkMode'
-import { companiesAPI, reportAPI } from '../api/client'
-import { MODEL_EXTRACT, MODEL_PATCH, TOOL_WEB_SEARCH, ANTHROPIC_VERSION, MAX_TOKENS_EXTRACT, EFFORT_EXTRACT } from '../config/ai'
+import { companiesAPI, reportAPI, API_ROOT } from '../api/client'
+import { MODEL_EXTRACT, MODEL_PATCH, TOOL_WEB_SEARCH, ANTHROPIC_VERSION, MAX_TOKENS_EXTRACT, EFFORT_EXTRACT, MAX_TOKENS_PATCH, modelLabel } from '../config/ai'
 import { runToCompletion, parseJsonResult } from '../lib/claudeTurns'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -249,6 +249,7 @@ const COLORS = {
 };
 
 const STAGES = ["Processing files", "Claude thinking", "Building JSON", "Done"];
+const MAX_FILES = 5;
 const ACCEPT = ".pdf,image/*,.xlsx,.csv,.txt,.docx,.doc,.png,.jpg,.jpeg,.webp,.gif";
 const fIcon = f => f.type === "application/pdf" ? "📄" : f.type?.startsWith("image/") ? "🖼️" : f.name.match(/\.docx?$/i) ? "📝" : "📊";
 
@@ -298,15 +299,8 @@ const readProxyError = async (res) => {
   return `${prefix}[${res.status}] ${errMsg}`;
 };
 
-const buildApiHeaders = (apiKey, isDirect) => {
-  if (isDirect) {
-    return {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": ANTHROPIC_VERSION,
-      "anthropic-dangerous-direct-browser-access": "true",
-    };
-  }
+// Every call goes through the Valyze proxy (gzipped body, auth-gated).
+const buildApiHeaders = (apiKey) => {
   const token = localStorage.getItem("valyze_token") || "";
   return {
     "Content-Type": "application/json",
@@ -373,7 +367,7 @@ export default function ExtractorPage() {
   const navigate = useNavigate()
   const { reportId } = useParams()
   const { darkMode } = useDarkMode()
-  const proxyUrl = `${(import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')}/api/proxy`
+  const proxyUrl = `${API_ROOT}/api/proxy`
   const hasReportId = Boolean(reportId)
   const [themeDarkMode, setThemeDarkMode] = useState(darkMode)
 
@@ -384,6 +378,7 @@ export default function ExtractorPage() {
   const [orderContext, setOrderContext] = useState(null)
 
   useEffect(() => {
+    setOrderContext(null)
     if (!reportId) return
     let cancelled = false
     const val = (f) => {
@@ -412,7 +407,7 @@ export default function ExtractorPage() {
   useEffect(() => {
     const cn = orderContext?.company_name
     const cr = orderContext?.cr_number
-    if (!cn && !cr) return
+    if (!cn && !cr) { setPriorRef({ status: "idle", data: null, meta: null }); return }
     let cancelled = false
     setPriorRef({ status: "loading", data: null, meta: null })
     companiesAPI.lookup({ company_name: cn, cr_number: cr, country: orderContext?.country })
@@ -464,7 +459,13 @@ export default function ExtractorPage() {
   const [priorRef, setPriorRef]         = useState({ status: "idle", data: null, meta: null });
   const [usePriorRef, setUsePriorRef]   = useState(true);
 
-  useEffect(() => { if (apiKey) localStorage.setItem("valyze_api_key", apiKey); }, [apiKey]);
+  // The key is stored when the field loses focus or "Save Key" is pressed — not on
+  // every keystroke, so half-typed keys never land in storage.
+  const storeApiKey = useCallback(() => {
+    if (apiKey.startsWith("sk-ant-")) {
+      try { localStorage.setItem("valyze_api_key", apiKey); } catch { /* storage unavailable */ }
+    }
+  }, [apiKey]);
 
   // After extraction, check whether Valyze already holds this company — surfaces
   // prior reports so the analyst doesn't create a duplicate and can reuse work.
@@ -486,16 +487,51 @@ export default function ExtractorPage() {
     return () => { cancelled = true; };
   }, [status, result, reportId]);
 
+  const fileRef  = useRef();
+  const abortRef = useRef(null);
+  const clockRef = useRef(null);
+  const hardTimeoutRef = useRef(null);
+  // Why the in-flight request was aborted: the analyst pressed Cancel, or a timer
+  // fired. Only a real timeout may be reported as "timed out".
+  const cancelledRef = useRef(false);
+  const timedOutRef = useRef(false);
+  const patchAbortRef = useRef(null);
+
+  const stopClock = () => { clearInterval(clockRef.current); clockRef.current = null; };
+
+  // A different report is a different company: drop the previous one's documents,
+  // result and any run in flight.
+  useEffect(() => {
+    cancelledRef.current = true
+    abortRef.current?.abort()
+    patchAbortRef.current?.abort()
+    clearTimeout(hardTimeoutRef.current)
+    stopClock()
+    setFiles([]); setResult(null); setStatus("idle"); setStage(0); setElapsed(0)
+    setLogMsg(""); setError(""); setTab("summary"); setPortalFileWarning("")
+    setPatchStatus("idle"); setPatchError(""); setPatchJSON(""); setNavigating(false)
+  }, [reportId])
+
+  // Leaving the page: stop timers and the paid request.
+  useEffect(() => () => {
+    cancelledRef.current = true
+    abortRef.current?.abort()
+    patchAbortRef.current?.abort()
+    clearTimeout(hardTimeoutRef.current)
+    stopClock()
+  }, [])
+
   useEffect(() => {
     if (!reportId) return
+    const controller = new AbortController()
     const loadPortalFiles = async () => {
       setFilesLoading(true)
       setPortalFileWarning("")
       try {
-        const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
         const token = localStorage.getItem('valyze_token') || ''
         const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
-        const res = await fetch(`${baseUrl}/api/upload/portal-files/${reportId}`, { headers: authHeaders })
+        const rid = encodeURIComponent(reportId)
+        const res = await fetch(`${API_ROOT}/api/upload/portal-files/${rid}`, { headers: authHeaders, signal: controller.signal })
         if (!res.ok) {
           setPortalFileWarning(`Could not check for portal files (server said ${res.status}). Attach documents manually.`)
           return
@@ -505,10 +541,15 @@ export default function ExtractorPage() {
         const fetched = []
         const failed = []
         for (const f of data.files) {
-          if (!f.download_path) { failed.push(f.filename || 'unnamed file'); continue }
+          if (!f.filename) { failed.push('unnamed file'); continue }
           try {
-            const fileRes = await fetch(`${baseUrl}${f.download_path}`, { headers: authHeaders })
-            if (!fileRes.ok) { failed.push(f.filename || 'unnamed file'); continue }
+            // Built here (not from download_path) so the filename is always URL-encoded —
+            // Arabic names and spaces otherwise break the request.
+            const fileRes = await fetch(
+              `${API_ROOT}/api/upload/download/${rid}/${encodeURIComponent(f.filename)}`,
+              { headers: authHeaders, signal: controller.signal },
+            )
+            if (!fileRes.ok) { failed.push(f.filename); continue }
             const blob = await fileRes.blob()
             const mimeMap = {
               pdf: 'application/pdf',
@@ -519,39 +560,58 @@ export default function ExtractorPage() {
             }
             const mimeType = mimeMap[f.file_type] || 'application/octet-stream'
             fetched.push(new File([blob], f.filename, { type: mimeType }))
-          } catch { failed.push(f.filename || 'unnamed file') }
+          } catch (e) {
+            if (e.name === 'AbortError') throw e
+            failed.push(f.filename)
+          }
         }
-        if (fetched.length) setFiles(fetched)
+        if (controller.signal.aborted) return
+        // Keep anything the analyst already attached; add portal files after it,
+        // skipping duplicates, and never past the 5-file limit.
+        let dropped = []
+        if (fetched.length) {
+          setFiles(prev => {
+            const names = new Set(prev.map(p => p.name))
+            const fresh = fetched.filter(f => !names.has(f.name))
+            const room = Math.max(0, MAX_FILES - prev.length)
+            dropped = fresh.slice(room).map(f => f.name)
+            return [...prev, ...fresh.slice(0, room)]
+          })
+        }
         // Never fail silently: extracting against a partial document set produces a
         // confidently wrong report, which is worse than not extracting at all.
+        const warnings = []
         if (failed.length) {
-          setPortalFileWarning(
+          warnings.push(
             `${failed.length} of ${data.files.length} portal file(s) failed to load: ${failed.join(', ')}. ` +
             `Attach them manually before extracting — the report would otherwise be built from incomplete documents.`
           )
         }
+        if (dropped.length) {
+          warnings.push(`Not added (${MAX_FILES}-file limit): ${dropped.join(', ')}. Run them as a second extraction.`)
+        }
+        if (warnings.length) setPortalFileWarning(warnings.join(' '))
       } catch (e) {
+        if (e.name === 'AbortError') return
         setPortalFileWarning(`Could not load portal files (${e.message || e}). Attach documents manually.`)
       } finally {
-        setFilesLoading(false)
+        if (!controller.signal.aborted) setFilesLoading(false)
       }
     }
     loadPortalFiles()
+    return () => { controller.abort(); setFilesLoading(false) }
   }, [reportId])
 
-  const fileRef  = useRef();
-  const abortRef = useRef(null);
-  const clockRef = useRef(null);
-  const addFiles = f => setFiles(p => [...p, ...[...f]].slice(0, 5));
+  const addFiles = f => setFiles(p => [...p, ...[...f]].slice(0, MAX_FILES));
   const onDrop = useCallback(e => { e.preventDefault(); addFiles(e.dataTransfer.files); }, []);
 
   const C = COLORS[themeDarkMode ? 'dark' : 'light'];
   const toB64 = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(f); });
 
-  const stopClock = () => { clearInterval(clockRef.current); clockRef.current = null; };
-
   const cancel = () => {
+    cancelledRef.current = true;
     abortRef.current?.abort();
+    clearTimeout(hardTimeoutRef.current);
     stopClock();
     setStatus("idle"); setStage(0); setElapsed(0); setLogMsg(""); setError("");
   };
@@ -598,17 +658,24 @@ export default function ExtractorPage() {
       setStatus("error");
       return;
     }
-    if (proxyUrl && sessionIsExpired()) {
+    if (sessionIsExpired()) {
       setError(SESSION_EXPIRED_MSG);
       setStatus("error");
       return;
     }
     setStatus("loading"); setStage(0); setResult(null); setError(""); setElapsed(0); setLogMsg("Reading files…");
+    stopClock();
     clockRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
-    abortRef.current = new AbortController();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    cancelledRef.current = false;
+    timedOutRef.current = false;
+    const timeOut = () => { timedOutRef.current = true; controller.abort(); };
     // Whole-run ceiling. Each call has its own limit (PER_CALL_TIMEOUT_MS); this only
     // stops a run that keeps needing continuations from going on indefinitely.
-    const hardTimeout = setTimeout(() => abortRef.current?.abort(), RUN_TIMEOUT_MS);
+    clearTimeout(hardTimeoutRef.current);
+    const hardTimeout = setTimeout(timeOut, RUN_TIMEOUT_MS);
+    hardTimeoutRef.current = hardTimeout;
 
     try {
       const blocks = [];
@@ -670,17 +737,16 @@ export default function ExtractorPage() {
         );
       }
 
-      // One Messages call, through the proxy (gzipped) or straight to Anthropic.
-      // A run may make several of these (continuations, paused searches), so the
-      // time limit is per call — the proxy already caps each one at 300s.
+      // One Messages call, through the proxy (gzipped). A run may make several of
+      // these (continuations, paused searches), so the time limit is per call — the
+      // proxy already caps each one at 300s.
       const send = async (payload) => {
-        const useUrl = proxyUrl || "https://api.anthropic.com/v1/messages";
-        const isDirect = !proxyUrl;
-        const headers = buildApiHeaders(apiKey, isDirect);
-        const fetchBody = isDirect ? JSON.stringify(payload) : await compressBody(payload);
-        const callTimer = setTimeout(() => abortRef.current?.abort(), PER_CALL_TIMEOUT_MS);
+        if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+        const headers = buildApiHeaders(apiKey);
+        const fetchBody = await compressBody(payload);
+        const callTimer = setTimeout(timeOut, PER_CALL_TIMEOUT_MS);
         try {
-          const res = await fetch(useUrl, { method: "POST", headers, signal: abortRef.current.signal, body: fetchBody });
+          const res = await fetch(proxyUrl, { method: "POST", headers, signal: controller.signal, body: fetchBody });
           if (!res.ok) throw new Error(await readProxyError(res));
           const data = await res.json();
           // The proxy has been seen wrapping the message in a one-element array.
@@ -699,11 +765,15 @@ export default function ExtractorPage() {
         });
       }
 
+      if (controller !== abortRef.current || controller.signal.aborted) return;
       setStage(2); setLogMsg("Parsing JSON…");
       setResult(parseJsonResult(run));
       setStage(3); setLogMsg("Done!"); setStatus("done");
 
       } catch (e) {
+      // Cancelled by the analyst, or superseded (report switched / page left):
+      // the UI was already reset — say nothing.
+      if (controller !== abortRef.current || (cancelledRef.current && !timedOutRef.current)) return;
       let msg;
       if (e.name === "AbortError") {
         msg = "The extraction timed out.\n\n• Make sure Web Search is OFF\n• Try splitting large PDFs\n• Try again";
@@ -752,7 +822,8 @@ export default function ExtractorPage() {
       }
       setError(msg); setStatus("error");
     } finally {
-      clearTimeout(hardTimeout); stopClock();
+      clearTimeout(hardTimeout);
+      if (controller === abortRef.current) stopClock();
     }
   };
 
@@ -789,56 +860,55 @@ export default function ExtractorPage() {
       setPatchStatus("error");
       return;
     }
-    if (proxyUrl && sessionIsExpired()) {
+    if (sessionIsExpired()) {
       setPatchError(SESSION_EXPIRED_MSG);
       setPatchStatus("error");
       return;
     }
     setPatchStatus("loading"); setPatchError("");
+    patchAbortRef.current?.abort();
+    const controller = new AbortController();
+    patchAbortRef.current = controller;
     try {
-       let parsed;
-       try { parsed = JSON.parse(patchJSON); } catch { throw new Error("Invalid JSON — please check your pasted JSON."); }
-       const patchUseUrl = proxyUrl || "https://api.anthropic.com/v1/messages";
-       const patchIsDirect = !proxyUrl;
-       const patchPayload = {
-         model: MODEL_PATCH,
-         max_tokens: 16000,
-         system: "You are a JSON patch engine. Apply ONLY the listed changes. DO NOT rename fields, reorder, or add fields unless explicitly told. Return ONLY the complete updated JSON. Start with { end with }. No markdown.",
-         messages: [{ role: "user", content: `Here is the full JSON:\n${JSON.stringify(parsed, null, 2)}\n\n## CHANGES TO APPLY:\n${patchInstructions}\n\nReturn only the complete patched JSON.` }]
-       };
-       const bodyStr = JSON.stringify(patchPayload);
-       const headers = buildApiHeaders(apiKey, patchIsDirect);
-       const fetchBody = patchIsDirect ? bodyStr : await compressBody(patchPayload);
-       const res = await fetch(patchUseUrl, {
-         method: "POST",
-         headers,
-         body: fetchBody,
-       });
-      if (!res.ok) throw new Error(await readProxyError(res));
-      let data = await res.json();
-      if (Array.isArray(data)) data = data[0];
-      if (!data || typeof data !== "object" || !data.content) throw new Error("Invalid patch API response");
-      const raw = data.content.filter(b => b.type === "text").map(b => b.text).join("");
-      // Use same bracket-counting extraction as main extract()
-      const patchStart = raw.indexOf("{");
-      if (patchStart === -1) throw new Error("No valid JSON returned.");
-      let pDepth = 0, pInStr = false, pEsc = false;
-      let patchJson = null;
-      for (let pi = patchStart; pi < raw.length; pi++) {
-        const ch = raw[pi];
-        if (pEsc) { pEsc = false; continue; }
-        if (ch === "\\") { pEsc = true; continue; }
-        if (ch === '"') { pInStr = !pInStr; continue; }
-        if (pInStr) continue;
-        if (ch === "{") pDepth++;
-        else if (ch === "}") { pDepth--; if (pDepth === 0) { patchJson = raw.slice(patchStart, pi + 1); break; } }
-      }
-      if (!patchJson) { const gm = raw.match(/\{[\s\S]*\}/); patchJson = gm?.[0]; }
-      if (!patchJson) throw new Error("No valid JSON returned.");
-      setResult(JSON.parse(patchJson)); setStatus("done"); setTab("json");
+      let parsed;
+      try { parsed = JSON.parse(patchJSON); } catch { throw new Error("Invalid JSON — please check your pasted JSON."); }
+      // The answer is the WHOLE report again, so it gets the same output budget and
+      // the same cut-off handling as extraction (lib/claudeTurns.js): a large report
+      // is resumed across turns instead of being parsed half-written.
+      const send = async (payload) => {
+        const callTimer = setTimeout(() => controller.abort(), PER_CALL_TIMEOUT_MS);
+        try {
+          const res = await fetch(proxyUrl, {
+            method: "POST",
+            headers: buildApiHeaders(apiKey),
+            body: await compressBody(payload),
+            signal: controller.signal,
+          });
+          if (!res.ok) throw new Error(await readProxyError(res));
+          const data = await res.json();
+          return Array.isArray(data) ? data[0] : data;
+        } finally {
+          clearTimeout(callTimer);
+        }
+      };
+      const run = await runToCompletion({
+        send,
+        request: {
+          model: MODEL_PATCH,
+          max_tokens: MAX_TOKENS_PATCH,
+          system: "You are a JSON patch engine. Apply ONLY the listed changes. DO NOT rename fields, reorder, or add fields unless explicitly told. Return ONLY the complete updated JSON. Start with { end with }. No markdown.",
+          messages: [{ role: "user", content: `Here is the full JSON:\n${JSON.stringify(parsed, null, 2)}\n\n## CHANGES TO APPLY:\n${patchInstructions}\n\nReturn only the complete patched JSON.` }],
+        },
+      });
+      if (controller !== patchAbortRef.current) return;
+      setResult(parseJsonResult(run)); setStatus("done"); setTab("json");
       setPatchStatus("done");
     } catch (e) {
-      setPatchError(isSessionError(e.message) ? SESSION_EXPIRED_MSG : e.message);
+      if (controller !== patchAbortRef.current) return;
+      const msg = e.name === "AbortError"
+        ? "The patch request timed out. Try again, or apply fewer changes at once."
+        : isSessionError(e.message) ? SESSION_EXPIRED_MSG : e.message;
+      setPatchError(msg);
       setPatchStatus("error");
     }
   };
@@ -850,23 +920,14 @@ export default function ExtractorPage() {
     try {
       if (hasReportId) {
         // Save to backend immediately before navigating
-        const { default: api } = await import("../api/client");
-        const token = localStorage.getItem("valyze_token") || "";
-        const baseUrl = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
-        const saveRes = await fetch(`${baseUrl}/api/report/${reportId}/easy-way`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(result),
+        const saveRes = await reportAPI.easyWayImport(reportId, result);
+        // Navigate to editor — no autoImport param, data is already in backend.
+        // The editor reloads the report (adopting the new updated_at) and shows
+        // any keys the server did not recognise.
+        navigate("/editor/" + reportId, {
+          replace: true,
+          state: { ignoredKeys: saveRes?.data?.ignored_keys || [] },
         });
-        if (!saveRes.ok) {
-          const errData = await saveRes.json().catch(() => ({}));
-          throw new Error(errData.detail || `Failed to save report (HTTP ${saveRes.status})`);
-        }
-        // Navigate to editor — no autoImport param, data is already in backend
-        navigate("/editor/" + reportId, { replace: true });
       } else {
         localStorage.setItem("valyze_pending_import", JSON.stringify(result));
         navigate("/", { replace: true });
@@ -958,13 +1019,13 @@ export default function ExtractorPage() {
                   <div className="text-base md:text-lg font-black text-[var(--color-text)] truncate">{orderContext.company_name}</div>
                   <div className="text-xs text-[var(--color-text-secondary)] mt-0.5 truncate">
                     {[orderContext.cr_number, orderContext.country, orderContext.client_name].filter(Boolean).join(' · ')
-                      || 'Smart PDF extraction · Hybrid OCR · Claude Sonnet 4'}
+                      || `Smart PDF extraction · Hybrid OCR · ${modelLabel(MODEL_EXTRACT)}`}
                   </div>
                 </>
               ) : (
                 <>
                   <div className="text-base md:text-lg font-black text-[var(--color-text)] truncate">Valyze AI Document Extractor</div>
-                  <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">Smart PDF extraction · Hybrid OCR · Claude Sonnet 4</div>
+                  <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">Smart PDF extraction · Hybrid OCR · {modelLabel(MODEL_EXTRACT)}</div>
                 </>
               )}
               {hasReportId && <div className="text-[11px] text-[var(--color-text-muted)] mt-1 font-mono truncate">Report: {reportId}</div>}
@@ -1012,14 +1073,15 @@ export default function ExtractorPage() {
               <input 
                 type="password" 
                 value={apiKey} 
-                onChange={e=>setApiKey(e.target.value)} 
+                onChange={e=>setApiKey(e.target.value.trim())} 
+                onBlur={storeApiKey}
                 placeholder="sk-ant-api03-..."
                 className="input-field font-mono"
               />
             </div>
             <div className="flex flex-col gap-2 md:w-44">
               <button 
-                onClick={()=>{if(apiKey.startsWith("sk-ant-")){localStorage.setItem("valyze_api_key",apiKey);setShowKeyInput(false)}}} 
+                onClick={()=>{if(apiKey.startsWith("sk-ant-")){storeApiKey();setShowKeyInput(false)}}} 
                 disabled={!apiKey.startsWith("sk-ant-")}
                 className="px-4 py-3 rounded-xl border border-transparent bg-emerald-500 text-white font-bold text-xs disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-[var(--color-surface)] disabled:text-[var(--color-text-muted)] hover:bg-emerald-600 transition-all"
               >
@@ -1244,7 +1306,7 @@ export default function ExtractorPage() {
                 </div>
                 {patchStatus==="error"&&<div className="mb-3 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-300">⚠️ {patchError}</div>}
                 {patchStatus==="done"&&<div className="mb-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300">✓ JSON patched! Switched to Raw JSON tab — download to save.</div>}
-                {patchStatus==="loading"&&<div className="mb-3 rounded-lg border border-[var(--color-border-soft)] bg-[var(--color-surface)] p-2.5 text-center text-sm text-[var(--color-text-secondary)]">⚙️ Applying patches with Haiku…</div>}
+                {patchStatus==="loading"&&<div className="mb-3 rounded-lg border border-[var(--color-border-soft)] bg-[var(--color-surface)] p-2.5 text-center text-sm text-[var(--color-text-secondary)]">⚙️ Applying patches with {modelLabel(MODEL_PATCH)}…</div>}
                 <button onClick={runPatch} disabled={!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading"}
                   className={`w-full rounded-xl border-none px-4 py-3 text-sm font-bold transition-all ${!patchJSON.trim()||!patchInstructions.trim()||patchStatus==="loading" ? "cursor-not-allowed bg-[var(--color-surface)] text-[var(--color-text-muted)]" : "bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:shadow-lg"}`}>
                   {patchStatus==="loading"?"Applying patches...":"🔧 Apply Patches"}

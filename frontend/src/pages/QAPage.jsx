@@ -9,11 +9,12 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useReport } from '../context/ReportContext'
-import { deliveryAPI } from '../api/client'
+import { useAuth } from '../context/AuthContext'
+import { deliveryAPI, API_ROOT } from '../api/client'
 import { MODEL_QA, ANTHROPIC_VERSION, MAX_TOKENS_QA, EFFORT_QA } from '../config/ai'
 import { runToCompletion, parseJsonResult } from '../lib/claudeTurns'
 
-const PROXY_URL = `${(import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')}/api/proxy`
+const PROXY_URL = `${API_ROOT}/api/proxy`
 
 const STAGES = ['Reading report', 'Claude reviewing', 'Parsing findings', 'Done']
 
@@ -104,6 +105,10 @@ export default function QAPage() {
     const { reportId } = useParams()
     const navigate = useNavigate()
     const { report, loadReport, saveReportId, updateField, getFieldValue } = useReport()
+    // Only reviewers and admins may record the verdict that gates delivery (and
+    // never on a report they analysed themselves — the server answers 403).
+    const { role } = useAuth()
+    const canRecordVerdict = ['reviewer', 'admin', 'super_admin'].includes(role)
 
     const [status, setStatus] = useState('idle')   // idle | loading | done | error
     const [stage, setStage] = useState(0)
@@ -116,6 +121,8 @@ export default function QAPage() {
     const [importText, setImportText] = useState('')
     // null = not attempted, true = stored on the report, false = local only
     const [verdictSaved, setVerdictSaved] = useState(null)
+    // Failures applying a suggested correction (shown while results are on screen).
+    const [applyError, setApplyError] = useState('')
     // Same key the Extractor stores — one key, entered or changed from either page.
     const [apiKey, setApiKey] = useState(() => localStorage.getItem('valyze_api_key') || '')
     const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem('valyze_api_key'))
@@ -130,10 +137,23 @@ export default function QAPage() {
         loadReport(reportId)
     }, [reportId, saveReportId, loadReport])
 
-    useEffect(() => () => clearInterval(clockRef.current), [])
+    // Leaving the page stops the clock and the paid request.
+    useEffect(() => () => {
+        abortRef.current?.abort()
+        clearInterval(clockRef.current)
+    }, [])
+
+    // Only ever review (and save a verdict for) the report in the URL — the
+    // context can still hold the previously opened one for a moment.
+    const reportReady = !!report && String(report.report_id ?? report.id) === String(reportId)
 
     // Restore the last QA run for this report so a refresh does not lose it.
+    // Switching reports first drops everything belonging to the previous one.
     useEffect(() => {
+        abortRef.current?.abort()
+        clearInterval(clockRef.current)
+        setQa(null); setApplied({}); setStatus('idle'); setStage(0); setError('')
+        setApplyError(''); setVerdictSaved(null); setLogMsg(''); setElapsed(0)
         if (!reportId) return
         try {
             const raw = sessionStorage.getItem(storageKey)
@@ -177,11 +197,11 @@ export default function QAPage() {
     }, [])
 
     const runCheck = useCallback(async () => {
-        if (!report) { setError('Report has not loaded yet.'); setStatus('error'); return }
+        if (!reportReady) { setError('Report has not loaded yet.'); setStatus('error'); return }
         if (!apiKey) { setError('Add your Anthropic API key above, then run the review.'); setShowKeyInput(true); setStatus('error'); return }
         if (sessionIsExpired()) { setError('Your Valyze session has expired. Sign in again, then re-run the check.'); setStatus('error'); return }
 
-        setStatus('loading'); setStage(0); setError(''); setElapsed(0); setLogMsg('Reading report…')
+        setStatus('loading'); setStage(0); setError(''); setApplyError(''); setElapsed(0); setLogMsg('Reading report…')
         clockRef.current = setInterval(() => setElapsed(s => s + 1), 1000)
         abortRef.current = new AbortController()
 
@@ -257,6 +277,7 @@ export default function QAPage() {
                team KPI page can see it — sessionStorage above is per-browser.
                Needs migration 011; if it has not been applied the API replies
                {saved:false} and we say so rather than implying it is shared. */
+            if (!canRecordVerdict) { setVerdictSaved('forbidden'); return }
             try {
                 const list = parsed.findings || []
                 const bySeverity = s => list.filter(f => f.severity === s).length
@@ -269,26 +290,34 @@ export default function QAPage() {
                     findings: list,
                 })
                 setVerdictSaved(saveRes?.data?.saved === true)
-            } catch { setVerdictSaved(false) }
+            } catch (e) {
+                // 403: only a reviewer/admin who is not the report's analyst may
+                // record the verdict — that is a rule, not a missing migration.
+                setVerdictSaved(e?.status === 403 ? 'forbidden' : false)
+            }
         } catch (e) {
             if (e.name === 'AbortError') return
             setError(e.message || String(e)); setStatus('error')
         } finally {
             clearInterval(clockRef.current)
         }
-    }, [report, persist, reportId, apiKey])
+    }, [report, reportReady, persist, reportId, apiKey, canRecordVerdict])
 
+    // updateField rejects unless the server accepted the write (409 conflicts
+    // included), so a finding is marked applied only when it really was.
     const applyOne = useCallback(async (finding, index) => {
         const k = keyOf(finding, index)
         if (applied[k]) return
+        if (!reportReady) { setApplyError('The report is not loaded — reload the page and try again.'); return }
+        setApplyError('')
         try {
             await updateField(finding.field, finding.suggested_value)
             const next = { ...applied, [k]: true }
             setApplied(next); persist(qa, next)
         } catch (e) {
-            setError(`Could not apply "${finding.field}": ${e.message || e}`)
+            setApplyError(`Could not apply "${finding.field}": ${e.message || e}`)
         }
-    }, [applied, updateField, qa, persist])
+    }, [applied, updateField, qa, persist, reportReady])
 
     const applyAll = useCallback(async () => {
         const pending = findings.map((f, i) => ({ f, i }))
@@ -296,29 +325,33 @@ export default function QAPage() {
         if (!pending.length) return
         if (!window.confirm(`Apply ${pending.length} correction${pending.length > 1 ? 's' : ''}? This overwrites those fields in the report.`)) return
 
+        if (!reportReady) { setApplyError('The report is not loaded — reload the page and try again.'); return }
+        setApplyError('')
         const next = { ...applied }
+        let done = 0
         for (const { f, i } of pending) {
             try {
                 await updateField(f.field, f.suggested_value)
                 next[keyOf(f, i)] = true
+                done += 1
             } catch (e) {
-                setError(`Stopped at "${f.field}": ${e.message || e}`)
+                setApplyError(`Applied ${done} of ${pending.length}. Stopped at "${f.field}": ${e.message || e}`)
                 break
             }
         }
         setApplied(next); persist(qa, next)
-    }, [findings, applied, updateField, qa, persist])
+    }, [findings, applied, updateField, qa, persist, reportReady])
 
     const importJson = useCallback(() => {
         try {
             const parsed = JSON.parse(importText)
             const invalid = validateQaResult(parsed)
-            if (invalid) { setError(`Import rejected — ${invalid}`); return }
+            if (invalid) { setApplyError(`Import rejected — ${invalid}`); return }
             if (!parsed.checked_at) parsed.checked_at = new Date().toISOString()
             setQa(parsed); setApplied({}); persist(parsed, {})
-            setImportText(''); setError(''); setStatus('done'); setTab('findings')
+            setImportText(''); setError(''); setApplyError(''); setStatus('done'); setTab('findings')
         } catch (e) {
-            setError(`Import rejected — could not parse JSON: ${e.message || e}`)
+            setApplyError(`Import rejected — could not parse JSON: ${e.message || e}`)
         }
     }, [importText, persist])
 
@@ -422,11 +455,18 @@ export default function QAPage() {
                         </div>
                     )}
 
+                    {applyError && status !== 'loading' && (
+                        <div className="bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 rounded-2xl p-4 mb-4 text-rose-700 dark:text-rose-300 text-sm whitespace-pre-line flex items-start gap-3">
+                            <span className="flex-1">⚠️ {applyError}</span>
+                            <button onClick={() => setApplyError('')} className="opacity-70 hover:opacity-100 font-bold" aria-label="Dismiss">✕</button>
+                        </div>
+                    )}
+
                     {/* Run button */}
                     {status !== 'loading' && (
                         <button
                             onClick={runCheck}
-                            disabled={!report}
+                            disabled={!reportReady}
                             className="w-full py-4 rounded-2xl border border-transparent bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-black text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-xl hover:shadow-emerald-500/20 transition-all mb-4"
                         >
                             {qa ? '🔄 Re-run Quality Review' : '🛡️ Run Quality Review'}
@@ -460,6 +500,12 @@ export default function QAPage() {
                                     )}
                                 </div>
                             </div>
+                            {verdictSaved === 'forbidden' && (
+                                <div className="mt-3 text-[11px] text-amber-600 dark:text-amber-400">
+                                    Saved in this browser only — the QA verdict that gates delivery must be recorded by a
+                                    reviewer or admin other than the report's analyst.
+                                </div>
+                            )}
                             {verdictSaved === false && (
                                 <div className="mt-3 text-[11px] text-amber-600 dark:text-amber-400">
                                     Saved in this browser only — apply <span className="font-mono">supabase/migrations/011_report_qa_verdict.sql</span> so

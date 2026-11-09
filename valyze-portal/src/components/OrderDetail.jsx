@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchOrderStatus, fetchOrderDocumentHtml, fetchOrderDocumentBlob } from "../api.js";
+import { openPendingWindow, showHtmlInWindow } from "../htmlDocument.js";
 import { serviceLevelLabel, shortDate, statusLabel, statusTone } from "../format.js";
 
 export default function OrderDetail({ order, portalToken, onBack, onSessionExpired }) {
@@ -46,25 +47,24 @@ export default function OrderDetail({ order, portalToken, onBack, onSessionExpir
     if (!orderNumber || busy) return;
     // Opened synchronously so the click's user gesture still counts — a
     // window.open() after the await gets eaten by the pop-up blocker.
-    const printWindow = window.open("", "_blank");
+    const printWindow = openPendingWindow("Preparing your order document…");
     if (!printWindow) {
       setError("Please allow pop-ups for this site to download the PDF.");
       return;
     }
-    printWindow.document.write(
-      "<p style='font:16px sans-serif;padding:24px'>Preparing your order document…</p>"
-    );
     setBusy("pdf");
     setError("");
     try {
       const html = await fetchOrderDocumentHtml(portalToken, orderNumber);
-      printWindow.document.open();
-      printWindow.document.write(html);
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => printWindow.print(), 400);
+      // Sandboxed view — the server HTML never runs with this site's origin
+      // (where the portal session token lives).
+      showHtmlInWindow(printWindow, html, { title: `Order ${orderNumber}`, autoPrint: true });
     } catch (err) {
       printWindow.close();
+      if (err.status === 401) {
+        onSessionExpired?.();
+        return;
+      }
       setError(err.message || "Could not open the PDF view.");
     } finally {
       setBusy("");

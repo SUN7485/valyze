@@ -1,27 +1,21 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
     AlertTriangle, ArrowLeft, Ban, CalendarClock, CheckCircle2, Clock, Download,
     FileText, Gauge, History, Loader2, MapPin, PencilLine, Phone, PlayCircle,
     RefreshCw, Trash2, User, UserCheck,
 } from 'lucide-react'
-import { ordersAPI, searchAPI } from '../api/client'
+import { ordersAPI, searchAPI, downloadOrderSubmission } from '../api/client'
+import OrderFileLinksModal from '../components/OrderFileLinksModal'
 import { useAuth } from '../context/AuthContext'
+import { useAnalysts } from '../hooks/useAnalysts'
+import { analystLabel } from '../lib/orderHelpers'
 
 const SERVICE_LEVEL_OPTIONS = [
     { value: 'basic', label: 'Basic' },
     { value: 'standard', label: 'Standard' },
     { value: 'express', label: 'Express' },
     { value: 'urgent', label: 'Urgent' },
-]
-
-const ANALYST_OPTIONS = [
-    { value: '', label: 'Unassigned' },
-    { value: 'waleed@valyze.com', label: 'Waleed' },
-    { value: 'mohamed@valyze.com', label: 'Mohamed' },
-    { value: 'mahmoud@valyze.com', label: 'Mahmoud' },
-    { value: 'amani@valyze.com', label: 'Amani' },
-    { value: 'sally@valyze.com', label: 'Sally' },
 ]
 
 const STATUS_STYLE = {
@@ -94,8 +88,8 @@ function ReportTypeBadges({ value }) {
 export default function OrderFocusPage() {
     const navigate = useNavigate()
     const { companyId } = useParams()
-    const { user } = useAuth()
-    const isAdmin = ['admin', 'super_admin'].includes(user?.role)
+    const { isAdmin } = useAuth()
+    const { analysts } = useAnalysts()
     const [data, setData] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -104,17 +98,29 @@ export default function OrderFocusPage() {
     const [confirmDelete, setConfirmDelete] = useState(false)
     const [prevReports, setPrevReports] = useState([])
     const [prevLoading, setPrevLoading] = useState(false)
+    const [fileLinks, setFileLinks] = useState(null)
 
+    // Only the newest request may update the page (company switched, refresh clicked twice).
+    const requestSeq = useRef(0)
     const fetchData = useCallback(async () => {
         if (!companyId) return
+        const seq = ++requestSeq.current
         setLoading(true)
         setError('')
         try {
             const res = await ordersAPI.getCompany(companyId)
+            if (seq !== requestSeq.current) return
             setData(res.data)
             setAnalyst(res.data?.analyst_assigned || res.data?.order?.auto_assigned_analyst || '')
-        } catch (e) { setError(e.message || 'Failed to load order') } finally { setLoading(false) }
+        } catch (e) {
+            if (seq === requestSeq.current) setError(e.message || 'Failed to load order')
+        } finally {
+            if (seq === requestSeq.current) setLoading(false)
+        }
     }, [companyId])
+
+    // A different company id: never show the previous company's data meanwhile.
+    useEffect(() => { setData(null); setPrevReports([]) }, [companyId])
 
     useEffect(() => { fetchData() }, [fetchData])
 
@@ -177,6 +183,7 @@ export default function OrderFocusPage() {
     }
 
     const reassign = async () => {
+        if (!analyst) { setError('Choose a researcher to assign.'); return }
         setBusy('reassign')
         setError('')
         try {
@@ -198,14 +205,8 @@ export default function OrderFocusPage() {
         setBusy('download')
         setError('')
         try {
-            const res = await ordersAPI.downloadOrder(data.order_id)
-            const blob = new Blob([res.data], { type: 'application/zip' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `${order.order_number || data.order_id}.zip`
-            a.click()
-            URL.revokeObjectURL(url)
+            const links = await downloadOrderSubmission(data.order_id, `${order.order_number || data.order_id}.zip`)
+            if (links) setFileLinks(links)
         } catch (e) { setError(e.message || 'Failed to download submission') } finally { setBusy(null) }
     }
 
@@ -214,10 +215,11 @@ export default function OrderFocusPage() {
         if (status === 'in_progress') return { label: 'Continue in Editor', icon: PencilLine, run: () => reportId && navigate(`/editor/${reportId}`), disabled: !reportId }
         if (status === 'completed') return { label: 'View Report', icon: FileText, subtle: true, run: () => reportId && navigate(`/editor/${reportId}`), disabled: !reportId }
         return null
-    }, [status, reportId]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [status, reportId, data]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="py-8 px-6 max-w-5xl mx-auto">
+            <OrderFileLinksModal files={fileLinks} onClose={() => setFileLinks(null)} />
             <button onClick={goBack} className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-primary transition-colors">
                 <ArrowLeft size={16} /> Back to Orders
             </button>
@@ -305,7 +307,7 @@ export default function OrderFocusPage() {
                         <FactBox label="Report Types" icon={<FileText size={11} />}>
                             <ReportTypeBadges value={order.report_types || order.report_type} />
                         </FactBox>
-                        <Fact label="Analyst" value={ANALYST_OPTIONS.find(a => a.value === (data.analyst_assigned || ''))?.label || data.analyst_assigned || order.auto_assigned_analyst} icon={<User size={11} />} />
+                        <Fact label="Analyst" value={analystLabel(analysts, data.analyst_assigned || order.auto_assigned_analyst)} icon={<User size={11} />} />
                         <Fact label="Client Ref" value={order.client_ref} icon={<FileText size={11} />} />
                         <Fact label="Report ID" value={reportId} icon={<FileText size={11} />} />
                         <Fact label="Registration No" value={data.registration_no} icon={<FileText size={11} />} />
@@ -403,9 +405,13 @@ export default function OrderFocusPage() {
                                     <div className="flex items-center gap-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2"><UserCheck size={11} /> Assigned Researcher</div>
                                     <select value={analyst} onChange={e => setAnalyst(e.target.value)}
                                         className="w-full px-3 py-2.5 bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg text-sm dark:text-white outline-none focus:ring-2 focus:ring-primary/20 mb-2">
-                                        {ANALYST_OPTIONS.map(a => <option key={a.value} value={a.value} className="bg-white dark:bg-slate-900">{a.label}</option>)}
+                                        {!analyst && <option value="" disabled className="bg-white dark:bg-slate-900">Choose a researcher…</option>}
+                                        {analyst && !analysts.some(a => a.email === analyst) && (
+                                            <option value={analyst} className="bg-white dark:bg-slate-900">{analyst}</option>
+                                        )}
+                                        {analysts.map(a => <option key={a.email} value={a.email} className="bg-white dark:bg-slate-900">{a.name || a.email}</option>)}
                                     </select>
-                                    <button onClick={reassign} disabled={busy === 'reassign'}
+                                    <button onClick={reassign} disabled={busy === 'reassign' || !analyst}
                                         className="w-full py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg font-black text-[10px] uppercase tracking-widest hover:opacity-80 transition-all disabled:opacity-40 flex items-center justify-center gap-1.5">
                                         {busy === 'reassign' ? <Loader2 size={12} className="animate-spin" /> : <UserCheck size={12} />} Reassign
                                     </button>

@@ -69,7 +69,14 @@ export default function AdminDeliveryPage() {
         setSending(item.report_id)
         setRowError(prev => ({ ...prev, [item.report_id]: '' }))
         try {
-            await deliveryAPI.send(item.report_id)
+            try {
+                await deliveryAPI.send(item.report_id)
+            } catch (e) {
+                // 409: already delivered. Resending emails the client again — ask.
+                if (e?.status !== 409) throw e
+                if (!window.confirm(`${e.message}\n\nSend it to the client AGAIN?`)) return
+                await deliveryAPI.send(item.report_id, { resend: true })
+            }
             await load()
         } catch (e) {
             setRowError(prev => ({

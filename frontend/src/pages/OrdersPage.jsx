@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, ArrowRight, CalendarClock, CheckCircle2, Loader2, RefreshCw, Search, User, X } from 'lucide-react'
 import { clientsAPI, ordersAPI } from '../api/client'
+import { useAnalysts } from '../hooks/useAnalysts'
+import { useDebounce, normalizeStatus, getDueDateState, buildAnalystFilters, analystLabel } from '../lib/orderHelpers'
 
 const STATUS_TABS = [
     { value: 'all', label: 'All' },
@@ -11,15 +13,6 @@ const STATUS_TABS = [
     { value: 'invoiced', label: 'Invoiced' },
 ]
 
-const ANALYST_FILTERS = [
-    { value: 'all', label: 'All analysts' },
-    { value: 'unassigned', label: 'Unassigned' },
-    { value: 'waleed@valyze.com', label: 'Waleed' },
-    { value: 'mohamed@valyze.com', label: 'Mohamed' },
-    { value: 'mahmoud@valyze.com', label: 'Mahmoud' },
-    { value: 'amani@valyze.com', label: 'Amani' },
-    { value: 'sally@valyze.com', label: 'Sally' },
-]
 
 const STATUS_COLORS = {
     pending: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800/40',
@@ -35,30 +28,8 @@ const SERVICE_LEVELS = {
     urgent: { label: 'Urgent', className: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800/40' },
 }
 
-function useDebounce(value, delay) {
-    const [debouncedValue, setDebouncedValue] = useState(value)
-
-    useEffect(() => {
-        const timeout = setTimeout(() => setDebouncedValue(value), delay)
-        return () => clearTimeout(timeout)
-    }, [value, delay])
-
-    return debouncedValue
-}
-
-function normalizeStatus(status) {
-    return String(status || 'pending').toLowerCase()
-}
-
 function normalizeServiceLevel(level) {
     return String(level || 'standard').toLowerCase()
-}
-
-function formatShortDate(value) {
-    if (!value) return '-'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return '-'
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function getInitials(value) {
@@ -71,28 +42,6 @@ function getInitials(value) {
         .toUpperCase()
 
     return clean.slice(0, 2) || 'VA'
-}
-
-function getAnalystLabel(value) {
-    const analyst = ANALYST_FILTERS.find(item => item.value === value)
-    return analyst?.label || value || 'Unassigned'
-}
-
-function getDueDateState(value) {
-    if (!value) return { label: 'No due date', className: 'text-slate-400 dark:text-slate-500' }
-
-    const dueDate = new Date(value)
-    if (Number.isNaN(dueDate.getTime())) return { label: 'Due date unavailable', className: 'text-slate-400 dark:text-slate-500' }
-
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const due = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate())
-    const diffDays = Math.ceil((due.getTime() - today.getTime()) / 86400000)
-
-    if (diffDays < 0) return { label: `Overdue by ${Math.abs(diffDays)}d`, className: 'text-rose-600 dark:text-rose-400 font-bold' }
-    if (diffDays <= 2) return { label: diffDays === 0 ? 'Due today' : `Due in ${diffDays}d`, className: 'text-orange-500 dark:text-orange-400 font-bold' }
-
-    return { label: formatShortDate(value), className: 'text-slate-500 dark:text-slate-400' }
 }
 
 function StatusBadge({ status }) {
@@ -127,6 +76,7 @@ function Avatar({ value }) {
 }
 
 function OrderCard({ order }) {
+    const { analysts } = useAnalysts()
     const navigate = useNavigate()
     const total = Number(order.company_count || order.progress?.total || 0)
     const completed = Number(order.completed_count || order.progress?.completed || 0)
@@ -158,7 +108,7 @@ function OrderCard({ order }) {
                     <div className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">
                         <User size={12} /> Analyst
                     </div>
-                    <div className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{getAnalystLabel(order.auto_assigned_analyst)}</div>
+                    <div className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{analystLabel(analysts, order.auto_assigned_analyst)}</div>
                 </div>
                 <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 p-3">
                     <div className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">
@@ -201,6 +151,8 @@ export default function OrdersPage() {
     const [error, setError] = useState('')
 
     const search = useDebounce(searchInput, 300)
+    const { analysts } = useAnalysts()
+    const analystFilters = useMemo(() => buildAnalystFilters(analysts, 'All analysts'), [analysts])
 
     const fetchOrders = useCallback(async () => {
         try {
@@ -342,7 +294,7 @@ export default function OrdersPage() {
                             className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white"
                             aria-label="Filter orders by analyst"
                         >
-                            {ANALYST_FILTERS.map(analyst => (
+                            {analystFilters.map(analyst => (
                                 <option key={analyst.value} value={analyst.value}>{analyst.label}</option>
                             ))}
                         </select>

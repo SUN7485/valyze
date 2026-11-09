@@ -6,10 +6,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 // Lazy load pages
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const HomePage = lazy(() => import('./pages/HomePage'))
-const UploadPage = lazy(() => import('./pages/UploadPage'))
-const ProcessingPage = lazy(() => import('./pages/ProcessingPage'))
 const EditorPage = lazy(() => import('./pages/EditorPage'))
-const GeneratingPage = lazy(() => import('./pages/GeneratingPage'))
 const DonePage = lazy(() => import('./pages/DonePage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const OrdersPage = lazy(() => import('./pages/OrdersPage'))
@@ -67,10 +64,7 @@ function AppRoutes() {
         <Route path="/clients/:clientId" element={<ProtectedRoute><ClientDetailPage /></ProtectedRoute>} />
         <Route path="/invoices" element={<ProtectedRoute><InvoicesPage /></ProtectedRoute>} />
         <Route path="/invoices/:invoiceId" element={<ProtectedRoute><InvoiceDetailPage /></ProtectedRoute>} />
-        <Route path="/upload" element={<ProtectedRoute><UploadPage /></ProtectedRoute>} />
-        <Route path="/processing/:reportId" element={<ProtectedRoute><ProcessingPage /></ProtectedRoute>} />
         <Route path="/editor/:reportId" element={<ProtectedRoute><EditorPage /></ProtectedRoute>} />
-        <Route path="/generating/:reportId" element={<ProtectedRoute><GeneratingPage /></ProtectedRoute>} />
         <Route path="/done/:reportId" element={<ProtectedRoute><DonePage /></ProtectedRoute>} />
         <Route path="/extractor" element={<ProtectedRoute><ExtractorPage /></ProtectedRoute>} />
         <Route path="/extractor/:reportId" element={<ProtectedRoute><ExtractorPage /></ProtectedRoute>} />

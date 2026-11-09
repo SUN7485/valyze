@@ -1,7 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, CalendarClock, Download, Loader2, RefreshCw, Search, Settings2, X, ChevronDown, ChevronUp } from 'lucide-react'
-import { clientsAPI, ordersAPI } from '../api/client'
+import { clientsAPI, ordersAPI, downloadOrderSubmission } from '../api/client'
+import OrderFileLinksModal from '../components/OrderFileLinksModal'
+import { useAnalysts } from '../hooks/useAnalysts'
+import { useDebounce, normalizeStatus, formatDate, formatDateTime, getDueDateState, buildAnalystFilters } from '../lib/orderHelpers'
 
 const STATUS_TABS = [
     { value: 'all', label: 'All' },
@@ -55,61 +58,11 @@ const SUPPORTED_COUNTRIES = [
     { value: 'Oman', label: 'Oman' },
 ]
 
-const ANALYST_FILTERS = [
-    { value: 'all', label: 'All Researchers' },
-    { value: 'unassigned', label: 'Unassigned' },
-    { value: 'waleed@valyze.com', label: 'Waleed' },
-    { value: 'mohamed@valyze.com', label: 'Mohamed' },
-    { value: 'mahmoud@valyze.com', label: 'Mahmoud' },
-    { value: 'amani@valyze.com', label: 'Amani' },
-    { value: 'sally@valyze.com', label: 'Sally' },
-]
-
-function useDebounce(value, delay) {
-    const [debouncedValue, setDebouncedValue] = useState(value)
-    useEffect(() => {
-        const timeout = setTimeout(() => setDebouncedValue(value), delay)
-        return () => clearTimeout(timeout)
-    }, [value, delay])
-    return debouncedValue
-}
-
-function normalizeStatus(status) {
-    return String(status || 'pending').toLowerCase()
-}
-
-function formatDate(value) {
-    if (!value) return '-'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return '-'
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function formatDateTime(value) {
-    if (!value) return '-'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return '-'
-    return date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
 
 function getCountryFlag(country) {
     if (!country) return '🌍'
     const key = String(country).trim().toLowerCase().replace(/\s+/g, ' ')
     return COUNTRY_FLAGS[key] || '🌍'
-}
-
-function getDueDateState(value) {
-    if (!value) return { label: 'No due date', className: 'text-slate-400 dark:text-slate-500' }
-    const dueDate = new Date(value)
-    if (Number.isNaN(dueDate.getTime())) return { label: 'Due date unavailable', className: 'text-slate-400 dark:text-slate-500' }
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const due = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate())
-    const diffDays = Math.ceil((due.getTime() - today.getTime()) / 86400000)
-    if (diffDays < 0) return { label: `Overdue by ${Math.abs(diffDays)}d`, className: 'text-rose-600 dark:text-rose-400 font-bold' }
-    if (diffDays === 0) return { label: 'Due today', className: 'text-orange-500 dark:text-orange-400 font-bold' }
-    if (diffDays <= 2) return { label: `Due in ${diffDays}d`, className: 'text-orange-500 dark:text-orange-400 font-bold' }
-    return { label: formatDate(value), className: 'text-slate-500 dark:text-slate-400' }
 }
 
 function StatusBadge({ status, dueDate }) {
@@ -288,22 +241,19 @@ export default function OrderdsPage() {
     const [sortBy, setSortBy] = useState('due_date')
     const [sortDir, setSortDir] = useState('asc')
     const [downloadingId, setDownloadingId] = useState(null)
+    const [fileLinks, setFileLinks] = useState(null)
 
     const search = useDebounce(searchInput, 300)
+    const { analysts } = useAnalysts()
+    const analystFilters = useMemo(() => buildAnalystFilters(analysts, 'All Researchers'), [analysts])
 
     const handleManage = useCallback((companyId) => navigate(`/orderds/${companyId}`), [navigate])
 
     const handleDownload = useCallback(async (orderId, orderNumber) => {
         setDownloadingId(orderId)
         try {
-            const res = await ordersAPI.downloadOrder(orderId)
-            const blob = new Blob([res.data], { type: 'application/zip' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `${orderNumber || orderId}.zip`
-            a.click()
-            URL.revokeObjectURL(url)
+            const links = await downloadOrderSubmission(orderId, `${orderNumber || orderId}.zip`)
+            if (links) setFileLinks(links)
         } catch (e) {
             alert(e.message || 'Failed to download order')
         } finally {
@@ -311,16 +261,20 @@ export default function OrderdsPage() {
         }
     }, [])
 
+    // Only the newest request may fill the table — typing fast or flipping filters
+    // otherwise lets a slow, older response overwrite the current results.
+    const requestSeq = useRef(0)
     const fetchOrderCompanies = useCallback(async () => {
+        const seq = ++requestSeq.current
         try {
             setLoading(true)
             setError('')
             const response = await ordersAPI.getAllOrderCompanies({ status: statusFilter, country: countryFilter, search })
-            setOrders(response.data || [])
+            if (seq === requestSeq.current) setOrders(response.data || [])
         } catch (e) {
-            setError(e.message || 'Failed to load reports')
+            if (seq === requestSeq.current) setError(e.message || 'Failed to load reports')
         } finally {
-            setLoading(false)
+            if (seq === requestSeq.current) setLoading(false)
         }
     }, [statusFilter, countryFilter, search])
 
@@ -424,6 +378,7 @@ export default function OrderdsPage() {
 
     return (
         <div className="py-8 px-6 max-w-7xl mx-auto">
+            <OrderFileLinksModal files={fileLinks} onClose={() => setFileLinks(null)} />
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Orders</h1>
@@ -528,7 +483,7 @@ export default function OrderdsPage() {
                             className="w-full px-4 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white"
                             aria-label="Filter orders by researcher"
                         >
-                            {ANALYST_FILTERS.map(a => (
+                            {analystFilters.map(a => (
                                 <option key={a.value} value={a.value}>{a.label}</option>
                             ))}
                         </select>

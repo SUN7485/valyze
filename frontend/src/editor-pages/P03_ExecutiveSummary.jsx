@@ -1,10 +1,9 @@
 // ============ P03_ExecutiveSummary.jsx ============
 import React, { useEffect } from 'react'
-import { RotateCcw, AlertCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-react'
+import { AlertCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
 import GenericTableEditor from '../components/GenericTableEditor'
-import { reportAPI } from '../api/client'
 
 // Color mapping helper functions
 function getRatingColorFromValue(rating) {
@@ -83,29 +82,8 @@ function ScoreBlock({ label, scoreField, colorField, levelField }) {
 }
 
 export default function P03_ExecutiveSummary() {
-  const { getFieldValue, updateField, updateArray, getArray, reportId, loadReport } = useReport()
+  const { getFieldValue, updateField, updateArray, getArray } = useReport()
 
-  const handleRegenerate = async (section) => {
-    try {
-      if (!window.confirm(`Regenerate "${section.replace(/_/g, ' ')}"? Current edits will be lost.`)) return
-      await reportAPI.regenerateSection(reportId, [section])
-      await loadReport(reportId)
-    } catch (err) {
-      console.error('Regenerate failed:', err)
-      alert('Failed to regenerate. Check backend connection.')
-    }
-  }
-
-  const RegenButton = ({ section }) => (
-    <button
-      onClick={() => handleRegenerate(section)}
-      className="flex items-center gap-1 text-[10px] font-bold text-blue-600 dark:text-blue-400
-                 hover:text-blue-800 dark:hover:text-blue-300 transition-colors opacity-0 group-hover:opacity-100"
-    >
-      <RotateCcw size={12} /> REGENERATE WITH AI
-    </button>
-  )
-  
   // Auto-detect colors based on credit_rating and risk_level values
   const creditRating = getFieldValue('credit_rating')
   const riskLevel = getFieldValue('risk_level')

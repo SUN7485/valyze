@@ -44,3 +44,20 @@ export const MAX_TOKENS_QA = 8000
 // instead: that path is deprecated on Opus 5 and removed entirely on newer models.
 export const EFFORT_EXTRACT = 'medium'
 export const EFFORT_QA = 'medium'
+
+// The patch engine returns the WHOLE report JSON again, so its answer is as large as
+// an extraction's. The patch model does not think unless asked, so all of this budget
+// is answer; a report bigger than one turn is resumed by runToCompletion
+// (lib/claudeTurns.js) exactly like extraction. Same 300s-per-call ceiling applies, so
+// do not raise this to "fit everything in one turn".
+export const MAX_TOKENS_PATCH = 16000
+
+// Human-readable name for a model id, for UI labels — derived, so a model swap
+// never leaves a stale name on screen.
+export function modelLabel(id) {
+    const parts = String(id || '').replace(/^claude-/, '').split('-')
+    if (!parts[0]) return 'Claude'
+    const family = parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
+    const version = parts.slice(1).filter(p => /^\d+$/.test(p)).join('.')
+    return `Claude ${family}${version ? ` ${version}` : ''}`
+}

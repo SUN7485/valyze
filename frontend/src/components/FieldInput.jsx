@@ -33,6 +33,7 @@ export default function FieldInput({
     const [localValue, setLocalValue] = useState(value)
     const [saving, setSaving] = useState(false)
     const [saved, setSaved] = useState(false)
+    const [failed, setFailed] = useState(false)
     const debounceRef = useRef(null)
 
     useEffect(() => {
@@ -42,6 +43,7 @@ export default function FieldInput({
     const handleChange = (newValue) => {
         setLocalValue(newValue)
         setSaved(false)
+        setFailed(false)
 
         if (debounceRef.current) {
             clearTimeout(debounceRef.current)
@@ -50,12 +52,16 @@ export default function FieldInput({
         debounceRef.current = setTimeout(async () => {
             setSaving(true)
             try {
+                // Resolves only when the server accepted the write — a failure
+                // (including a 409 conflict) rejects, so "Saved" is never shown
+                // for an edit that did not stick.
                 await updateField(fieldName, newValue)
                 setSaved(true)
                 setTimeout(() => setSaved(false), 2000)
                 if (onAfterChange) onAfterChange(newValue)
             } catch (err) {
                 console.error('Save failed:', err)
+                setFailed(true)
             } finally {
                 setSaving(false)
             }
@@ -153,6 +159,11 @@ export default function FieldInput({
                         {saved && (
                             <div className="text-[8px] font-bold text-emerald-500 uppercase tracking-wider flex items-center gap-0.5">
                                 <CheckCircle size={9} /> Saved
+                            </div>
+                        )}
+                        {failed && !saving && (
+                            <div className="text-[8px] font-bold text-rose-500 uppercase tracking-wider flex items-center gap-0.5" title="The change was not saved — the field shows what the server holds">
+                                <AlertTriangle size={9} /> Not saved
                             </div>
                         )}
                     </div>

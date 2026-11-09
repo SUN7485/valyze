@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { fetchOrderDocumentHtml, fetchOrderDocumentBlob } from "../api.js";
+import { openPendingWindow, showHtmlInWindow } from "../htmlDocument.js";
 import { shortDate } from "../format.js";
 
 export default function SuccessScreen({ result, portalToken, onReset, onViewOrders }) {
@@ -23,23 +24,18 @@ export default function SuccessScreen({ result, portalToken, onReset, onViewOrde
     // Open the tab synchronously, inside the click handler: a window.open()
     // issued after an await has lost the user gesture and the pop-up blocker
     // eats it — which shows up only on slow connections.
-    const printWindow = window.open("", "_blank");
+    const printWindow = openPendingWindow("Preparing your order document…");
     if (!printWindow) {
       setError("Please allow pop-ups for this site to download the PDF.");
       return;
     }
-    printWindow.document.write(
-      "<p style='font:16px sans-serif;padding:24px'>Preparing your order document…</p>"
-    );
     setBusy(`pdf:${orderNumber}`);
     setError("");
     try {
       const html = await fetchOrderDocumentHtml(portalToken, orderNumber);
-      printWindow.document.open();
-      printWindow.document.write(html);
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => printWindow.print(), 400);
+      // Sandboxed view — the server HTML never runs with this site's origin
+      // (where the portal session token lives).
+      showHtmlInWindow(printWindow, html, { title: `Order ${orderNumber}`, autoPrint: true });
     } catch (err) {
       printWindow.close();
       setError(err.message || "Could not open the PDF view.");

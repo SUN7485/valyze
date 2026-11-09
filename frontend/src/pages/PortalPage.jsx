@@ -7,6 +7,7 @@ import {
   Download, FileDown, Inbox, RefreshCw,
 } from 'lucide-react'
 import { useDarkMode } from '../hooks/useDarkMode'
+import { openPendingWindow, showHtmlInWindow } from '../lib/htmlDocument'
 
 const API_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000')
 
@@ -648,20 +649,16 @@ function OrderDownloadButtons({ portalToken, orderNumber, onSessionExpired, comp
     if (!orderNumber || busy) return
     // Opened synchronously so the click's user gesture still counts — a
     // window.open() issued after the await gets eaten by the pop-up blocker.
-    const printWindow = window.open('', '_blank')
+    const printWindow = openPendingWindow('Preparing your order document…')
     if (!printWindow) {
       setError('Please allow pop-ups for this site to download the PDF.')
       return
     }
-    printWindow.document.write("<p style='font:16px sans-serif;padding:24px'>Preparing your order document…</p>")
     setBusy('pdf'); setError('')
     try {
       const html = await fetchOrderDocument(portalToken, orderNumber, 'html')
-      printWindow.document.open()
-      printWindow.document.write(html)
-      printWindow.document.close()
-      printWindow.focus()
-      setTimeout(() => printWindow.print(), 400)
+      // Sandboxed view — the server HTML never runs with this site's origin.
+      showHtmlInWindow(printWindow, html, { title: `Order ${orderNumber}`, autoPrint: true })
     } catch (err) {
       printWindow.close()
       if (err.status === 401) { onSessionExpired?.(); return }

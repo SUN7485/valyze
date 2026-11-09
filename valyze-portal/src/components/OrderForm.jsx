@@ -53,6 +53,7 @@ export default function OrderForm({
   portalToken,
   onSubmitSuccess,
   onBack,
+  onSessionExpired,
 }) {
   const [order, setOrder] = useState(emptyOrder);
   const [companies, setCompanies] = useState([{ ...EMPTY_COMPANY }]);
@@ -198,7 +199,24 @@ export default function OrderForm({
       const result = await submitOrderWithFiles(portalToken, buildPayload(), filesByCompany);
       onSubmitSuccess(result);
     } catch (err) {
-      setError(err.message || "Failed to submit order. Please try again.");
+      // Same handling as the Dashboard: an expired session goes back to the login
+      // screen, and server-side faults never show their internal text.
+      if (err.status === 401) {
+        onSessionExpired?.();
+        return;
+      }
+      if (err.status === 413 || (err.status === undefined && err instanceof TypeError)) {
+        // The platform rejects oversized uploads before they reach the API; in the
+        // browser that arrives as a 413 or as an opaque network failure.
+        setError(
+          `The upload was too large for the server. Keep the attachments under ${MAX_UPLOAD_MB} MB in total ` +
+          "— compress or remove some files, or submit the companies in separate orders."
+        );
+      } else if (!err.status || err.status >= 500) {
+        setError("We couldn't submit your order just now. Please try again in a moment.");
+      } else {
+        setError(err.message || "Failed to submit order. Please check the form and try again.");
+      }
     } finally {
       setLoading(false);
     }

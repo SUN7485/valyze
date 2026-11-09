@@ -492,6 +492,12 @@ export default function EasyWayImport({
           {' '}arrays imported successfully
         </div>
       )}
+      {results?.ignored_keys?.length > 0 && (
+        <div className="mx-auto max-w-md mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs text-left">
+          <strong>{results.ignored_keys.length} key{results.ignored_keys.length === 1 ? ' was' : 's were'} not recognised and not imported:</strong>{' '}
+          <span className="font-mono break-words">{results.ignored_keys.join(', ')}</span>
+        </div>
+      )}
       <p className="text-gray-400 text-sm mb-8">
         Your JSON was imported exactly as-is.
         No recalculation was triggered.

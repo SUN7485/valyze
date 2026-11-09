@@ -33,6 +33,7 @@ export default function DeliveryReviewPage() {
     const [error, setError] = useState('')
     const [forbidden, setForbidden] = useState(false)
     const [sending, setSending] = useState(false)
+    const [pdfFile, setPdfFile] = useState(null)
     const [sent, setSent] = useState(null)
 
     const load = useCallback(async () => {
@@ -58,22 +59,28 @@ export default function DeliveryReviewPage() {
 
     useEffect(() => { load() }, [load])
 
-    const doSend = useCallback(async () => {
+    const doSend = useCallback(async ({ resend = false } = {}) => {
         if (!review?.sendable) return
-        if (!window.confirm(
-            `Send the report for ${review.company_name || 'this company'} to the client?\n\nThis cannot be undone.`
+        if (pdfFile && pdfFile.type && pdfFile.type !== 'application/pdf') {
+            setError('The attachment must be a PDF file.'); return
+        }
+        const what = pdfFile ? `the PDF "${pdfFile.name}"` : 'the report (as an HTML document)'
+        if (!window.confirm(resend
+            ? `This report was already delivered. Send ${what} to the client AGAIN?\n\nThe client will receive a second email.`
+            : `Send ${what} for ${review.company_name || 'this company'} to the client?\n\nThis cannot be undone.`
         )) return
         setSending(true); setError('')
         try {
-            const res = await deliveryAPI.send(reportId)
+            const res = await deliveryAPI.send(reportId, { pdf: pdfFile, resend })
             setSent(res.data)
+            setPdfFile(null)
             await load()
         } catch (e) {
-            setError(e?.response?.data?.detail || e.message || 'Send failed.')
+            setError(e?.message || 'Send failed.')
         } finally {
             setSending(false)
         }
-    }, [review, reportId, load])
+    }, [review, reportId, load, pdfFile])
 
     if (forbidden) {
         return (
@@ -124,7 +131,8 @@ export default function DeliveryReviewPage() {
 
                 {sent && (
                     <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-2xl p-4 text-emerald-700 dark:text-emerald-300 text-sm">
-                        ✓ Sent to <strong>{sent.to}</strong> via {sent.transport}.
+                        ✓ {sent.resent ? 'Re-sent' : 'Sent'} to <strong>{sent.to}</strong> via {sent.transport}
+                        {sent.attached_as ? ` — attached as ${sent.attached_as === 'pdf' ? 'PDF' : 'an HTML document'}` : ''}.
                         {sent.marked_delivered === false && (
                             <div className="text-amber-600 dark:text-amber-400 mt-1">
                                 The email went out, but this report could not be marked delivered — it will
@@ -242,8 +250,22 @@ export default function DeliveryReviewPage() {
                         </div>
                     )}
 
+                    {/* Optional final PDF. Without one the server attaches the report as HTML. */}
+                    <label className="block text-xs text-[var(--color-text-secondary)] mb-3">
+                        <span className="font-bold">Attach the final PDF (optional)</span>
+                        <span className="block text-[11px] text-[var(--color-text-muted)] mt-0.5">
+                            Export it from the editor (PDF → Save as PDF). Without a PDF the client receives the report as an HTML document.
+                        </span>
+                        <input
+                            type="file"
+                            accept="application/pdf,.pdf"
+                            onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+                            className="mt-2 block w-full text-xs"
+                        />
+                    </label>
+
                     <button
-                        onClick={doSend}
+                        onClick={() => doSend()}
                         disabled={!review?.sendable || !review?.send_enabled || !review?.mail?.ready || sending || Boolean(review?.delivered_at)}
                         title={
                             !review?.sendable ? `Blocked: QA is "${qa?.label}". Only a passed report can be sent.`
@@ -258,6 +280,15 @@ export default function DeliveryReviewPage() {
                     >
                         {sending ? 'Sending…' : '📤 Send to Client'}
                     </button>
+                    {review?.delivered_at && review?.sendable && review?.send_enabled && review?.mail?.ready && (
+                        <button
+                            onClick={() => doSend({ resend: true })}
+                            disabled={sending}
+                            className="w-full mt-2 py-3 rounded-2xl font-bold text-xs border border-amber-400/50 text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 transition-all disabled:opacity-50"
+                        >
+                            ↻ Re-send to Client
+                        </button>
+                    )}
                 </Section>
             </div>
         </Shell>

@@ -1,21 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Download, Trash2, Edit3, ChevronDown, X, FileText, Database, Loader2, Cloud, RefreshCw, FolderOutput, CheckSquare, Square, HardDrive } from 'lucide-react'
-import { reportAPI } from '../api/client'
-
-// Custom hook for debouncing
-function useDebounce(value, delay) {
-    const [debouncedValue, setDebouncedValue] = useState(value)
-
-    useEffect(() => {
-        const handler = setTimeout(() => {
-            setDebouncedValue(value)
-        }, delay)
-        return () => clearTimeout(handler)
-    }, [value, delay])
-
-    return debouncedValue
-}
+import { Search, Download, Trash2, Edit3, ChevronDown, X, FileText, Loader2, Cloud, RefreshCw, CheckSquare, Square, HardDrive } from 'lucide-react'
+import { reportAPI, downloadReportExport, downloadReportJson } from '../api/client'
+import { useAuth } from '../context/AuthContext'
+import { useDebounce } from '../lib/orderHelpers'
+import { printHtml } from '../lib/htmlDocument'
 
 const EXPORT_FORMATS = [
     { id: 'pdf', label: 'PDF', ext: 'pdf' },
@@ -26,32 +15,12 @@ const EXPORT_FORMATS = [
     { id: 'docx', label: 'Word', ext: 'docx' },
 ]
 
-const PAGE_SIZE = 50
+// Reports are fetched a page at a time (the server caps a page at 1000 and
+// reports the true total), with "Load more" for the rest.
+const PAGE_SIZE = 200
 
-function LocationBadge({ location }) {
-    if (location === 'cloud' || location === 'both') {
-        return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"><Cloud size={10} />Cloud</span>
-    }
-    if (location === 'output') {
-        return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"><FolderOutput size={10} />Output</span>
-    }
-    return null
-}
-
-function FormatBadge({ format }) {
-    const colors = {
-        pdf: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-        json: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
-        xml: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-        xlsx: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-        csv: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-        docx: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
-    }
-    return (
-        <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-medium ${colors[format] || 'bg-slate-100 text-slate-600'}`}>
-            {format.toUpperCase()}
-        </span>
-    )
+function LocationBadge() {
+    return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"><Cloud size={10} />Cloud</span>
 }
 
 function ExportDropdown({ reportId, onExport, loading }) {
@@ -144,147 +113,114 @@ function LoadingOverlay({ message }) {
 
 export default function ReportsPage() {
     const navigate = useNavigate()
+    const { isAdmin } = useAuth()
     const [reports, setReports] = useState([])
-    const [outputReports, setOutputReports] = useState([])
+    const [totalReports, setTotalReports] = useState(0)
+    const [loadingMore, setLoadingMore] = useState(false)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [searchInput, setSearchInput] = useState('')
     const [countries, setCountries] = useState([])
     const [countryFilter, setCountryFilter] = useState('')
-    const [crNumbers, setCrNumbers] = useState([])
-    const [deleteModal, setDeleteModal] = useState({ open: false, reportId: null, reportName: '', location: '' })
+    const [deleteModal, setDeleteModal] = useState({ open: false, reportId: null, reportName: '' })
     const [downloading, setDownloading] = useState({})
     const [loadingReportId, setLoadingReportId] = useState(null)
-    const [showSourceFilter, setShowSourceFilter] = useState('all')
-    const [showTab, setShowTab] = useState('db')
-    const [stats, setStats] = useState({ cloud: 0, local: 0, synced: 0 })
     const [selectedReports, setSelectedReports] = useState(new Set())
     const [bulkDeleting, setBulkDeleting] = useState(false)
-    const [savingToCloud, setSavingToCloud] = useState({})
     const [savingLocally, setSavingLocally] = useState({})
     const [saveMessage, setSaveMessage] = useState({})
     const tableContainerRef = useRef(null)
+    // Only the newest request may update the list — a slow response for an old
+    // search must not overwrite the results of the current one.
+    const requestSeq = useRef(0)
 
     // Debounce search input (300ms delay)
     const search = useDebounce(searchInput, 300)
 
-    const fetchReports = async () => {
+    const fetchReports = useCallback(async () => {
+        const seq = ++requestSeq.current
         try {
             setLoading(true)
-            
-            // Fetch both DB reports and output reports in parallel
-            const [dbRes, outputRes] = await Promise.all([
-                reportAPI.getAllReportsCombined(0, 500, search, countryFilter),
-                reportAPI.getOutputReports(search)
-            ])
-            
-            const allReports = dbRes.data.reports || []
-            const allOutput = outputRes.data.reports || []
-            
-            // Mark output reports with location 'output'
-            const outputMarked = allOutput.map(o => ({ ...o, location: 'output' }))
-            
+            setError('')
+            const res = await reportAPI.getAllReportsCombined(0, PAGE_SIZE, search, countryFilter)
+            if (seq !== requestSeq.current) return
+            const allReports = res.data?.reports || []
             setReports(allReports)
-            setOutputReports(outputMarked)
-            
-            const uniqueCountries = [...new Set(allReports.map(r => r.country).filter(Boolean))].sort()
-            const uniqueCrNumbers = [...new Set(allReports.map(r => r.cr_number).filter(Boolean))].sort()
-            setCountries(uniqueCountries)
-            setCrNumbers(uniqueCrNumbers)
-            
-            const cloudCount = allReports.filter(r => r.location === 'cloud' || r.location === 'both').length
-            const localCount = allReports.filter(r => r.location === 'local').length
-            const syncedCount = allReports.filter(r => r.location === 'both').length
-            setStats({ cloud: cloudCount, local: localCount, synced: syncedCount })
-            
-            console.log('[ReportsPage] DB Reports:', allReports.length, 'Output Reports:', allOutput.length)
+            setTotalReports(res.data?.total ?? allReports.length)
+            // The country list comes from an unfiltered result, so choosing one
+            // country does not shrink the dropdown to that country.
+            if (!countryFilter) {
+                setCountries(prev => [...new Set([...prev, ...allReports.map(r => r.country).filter(Boolean)])].sort())
+            }
         } catch (e) {
+            if (seq !== requestSeq.current) return
             setError(e.message || 'Failed to load reports')
             console.error('[ReportsPage] Error fetching reports:', e)
         } finally {
-            setLoading(false)
+            if (seq === requestSeq.current) setLoading(false)
         }
-    }
+    }, [search, countryFilter])
 
+    // Next page, appended. Same staleness rule: a new search discards it.
+    const loadMore = useCallback(async () => {
+        const seq = requestSeq.current
+        setLoadingMore(true)
+        try {
+            const res = await reportAPI.getAllReportsCombined(reports.length, PAGE_SIZE, search, countryFilter)
+            if (seq !== requestSeq.current) return
+            const page = res.data?.reports || []
+            setReports(prev => {
+                const seen = new Set(prev.map(r => r.id))
+                return [...prev, ...page.filter(r => !seen.has(r.id))]
+            })
+            setTotalReports(res.data?.total ?? totalReports)
+        } catch (e) {
+            if (seq === requestSeq.current) setError(e.message || 'Failed to load more reports')
+        } finally {
+            if (seq === requestSeq.current) setLoadingMore(false)
+        }
+    }, [reports.length, search, countryFilter, totalReports])
+
+    // One effect: runs on mount and whenever the search or country changes.
     useEffect(() => {
         fetchReports()
-    }, [])
-
-    useEffect(() => {
-        fetchReports()
-    }, [search])
+    }, [fetchReports])
 
     const filteredReports = useMemo(() => {
-        let result = reports.filter(report => {
-            if (showSourceFilter === 'cloud' && report.location !== 'cloud' && report.location !== 'both') return false
-            if (search) {
-                const s = search.toLowerCase()
-                const matchCompany = report.company_name && report.company_name.toLowerCase().includes(s)
-                const matchCr = report.cr_number && report.cr_number.toLowerCase().includes(s)
-                const matchClientRef = report.client_reference && report.client_reference.toLowerCase().includes(s)
-                const matchAnalyst = report.analyst && report.analyst.toLowerCase().includes(s)
-                const matchCountry = report.country && report.country.toLowerCase().includes(s)
-                if (!matchCompany && !matchCr && !matchClientRef && !matchAnalyst && !matchCountry) return false
-            }
-            return true
-        })
-        
+        const result = [...reports]
         // Sort by date (newest first)
         result.sort((a, b) => {
             const aVal = new Date(a.updated_at || a.created_at || '').getTime() || 0
             const bVal = new Date(b.updated_at || b.created_at || '').getTime() || 0
             return bVal - aVal
         })
-        
         return result
-    }, [reports, showSourceFilter, search])
+    }, [reports])
 
-    // Get current reports based on tab
-    const currentReports = showTab === 'output' ? outputReports : filteredReports
+    const currentReports = filteredReports
 
-    const handleOpenReport = async (report) => {
-        try {
-            setLoadingReportId(report.id)
-            setError('')
-            // Direct navigation — report data is fetched from Supabase in editor
-            navigate(`/editor/${report.id}`)
-        } catch (e) {
-            setError(`Failed to load report: ${e.message}`)
-            console.error('[ReportsPage] Error loading report:', e)
-        } finally {
-            setLoadingReportId(null)
-        }
+    const handleOpenReport = (report) => {
+        setError('')
+        navigate(`/editor/${report.id}`)
     }
 
+    const reportBaseName = (reportId) => {
+        const companyName = reports.find(r => r.id === reportId)?.company_name || reportId
+        return `CreditReport_${String(companyName).replace(/\s+/g, '_').slice(0, 30)}`
+    }
+
+    // Downloads exactly what the export endpoint returns (as the Editor does).
     const handleExport = async (reportId, format) => {
         try {
             setDownloading(prev => ({ ...prev, [reportId]: true }))
             setError('')
-
-            // Export directly — data is in Supabase
-            const exportAPI = {
-                pdf: reportAPI.generatePDF,
-                json: reportAPI.exportJSON,
-                xml: reportAPI.exportXML,
-                xlsx: reportAPI.exportExcel,
-                csv: reportAPI.exportCSV,
-                docx: reportAPI.exportWord,
-            }[format]
-
-            await exportAPI(reportId)
-
-            setTimeout(() => {
-                const downloadUrl = format === 'pdf' 
-                    ? reportAPI.getDownloadURL(reportId)
-                    : reportAPI.getExportDownloadURL(reportId, format)
-                const link = document.createElement('a')
-                link.href = downloadUrl
-                const companyName = reports.find(r => r.id === reportId)?.company_name || reportId
-                link.download = `CreditReport_${companyName.replace(/\s+/g, '_').slice(0, 30)}.${format === 'xlsx' ? 'xlsx' : format === 'docx' ? 'docx' : format}`
-                document.body.appendChild(link)
-                link.click()
-                document.body.removeChild(link)
-            }, 500)
+            if (format === 'pdf') {
+                const res = await reportAPI.generatePDF(reportId)
+                if (!res.data?.html) throw new Error('No HTML returned for the PDF')
+                printHtml(res.data.html)
+            } else {
+                await downloadReportExport(reportId, format, reportBaseName(reportId))
+            }
         } catch (e) {
             setError(`Failed to export: ${e.message}`)
             console.error('[ReportsPage] Export error:', e)
@@ -294,51 +230,29 @@ export default function ReportsPage() {
     }
 
     const handleDelete = async () => {
-        const { reportId, location } = deleteModal
+        const { reportId } = deleteModal
         try {
-            if (location === 'cloud' || location === 'both') {
-                await reportAPI.deleteCloudReport(reportId)
-            }
-            if (location === 'local' || location === 'both') {
-                await reportAPI.deleteLocalReport(reportId)
-            }
-            if (location === 'output') {
-                await reportAPI.deleteOutputReport(reportId)
-            }
-            setDeleteModal({ open: false, reportId: null, reportName: '', location: '' })
+            await reportAPI.deleteReport(reportId)
+            setDeleteModal({ open: false, reportId: null, reportName: '' })
             fetchReports()
         } catch (e) {
+            setDeleteModal({ open: false, reportId: null, reportName: '' })
             setError(`Failed to delete: ${e.message}`)
         }
     }
 
-    const handleSaveToCloud = async (reportId) => {
-        try {
-            setSavingToCloud(prev => ({ ...prev, [reportId]: true }))
-            setError('')
-            await reportAPI.saveToCloud(reportId)
-            setSaveMessage(prev => ({ ...prev, [reportId]: 'Saved to cloud!' }))
-            setTimeout(() => setSaveMessage(prev => ({ ...prev, [reportId]: '' })), 3000)
-            fetchReports()
-        } catch (e) {
-            setError(`Failed to save to cloud: ${e.message}`)
-        } finally {
-            setSavingToCloud(prev => ({ ...prev, [reportId]: false }))
-        }
-    }
-
+    // "Save Locally": download the report JSON. Reports are already in the
+    // database — there is nothing to "save to cloud".
     const handleSaveLocally = async (reportId) => {
         try {
             setSavingLocally(prev => ({ ...prev, [reportId]: true }))
             setError('')
-            // In Supabase-only architecture, all changes are already persisted.
-            // This button now just refreshes the list.
-            await reportAPI.saveToCloud(reportId)
-            setSaveMessage(prev => ({ ...prev, [reportId]: 'Saved!' }))
+            const res = await reportAPI.getReport(reportId)
+            downloadReportJson(res.data, reportBaseName(reportId))
+            setSaveMessage(prev => ({ ...prev, [reportId]: 'Downloaded' }))
             setTimeout(() => setSaveMessage(prev => ({ ...prev, [reportId]: '' })), 3000)
-            fetchReports()
         } catch (e) {
-            setError(`Failed to save: ${e.message}`)
+            setError(`Failed to download: ${e.message}`)
         } finally {
             setSavingLocally(prev => ({ ...prev, [reportId]: false }))
         }
@@ -367,31 +281,19 @@ export default function ReportsPage() {
 
     const handleBulkDelete = async () => {
         if (selectedReports.size === 0) return
-        
-        const confirmMsg = `Delete ${selectedReports.size} selected report(s)? This will delete from ${showTab === 'output' ? 'output folder' : 'cloud/local database'}.`
-        if (!window.confirm(confirmMsg)) return
-        
+
+        if (!window.confirm(`Delete ${selectedReports.size} selected report(s)? This cannot be undone.`)) return
+
         setBulkDeleting(true)
         try {
             for (const reportId of selectedReports) {
-                if (showTab === 'output') {
-                    await reportAPI.deleteOutputReport(reportId)
-                } else {
-                    const report = reports.find(r => r.id === reportId)
-                    if (report) {
-                        if (report.location === 'cloud' || report.location === 'both') {
-                            await reportAPI.deleteCloudReport(reportId)
-                        }
-                        if (report.location === 'local' || report.location === 'both') {
-                            await reportAPI.deleteLocalReport(reportId)
-                        }
-                    }
-                }
+                await reportAPI.deleteReport(reportId)
             }
             setSelectedReports(new Set())
             fetchReports()
         } catch (e) {
             setError(`Bulk delete failed: ${e.message}`)
+            fetchReports()
         } finally {
             setBulkDeleting(false)
         }
@@ -411,16 +313,13 @@ export default function ReportsPage() {
 
     return (
         <div className="py-8 px-6 max-w-7xl mx-auto">
-            {loadingReportId && <LoadingOverlay message="Loading report from cloud..." />}
-            
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Saved Reports</h1>
                     <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-                        {showTab === 'output' 
-                            ? `${outputReports.length} generated files`
-                            : `${reports.length} total • ${stats.cloud} cloud • ${stats.local} local`
-                        }
+                        {totalReports > reports.length
+                            ? `Showing ${reports.length} of ${totalReports} reports`
+                            : `${reports.length} report${reports.length === 1 ? '' : 's'}`}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -434,74 +333,32 @@ export default function ReportsPage() {
                 </div>
             </div>
 
-            {/* Tab Buttons */}
-            <div className="flex items-center gap-2 mb-6">
-                <button
-                    onClick={() => { setShowTab('db'); setShowSourceFilter('all') }}
-                    className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
-                        showTab === 'db' 
-                            ? 'bg-primary text-white' 
-                            : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10'
-                    }`}
-                >
-                    <Database size={14} /> Database ({reports.length})
-                </button>
-                <button
-                    onClick={() => { setShowTab('output'); setSelectedReports(new Set()) }}
-                    className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
-                        showTab === 'output' 
-                            ? 'bg-amber-500 text-white' 
-                            : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10'
-                    }`}
-                >
-                    <FolderOutput size={14} /> Generated Files ({outputReports.length})
-                </button>
+            {/* Search + country filter */}
+            <div className="glass-card p-4 mb-6">
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="relative flex-1">
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                            type="text"
+                            placeholder="Search by company name or CR number..."
+                            value={searchInput}
+                            onChange={(e) => setSearchInput(e.target.value)}
+                            className="w-full pl-10 pr-3 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white placeholder-slate-400"
+                        />
+                    </div>
+                    <select
+                        value={countryFilter}
+                        onChange={(e) => setCountryFilter(e.target.value)}
+                        className="sm:w-56 px-3 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white"
+                        aria-label="Filter by country"
+                    >
+                        <option value="">All countries</option>
+                        {countries.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                </div>
             </div>
 
-            {showTab === 'db' && (
-                <>
-                    {/* Source filter */}
-                    <div className="flex items-center gap-2 mb-4">
-                        <button
-                            onClick={() => setShowSourceFilter('all')}
-                            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
-                                showSourceFilter === 'all' 
-                                    ? 'bg-primary text-white' 
-                                    : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10'
-                            }`}
-                        >
-                            All ({reports.length})
-                        </button>
-                        <button
-                            onClick={() => setShowSourceFilter('cloud')}
-                            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
-                                showSourceFilter === 'cloud' 
-                                    ? 'bg-purple-500 text-white' 
-                                    : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10'
-                            }`}
-                        >
-                            <Cloud size={14} /> Cloud ({stats.cloud})
-                        </button>
-                    </div>
-
-                    {/* Single search box */}
-                    <div className="glass-card p-4 mb-6">
-                        <div className="relative">
-                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input
-                                type="text"
-                                placeholder="Search by company, CR number, client reference, analyst or country..."
-                                value={searchInput}
-                                onChange={(e) => setSearchInput(e.target.value)}
-                                className="w-full pl-10 pr-3 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white placeholder-slate-400"
-                            />
-                        </div>
-                    </div>
-                </>
-            )}
-
-            {/* Database Tab - Add select all here */}
-            {showTab === 'db' && reports.length > 0 && (
+            {reports.length > 0 && (
                 <div className="mb-4 flex items-center justify-between">
                     <button
                         onClick={() => toggleSelectAll(filteredReports)}
@@ -510,29 +367,7 @@ export default function ReportsPage() {
                         {selectedReports.size === filteredReports.length ? <CheckSquare size={16} /> : <Square size={16} />}
                         Select All
                     </button>
-                    {selectedReports.size > 0 && (
-                        <button
-                            onClick={handleBulkDelete}
-                            disabled={bulkDeleting}
-                            className="px-4 py-2 bg-rose-500 text-white text-xs font-bold uppercase rounded-lg hover:bg-rose-600 disabled:opacity-50 flex items-center gap-2"
-                        >
-                            <Trash2 size={14} />
-                            Delete {selectedReports.size} Selected
-                        </button>
-                    )}
-                </div>
-            )}
-
-            {showTab === 'output' && outputReports.length > 0 && (
-                <div className="mb-4 flex items-center justify-between">
-                    <button
-                        onClick={() => toggleSelectAll(outputReports)}
-                        className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-primary"
-                    >
-                        {selectedReports.size === outputReports.length ? <CheckSquare size={16} /> : <Square size={16} />}
-                        Select All
-                    </button>
-                    {selectedReports.size > 0 && (
+                    {isAdmin && selectedReports.size > 0 && (
                         <button
                             onClick={handleBulkDelete}
                             disabled={bulkDeleting}
@@ -562,13 +397,10 @@ export default function ReportsPage() {
                         <FileText size={32} />
                     </div>
                     <h3 className="text-lg font-black text-slate-600 dark:text-slate-300 mb-2">
-                        {showTab === 'output' ? 'No Generated Files' : 'No Reports Found'}
+                        No Reports Found
                     </h3>
                     <p className="text-slate-400 text-sm">
-                        {showTab === 'output' 
-                            ? 'Generate PDF or export reports to see them here' 
-                            : (search || countryFilter ? 'Try adjusting your search or filter' : 'Save reports using the editor to see them here')
-                        }
+                        {search || countryFilter ? 'Try adjusting your search or filter' : 'Save reports using the editor to see them here'}
                     </p>
                 </div>
             ) : (
@@ -577,7 +409,6 @@ export default function ReportsPage() {
                     ref={tableContainerRef}
                     style={{ maxHeight: 'calc(100vh - 380px)', overflowY: 'auto' }}
                 >
-                    {showTab === 'db' ? (
                     <table className="w-full border-collapse">
                         <thead className="sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm z-10">
                             <tr className="border-b border-slate-200 dark:border-white/10">
@@ -614,7 +445,7 @@ export default function ReportsPage() {
                                         </button>
                                     </td>
                                     <td className="px-4 py-4">
-                                        <LocationBadge location={report.location} />
+                                        <LocationBadge />
                                     </td>
                                     <td className="px-4 py-4 min-w-[200px]">
                                         <div className="flex flex-col gap-0.5">
@@ -671,28 +502,14 @@ export default function ReportsPage() {
                                             {saveMessage[report.id] ? (
                                                 <span className="text-[10px] text-emerald-500 font-black uppercase tracking-widest px-2 animate-in slide-in-from-right-2">{saveMessage[report.id]}</span>
                                             ) : (
-                                                <>
-                                                    {report.location !== 'cloud' && (
-                                                        <button
-                                                            onClick={() => handleSaveToCloud(report.id)}
-                                                            disabled={savingToCloud[report.id]}
-                                                            className="p-2 text-slate-400 hover:text-purple-500 hover:bg-purple-500/10 rounded-lg transition-all disabled:opacity-50"
-                                                            title="Save to Cloud"
-                                                        >
-                                                            {savingToCloud[report.id] ? <Loader2 size={18} className="animate-spin" /> : <Cloud size={18} />}
-                                                        </button>
-                                                    )}
-                                                    {report.location !== 'local' && (
-                                                        <button
-                                                            onClick={() => handleSaveLocally(report.id)}
-                                                            disabled={savingLocally[report.id]}
-                                                            className="p-2 text-slate-400 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg transition-all disabled:opacity-50"
-                                                            title="Save Locally"
-                                                        >
-                                                            {savingLocally[report.id] ? <Loader2 size={18} className="animate-spin" /> : <HardDrive size={18} />}
-                                                        </button>
-                                                    )}
-                                                </>
+                                                <button
+                                                    onClick={() => handleSaveLocally(report.id)}
+                                                    disabled={savingLocally[report.id]}
+                                                    className="p-2 text-slate-400 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg transition-all disabled:opacity-50"
+                                                    title="Save Locally (download JSON)"
+                                                >
+                                                    {savingLocally[report.id] ? <Loader2 size={18} className="animate-spin" /> : <HardDrive size={18} />}
+                                                </button>
                                             )}
                                             <button
                                                 onClick={() => handleOpenReport(report)}
@@ -700,123 +517,50 @@ export default function ReportsPage() {
                                                 className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-all disabled:opacity-50"
                                                 title="Edit"
                                             >
-                                                {loadingReportId === report.id ? <Loader2 size={18} className="animate-spin" /> : <Edit3 size={18} />}
+                                                <Edit3 size={18} />
                                             </button>
                                             <ExportDropdown 
                                                 reportId={report.id} 
                                                 onExport={handleExport}
                                                 loading={downloading[report.id]}
                                             />
-                                            <button
-                                                onClick={() => setDeleteModal({ 
-                                                    open: true, 
-                                                    reportId: report.id, 
-                                                    reportName: report.company_name || report.id,
-                                                    location: report.location
-                                                })}
-                                                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"
-                                                title="Delete"
-                                            >
-                                                <Trash2 size={18} />
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    ) : (
-                    <table className="w-full border-collapse">
-                        <thead className="sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm z-10">
-                            <tr className="border-b border-slate-200 dark:border-white/10">
-                                <th className="w-12 px-4 py-4">
-                                    <button
-                                        onClick={() => toggleSelectAll(outputReports)}
-                                        className="text-slate-400 hover:text-primary transition-colors"
-                                        title="Select All"
-                                    >
-                                        {selectedReports.size === outputReports.length && outputReports.length > 0 ? <CheckSquare size={18} /> : <Square size={18} />}
-                                    </button>
-                                </th>
-                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">ID & Info</th>
-                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Available Formats</th>
-                                <th className="text-left px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Generated On</th>
-                                <th className="text-right px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                            {outputReports.map((report) => (
-                                <tr 
-                                    key={report.id} 
-                                    className="group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-all duration-200"
-                                >
-                                    <td className="px-4 py-4">
-                                        <button
-                                            onClick={() => toggleSelect(report.id)}
-                                            className="text-slate-300 group-hover:text-slate-400 hover:text-primary transition-colors"
-                                        >
-                                            {selectedReports.has(report.id) ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} />}
-                                        </button>
-                                    </td>
-                                    <td className="px-4 py-4">
-                                        <div className="flex flex-col gap-0.5">
-                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-200 group-hover:translate-x-0.5 transition-transform">
-                                                {report.filename?.replace(/_/g, ' ').slice(0, 40) || 'Exported File'}
-                                            </span>
-                                            <span className="font-mono text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-tighter">
-                                                ID: {report.id}
-                                            </span>
-                                        </div>
-                                    </td>
-                                    <td className="px-4 py-4">
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {report.files?.map((f, i) => (
-                                                <FormatBadge key={i} format={f.format} />
-                                            ))}
-                                            {report.files?.length > 3 && (
-                                                <span className="text-[10px] font-bold text-slate-400 flex items-center px-1">
-                                                    +{report.files.length - 3}
-                                                </span>
+                                            {isAdmin && (
+                                                <button
+                                                    onClick={() => setDeleteModal({
+                                                        open: true,
+                                                        reportId: report.id,
+                                                        reportName: report.company_name || report.id,
+                                                    })}
+                                                    className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"
+                                                    title="Delete"
+                                                >
+                                                    <Trash2 size={18} />
+                                                </button>
                                             )}
                                         </div>
                                     </td>
-                                    <td className="px-4 py-4">
-                                        <div className="flex flex-col gap-0.5 whitespace-nowrap">
-                                            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                                                {formatDate(report.created_at).split(',')[0]}
-                                            </span>
-                                            <span className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">
-                                                {formatDate(report.created_at).split(',')[1]}
-                                            </span>
-                                        </div>
-                                    </td>
-                                    <td className="px-4 py-4">
-                                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button
-                                                onClick={() => setDeleteModal({ 
-                                                    open: true, 
-                                                    reportId: report.id, 
-                                                    reportName: report.filename || report.id,
-                                                    location: 'output'
-                                                })}
-                                                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"
-                                                title="Delete"
-                                            >
-                                                <Trash2 size={18} />
-                                            </button>
-                                        </div>
-                                    </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
+                    {totalReports > reports.length && (
+                        <div className="p-4 flex justify-center border-t border-slate-100 dark:border-white/5">
+                            <button
+                                onClick={loadMore}
+                                disabled={loadingMore}
+                                className="px-4 py-2 rounded-lg text-xs font-bold bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-primary/10 hover:text-primary disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {loadingMore && <Loader2 size={14} className="animate-spin" />}
+                                Load more ({totalReports - reports.length} remaining)
+                            </button>
+                        </div>
                     )}
                 </div>
             )}
 
             <DeleteConfirmModal 
                 isOpen={deleteModal.open}
-                onClose={() => setDeleteModal({ open: false, reportId: null, reportName: '', location: '' })}
+                onClose={() => setDeleteModal({ open: false, reportId: null, reportName: '' })}
                 onConfirm={handleDelete}
                 reportName={deleteModal.reportName}
             />

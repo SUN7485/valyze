@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useReport } from '../context/ReportContext'
-import { FileText, Eye, Wand2, ChevronLeft, ChevronRight, Info, Cloud, HardDrive, Loader2, ChevronDown, ShieldCheck } from 'lucide-react'
+import { FileText, Eye, Wand2, ChevronLeft, ChevronRight, Info, Cloud, CloudOff, HardDrive, Loader2, ChevronDown, ShieldCheck, AlertTriangle, X } from 'lucide-react'
 import SideNav from '../components/SideNav'
 import EasyWayImport from '../components/EasyWayImport'
 import {
@@ -16,7 +16,8 @@ import {
     P17_Monitoring, P18_Appendices,
     P19_BackCover
 } from '../editor-pages'
-import { reportAPI } from '../api/client'
+import { reportAPI, downloadReportExport, downloadReportJson } from '../api/client'
+import { printHtml } from '../lib/htmlDocument'
 
 const PAGE_COMPONENTS = {
     1: P01_CoverPage,
@@ -54,7 +55,10 @@ export default function EditorPage() {
         getCompletionPercentage,
         hasRealData,
         updateField,
-        deletePage
+        deletePage,
+        pendingSaves,
+        saveError,
+        clearSaveError,
     } = useReport()
 
     const [currentPage, setCurrentPage]   = useState(1)
@@ -66,8 +70,10 @@ export default function EditorPage() {
     const [exportSuccess, setExportSuccess] = useState({})
     const [exportError, setExportError]   = useState({})
     const [showExportMenu, setShowExportMenu] = useState(false)
-    const [savingToCloud, setSavingToCloud] = useState(false)
-    const [cloudSaved, setCloudSaved]     = useState(false)
+    // Keys an import (Extractor / Easy Way) sent that the server did not recognise.
+    const location = useLocation()
+    const [ignoredKeys, setIgnoredKeys] = useState(() => location.state?.ignoredKeys || [])
+    useEffect(() => { setIgnoredKeys(location.state?.ignoredKeys || []) }, [location.key]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (reportId) {
@@ -76,7 +82,11 @@ export default function EditorPage() {
         }
     }, [reportId])
 
-    if (loading && !report) {
+    // The context may still hold the previously opened report for one render
+    // after the URL changes — never show (or edit) it under this report's URL.
+    const reportMatches = !!report && String(report.report_id ?? report.id) === String(reportId)
+
+    if (!reportMatches && (loading || !error)) {
         return (
             <div className="flex items-center justify-center h-screen">
                 <div className="text-center">
@@ -88,7 +98,7 @@ export default function EditorPage() {
         )
     }
 
-    if (error && !report) {
+    if (error && !reportMatches) {
         return (
             <div className="flex items-center justify-center h-screen">
                 <div className="text-center bg-white dark:bg-white/5 p-8 max-w-sm rounded-2xl border border-slate-200 dark:border-white/10">
@@ -108,7 +118,7 @@ export default function EditorPage() {
         )
     }
 
-    if (!report) {
+    if (!reportMatches) {
         return (
             <div className="flex items-center justify-center h-screen">
                 <div className="text-center">
@@ -141,16 +151,6 @@ export default function EditorPage() {
         getFieldValue('cr_number')
     )
 
-    const handleGenerateAI = () => {
-        if (window.confirm(
-            'This will generate AI narratives (executive summary, ' +
-            'SWOT, recommendations etc).\n\n' +
-            'Make sure you have reviewed all fields first.'
-        )) {
-            navigate(`/generating/${reportId}`)
-        }
-    }
-
     const handleGeneratePDF = async () => {
         setPdfError('')
         setPdfSuccess(false)
@@ -168,26 +168,11 @@ export default function EditorPage() {
             const html = res.data?.html
 
             if (html) {
-                // Create iframe to avoid about:blank and browser header issues
-                const iframe = document.createElement('iframe')
-                iframe.style.position = 'fixed'
-                iframe.style.left = '-9999px'
-                document.body.appendChild(iframe)
-
-                const doc = iframe.contentDocument || iframe.contentWindow.document
-                doc.open()
-                doc.write(html)
-                doc.close()
-
-                // Wait for content to load, then trigger print
-                setTimeout(() => {
-                    iframe.contentWindow.focus()
-                    iframe.contentWindow.print()
-                    setPdfSuccess(true)
-                    setTimeout(() => setPdfSuccess(false), 3000)
-                    // Clean up iframe after print dialog
-                    setTimeout(() => document.body.removeChild(iframe), 1000)
-                }, 1000)
+                // Printed from a sandboxed iframe — the server HTML never gets
+                // this app's origin (and so never sees the login token).
+                printHtml(html)
+                setPdfSuccess(true)
+                setTimeout(() => setPdfSuccess(false), 3000)
             } else {
                 setPdfError('Failed to generate PDF — no HTML returned.')
             }
@@ -200,9 +185,13 @@ export default function EditorPage() {
         }
     }
 
-    const handlePreview = () => {
-        const url = reportAPI.getPreviewURL(reportId)
-        window.open(url, '_blank')
+    const handlePreview = async () => {
+        setPdfError('')
+        try {
+            await reportAPI.openPreview(reportId)
+        } catch (err) {
+            setPdfError(err.message || 'Could not open the preview')
+        }
     }
 
     const handleExport = async (format) => {
@@ -215,42 +204,7 @@ export default function EditorPage() {
         setExportingFormat(format)
 
         try {
-            const exportAPI = {
-                json: reportAPI.exportJSON,
-                xml: reportAPI.exportXML,
-                xlsx: reportAPI.exportExcel,
-                csv: reportAPI.exportCSV,
-                docx: reportAPI.exportWord,
-            }[format]
-
-            // Excel/Word return JSON with base64; JSON/XML/CSV return file content
-            const res = await exportAPI(reportId, {
-                responseType: (format === 'xlsx' || format === 'docx') ? 'json' : 'blob'
-            })
-
-            let blob, filename
-            if (res.data?.base64) {
-                // base64 response (Excel / Word)
-                const binary = atob(res.data.base64)
-                const bytes = new Uint8Array(binary.length)
-                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-                const mimeMap = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }
-                blob = new Blob([bytes], { type: mimeMap[format] || 'application/octet-stream' })
-                filename = res.data.filename || `CreditReport.${format}`
-            } else {
-                // Direct file response (JSON / XML / CSV)
-                blob = res.data instanceof Blob ? res.data : new Blob([res.data])
-                filename = `CreditReport_${companyName.replace(/\s+/g, '_').slice(0,30)}.${format}`
-            }
-
-            const url = window.URL.createObjectURL(blob)
-            const link = document.createElement('a')
-            link.href = url
-            link.download = filename
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-            window.URL.revokeObjectURL(url)
+            await downloadReportExport(reportId, format, `CreditReport_${companyName.replace(/\s+/g, '_').slice(0, 30)}`)
             setExportSuccess(prev => ({ ...prev, [format]: true }))
             setTimeout(() => setExportSuccess(prev => ({ ...prev, [format]: false })), 2000)
         } catch (err) {
@@ -262,26 +216,11 @@ export default function EditorPage() {
         }
     }
 
-    const handleSaveToCloud = async () => {
-        if (!hasData) {
-            setExportError(prev => ({ ...prev, cloud: 'No company data found.' }))
-            return
-        }
-        setExportError(prev => ({ ...prev, cloud: '' }))
-        setSavingToCloud(true)
-        setShowExportMenu(false)
-        try {
-            const res = await reportAPI.saveToCloud(reportId)
-            if (res.data?.success) {
-                setCloudSaved(true)
-                setTimeout(() => setCloudSaved(false), 3000)
-            }
-        } catch (err) {
-            const msg = err.message || 'Failed to save to cloud'
-            setExportError(prev => ({ ...prev, cloud: msg }))
-        } finally {
-            setSavingToCloud(false)
-        }
+    // "Save Locally": download the report as JSON from what this browser holds.
+    // Edits are already autosaved to the database field by field — there is no
+    // separate "save to cloud" step.
+    const handleSaveLocally = () => {
+        downloadReportJson(report, `CreditReport_${companyName.replace(/\s+/g, '_').slice(0, 30)}`)
     }
 
     return (
@@ -348,36 +287,26 @@ export default function EditorPage() {
                     {/* Right: Action Buttons */}
                     <div className="flex items-center gap-3">
 
-                        {/* Save to Cloud */}
-                        <button
-                            onClick={handleSaveToCloud}
-                            disabled={!hasData || savingToCloud || cloudSaved}
-                            className="flex items-center gap-2 px-4 py-2 text-[9px] font-semibold uppercase tracking-wider rounded-lg border border-purple-200 dark:border-purple-500/30 bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Save to Supabase Cloud"
+                        {/* Autosave status — every edit is written to the database as it happens */}
+                        <div
+                            className={`flex items-center gap-2 px-4 py-2 text-[9px] font-semibold uppercase tracking-wider rounded-lg border ${saveError
+                                ? 'border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                                : 'border-purple-200 dark:border-purple-500/30 bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400'}`}
+                            title="Edits are saved to the database automatically"
                         >
-                            {savingToCloud ? <Loader2 size={14} className="animate-spin" /> : <Cloud size={14} />}
-                            {savingToCloud ? 'Saving...' : cloudSaved ? 'Saved!' : 'Save to Cloud'}
-                        </button>
+                            {pendingSaves > 0
+                                ? <><Loader2 size={14} className="animate-spin" /> Saving…</>
+                                : saveError
+                                    ? <><CloudOff size={14} /> Not saved</>
+                                    : <><Cloud size={14} /> All changes saved</>}
+                        </div>
 
-                        {/* Save Locally */}
+                        {/* Save Locally — downloads the report JSON */}
                         <button
-                            onClick={async () => {
-                                if (!hasData) return
-                                try {
-                                    setSavingToCloud(true)
-                                    await reportAPI.saveToCloud(reportId)
-                                    await reportAPI.loadFromCloud(reportId)
-                                    setCloudSaved(true)
-                                    setTimeout(() => setCloudSaved(false), 3000)
-                                } catch (e) {
-                                    setExportError(prev => ({ ...prev, cloud: e.message }))
-                                } finally {
-                                    setSavingToCloud(false)
-                                }
-                            }}
-                            disabled={!hasData || savingToCloud}
+                            onClick={handleSaveLocally}
+                            disabled={!hasData}
                             className="flex items-center gap-2 px-4 py-2 text-[9px] font-semibold uppercase tracking-wider rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Save to Local Database"
+                            title="Download this report as a JSON file"
                         >
                             <HardDrive size={14} />
                             Save Locally
@@ -561,6 +490,25 @@ export default function EditorPage() {
                         </div>
                     </div>
                 </header>
+
+                {ignoredKeys.length > 0 && (
+                    <div className="mx-6 mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-3 text-amber-700 dark:text-amber-300 text-sm">
+                        <AlertTriangle size={18} className="flex-shrink-0 mt-0.5" />
+                        <span className="flex-1">
+                            {ignoredKeys.length} imported key{ignoredKeys.length === 1 ? ' was' : 's were'} not recognised and not saved:{' '}
+                            <span className="font-mono text-xs break-words">{ignoredKeys.join(', ')}</span>
+                        </span>
+                        <button onClick={() => setIgnoredKeys([])} className="opacity-70 hover:opacity-100" aria-label="Dismiss"><X size={16} /></button>
+                    </div>
+                )}
+
+                {saveError && (
+                    <div className="mx-6 mt-4 p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-start gap-3 text-rose-600 dark:text-rose-400 text-sm">
+                        <AlertTriangle size={18} className="flex-shrink-0 mt-0.5" />
+                        <span className="flex-1">{saveError}</span>
+                        <button onClick={clearSaveError} className="opacity-70 hover:opacity-100" aria-label="Dismiss"><X size={16} /></button>
+                    </div>
+                )}
 
                 {/* Page Content */}
                 <div className="flex-1 overflow-y-auto w-full scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-white/5">

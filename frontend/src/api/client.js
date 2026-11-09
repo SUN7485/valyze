@@ -17,15 +17,41 @@ function getBaseUrl() {
   throw new Error(msg)
 }
 
-const API_BASE = getBaseUrl() + '/api'
+// Backend origin (no /api suffix) — for the few callers that use fetch() directly
+// (the Anthropic proxy, binary downloads) instead of the axios instance.
+export const API_ROOT = getBaseUrl()
+const API_BASE = API_ROOT + '/api'
 
-// Append the login JWT as a query param for endpoints opened as raw browser
-// URLs (window.open / link.href) that can't send an Authorization header —
-// PDF previews and file downloads. The backend accepts `?token=` for these.
-function withToken(url) {
-    const token = localStorage.getItem('valyze_token') || ''
-    if (!token) return url
-    return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
+// Every localStorage key that belongs to the signed-in user. Cleared on logout and
+// whenever the session turns out to be dead, so the next person on a shared
+// workstation inherits none of it (the Anthropic key above all).
+export const USER_STORAGE_KEYS = [
+    'valyze_token',
+    'valyze_api_key',
+    'valyze_pending_import',
+    'valyze_order_summary',
+    'current_report_id',
+]
+
+export function clearUserStorage() {
+    for (const key of USER_STORAGE_KEYS) {
+        try { localStorage.removeItem(key) } catch { /* storage unavailable */ }
+    }
+    try {
+        // Per-report QA runs cached by QAPage.
+        for (let i = sessionStorage.length - 1; i >= 0; i--) {
+            const key = sessionStorage.key(i)
+            if (key && key.startsWith('valyze_qa_')) sessionStorage.removeItem(key)
+        }
+    } catch { /* storage unavailable */ }
+}
+
+// A 401 from any staff endpoint means the session is gone (expired, revoked, or
+// the user was deleted). AuthContext subscribes and sends the user to /login.
+const unauthorizedListeners = new Set()
+export function onUnauthorized(listener) {
+    unauthorizedListeners.add(listener)
+    return () => unauthorizedListeners.delete(listener)
 }
 
 // Create axios instance with proper configuration
@@ -37,27 +63,97 @@ const api = axios.create({
     }
 })
 
-// Request interceptor - attach JWT token + logging
+// Request interceptor - attach JWT token
 api.interceptors.request.use(config => {
     const token = localStorage.getItem('valyze_token')
     if (token) {
         config.headers.Authorization = `Bearer ${token}`
     }
-    console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`)
     return config
 })
 
-// Response interceptor for error handling
+// FastAPI's `detail` is a string, a pydantic error list, or (409 conflicts) an object.
+function detailToMessage(detail) {
+    if (!detail) return ''
+    if (typeof detail === 'string') return detail
+    if (Array.isArray(detail)) {
+        return detail.map(item => (typeof item === 'string' ? item : item?.msg || JSON.stringify(item))).join(' ')
+    }
+    if (typeof detail === 'object') return detail.message || detail.error || JSON.stringify(detail)
+    return String(detail)
+}
+
+// Response interceptor. The rejected error keeps `.status`, `.response` and
+// `.detail` so callers can branch on 403/404/409 — replacing it with a bare
+// `new Error(msg)` made every `e.response?.status` check in the app dead code.
 api.interceptors.response.use(
     response => response,
-    error => {
-        const msg = error.response?.data?.detail
-            || error.message
-            || 'Unknown error'
-        console.error('[API Error]', msg, error.response?.status)
-        return Promise.reject(new Error(msg))
+    async error => {
+        const response = error.response
+        let data = response?.data
+        // Blob/text downloads deliver their error body as a Blob — read it so the
+        // server's detail reaches the user instead of "status code 404".
+        if (typeof Blob !== 'undefined' && data instanceof Blob) {
+            try {
+                const text = await data.text()
+                try { data = JSON.parse(text) } catch { data = { detail: text } }
+            } catch { /* keep the blob */ }
+        }
+        const detail = data?.detail
+        const status = response?.status
+        const err = new Error(detailToMessage(detail) || error.message || 'Unknown error')
+        err.status = status
+        err.response = response ? { ...response, data } : undefined
+        err.detail = detail
+        err.code = error.code
+        err.config = error.config
+        if (axios.isCancel(error)) err.name = 'CanceledError'
+        console.error('[API Error]', err.message, status)
+
+        const url = error.config?.url || ''
+        if (status === 401 && !url.includes('/auth/login')) {
+            unauthorizedListeners.forEach(listener => {
+                try { listener(err) } catch { /* a listener must not break the caller */ }
+            })
+        }
+        return Promise.reject(err)
     }
 )
+
+// ---------------------------------------------------------------------------
+// Raw-URL access (window.open / link.href) for PDF previews and downloads.
+// Those requests cannot carry an Authorization header, so the backend accepts a
+// short-lived, single-purpose "link" token in `?token=`. The login JWT itself is
+// never put in a URL (it would land in logs, history and copied links).
+// ---------------------------------------------------------------------------
+
+export async function linkUrl(url) {
+    const res = await api.post('/auth/link-token')
+    const token = res.data?.token
+    if (!token) throw new Error('Could not obtain a download link — please try again.')
+    return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
+}
+
+// Open an authenticated raw URL in a new tab. The tab is opened synchronously —
+// inside the click — because a window.open() issued after an await has lost the
+// user gesture and is eaten by the pop-up blocker.
+export async function openAuthenticatedUrl(url) {
+    const w = window.open('', '_blank')
+    if (!w) throw new Error('Please allow pop-ups for this site to open the preview.')
+    try {
+        w.document.title = 'Loading…'
+        w.document.body.textContent = 'Loading…'
+    } catch { /* cosmetic only */ }
+    try {
+        const target = await linkUrl(url)
+        // The opened page is server-rendered on another origin; it gets no handle on this tab.
+        w.opener = null
+        w.location.href = target
+    } catch (e) {
+        w.close()
+        throw e
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Auth API
@@ -121,6 +217,10 @@ export const clientsAPI = {
 
     revokeSession: (sessionId) =>
         api.delete(`/clients/sessions/${sessionId}`),
+
+    // Returns { new_password } — shown once; the server never stores the plaintext.
+    resetSessionPassword: (sessionId) =>
+        api.post(`/clients/sessions/${sessionId}/reset-password`),
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +228,10 @@ export const clientsAPI = {
 // ---------------------------------------------------------------------------
 
 export const ordersAPI = {
+    // Assignable staff for the analyst dropdowns -> { analysts: [{ email, name, role }] }
+    getAnalysts: () =>
+        api.get('/orders/analysts'),
+
     getAll: (filters = {}) => {
         const params = new URLSearchParams()
         if (filters.status && filters.status !== 'all') params.set('status', filters.status)
@@ -163,9 +267,6 @@ export const ordersAPI = {
     delete: (id) =>
         api.delete(`/orders/${id}`),
 
-    updateCompany: (orderId, companyId, data) =>
-        api.patch(`/orders/${orderId}/companies/${companyId}`, data),
-
     startCompany: (orderId, companyId) =>
         api.post(`/orders/${orderId}/companies/${companyId}/start`),
 
@@ -183,6 +284,12 @@ export const ordersAPI = {
 
     downloadOrder: (orderId) =>
         api.get(`/orders/${orderId}/download`, { responseType: 'blob' }),
+
+    // Signed, short-lived Storage URLs per file — for orders too large to ZIP
+    // in one serverless response (the ZIP endpoint answers 413).
+    // -> { order_id, files: [{ id, order_company_id, filename, file_size, url, expires_in }] }
+    getFileLinks: (orderId) =>
+        api.get(`/orders/${orderId}/files`),
 
     // Order details document — HTML (converted to PDF client-side via print) or Word (.doc)
     getOrderDocumentHtml: (orderId) =>
@@ -210,102 +317,68 @@ export const reportAPI = {
 
     // -- Upload ----------------------------------
 
+    // Creates an empty report seeded with the order details -> { report_id }
     startReport: (data) =>
         api.post('/upload/start', data),
 
-    uploadFiles: (reportId, files) => {
-        const formData = new FormData()
-        files.forEach(file =>
-            formData.append('files', file)
-        )
-        return api.post(
-            `/upload/files/${reportId}`,
-            formData,
-            { headers: { 'Content-Type': 'multipart/form-data' } }
-        )
-    },
-
-    getUploadStatus: (reportId) =>
-        api.get(`/upload/status/${reportId}`),
-
     deleteFile: (reportId, filename) =>
-        api.delete(`/upload/file/${reportId}/${filename}`),
-
-    // -- Extraction ------------------------------
-
-    startExtraction: (reportId) =>
-        api.post(`/extract/start/${reportId}`),
-
-    getExtractionProgress: (reportId) =>
-        api.get(`/extract/progress/${reportId}`),
-
-    getExtractedFields: (reportId) =>
-        api.get(`/extract/fields/${reportId}`),
+        api.delete(`/upload/file/${encodeURIComponent(reportId)}/${encodeURIComponent(filename)}`),
 
     // -- Report CRUD -----------------------------
+    // Every edit sends `last_known_updated_at` (the report's updated_at as this
+    // browser last saw it). The server answers 409 if someone else saved since.
 
     getReport: (reportId) =>
         api.get(`/report/${reportId}`),
 
-    updateField: (reportId, fieldName, value) =>
+    updateField: (reportId, fieldName, value, lastKnownUpdatedAt) =>
         api.patch(`/report/${reportId}/field`, {
             field_name: fieldName,
             value: value,
-            source: 'user'
+            source: 'user',
+            ...(lastKnownUpdatedAt ? { last_known_updated_at: lastKnownUpdatedAt } : {}),
         }),
 
-    updateFieldsBulk: (reportId, fields) =>
+    updateFieldsBulk: (reportId, fields, lastKnownUpdatedAt) =>
         api.patch(`/report/${reportId}/fields`, {
-            fields: fields
+            fields: fields,
+            ...(lastKnownUpdatedAt ? { last_known_updated_at: lastKnownUpdatedAt } : {}),
         }),
 
-    updateArray: (reportId, arrayName, data) =>
+    updateArray: (reportId, arrayName, data, lastKnownUpdatedAt) =>
         api.patch(`/report/${reportId}/array`, {
             array_name: arrayName,
-            data: data
+            data: data,
+            ...(lastKnownUpdatedAt ? { last_known_updated_at: lastKnownUpdatedAt } : {}),
         }),
 
     recalculate: (reportId) =>
         api.post(`/report/${reportId}/recalculate`),
 
-    getAllReports: () =>
-        api.get('/report/'),
-
+    // Admin only.
     deleteReport: (reportId) =>
         api.delete(`/report/${reportId}`),
-
-    // -- Generation ------------------------------
-
-    generateNarratives: (reportId) =>
-        api.post(`/generate/narratives/${reportId}`),
-
-    getGenerationProgress: (reportId) =>
-        api.get(`/generate/progress/${reportId}`),
-
-    regenerateSection: (reportId, sections) =>
-        api.post(`/generate/regenerate/${reportId}`, {
-            sections: sections
-        }),
 
     // -- Easy Way Import -------------------------
     easyWayImport: (reportId, data) =>
         api.post(`/report/${reportId}/easy-way`, data),
 
     // -- PDF -------------------------------------
+    // The PDF is produced in the browser (print → Save as PDF) from server HTML.
 
     generatePDF: (reportId) =>
         api.post(`/pdf/generate/${reportId}`),
 
+    // -> { can_generate, report_status, ... }
     getPDFStatus: (reportId) =>
         api.get(`/pdf/status/${reportId}`),
 
-    getPreviewURL: (reportId) =>
-        withToken(`${API_BASE}/pdf/preview/${reportId}`),
-
-    getDownloadURL: (reportId) =>
-        withToken(`${API_BASE}/pdf/download/${reportId}`),
+    // Opens the rendered report in a new tab (raw URL, short-lived link token).
+    openPreview: (reportId) =>
+        openAuthenticatedUrl(`${API_BASE}/pdf/preview/${encodeURIComponent(reportId)}`),
 
     // -- Export -----------------------------------
+    // The POST response IS the file (JSON/XML/CSV as a blob, Excel/Word as base64).
 
     exportJSON: (reportId, opts) =>
         api.post(`/export/json/${reportId}`, null, opts),
@@ -322,43 +395,7 @@ export const reportAPI = {
     exportWord: (reportId, opts) =>
         api.post(`/export/word/${reportId}`, null, opts),
 
-    getExportStatus: (reportId) =>
-        api.get(`/export/status/${reportId}`),
-
-    getExportDownloadURL: (reportId, format) =>
-        withToken(`${API_BASE}/export/download/${reportId}/${format}`),
-
-    // -- Cloud / Supabase ------------------------
-
-    saveToCloud: (reportId) =>
-        api.post(`/cloud/save/${reportId}`),
-
-    getCloudStatus: (reportId) =>
-        api.get(`/cloud/status/${reportId}`),
-
-    getReports: () =>
-        api.get('/search/reports'),
-
-    deleteCloudReport: (reportId) =>
-        api.delete(`/cloud/${reportId}`),
-
-    // -- Local Reports
-    getLocalReports: (skip = 0, limit = 50, status = null, search = null) => {
-        const params = new URLSearchParams()
-        params.append('skip', skip)
-        params.append('limit', limit)
-        if (status) params.append('status', status)
-        if (search) params.append('search', search)
-        return api.get(`/search/local?${params}`)
-    },
-
-    getLocalReportsCount: () =>
-        api.get('/search/local/count'),
-
-    deleteLocalReport: (reportId) =>
-        api.delete(`/search/local/${reportId}`),
-
-    // -- Combined Reports (Cloud + Local)
+    // -- Report list ------------------------------
     getAllReportsCombined: (skip = 0, limit = 100, search = null, country = null) => {
         const params = new URLSearchParams()
         params.append('skip', skip)
@@ -368,22 +405,83 @@ export const reportAPI = {
         return api.get(`/search/all?${params}`)
     },
 
-    // -- Output Files
-    getOutputReports: (search = null) => {
-        const params = new URLSearchParams()
-        if (search) params.append('search', search)
-        return api.get(`/search/output?${params}`)
-    },
-
-    deleteOutputReport: (reportId) =>
-        api.delete(`/search/output/${reportId}`),
-
     // -- Duplicate Detection
     checkDuplicate: (crNumber, companyName) =>
         api.post('/upload/check-duplicate', {
             cr_number: crNumber,
             company_name: companyName
         }),
+}
+
+const EXPORT_MIME = {
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    json: 'application/json',
+    xml: 'application/xml',
+    csv: 'text/csv',
+}
+
+// Run one export and save the file it returns. Shared by the Editor and the
+// Reports list so both download exactly what the POST endpoint produced.
+export async function downloadReportExport(reportId, format, baseName = 'CreditReport') {
+    const call = {
+        json: reportAPI.exportJSON,
+        xml: reportAPI.exportXML,
+        xlsx: reportAPI.exportExcel,
+        csv: reportAPI.exportCSV,
+        docx: reportAPI.exportWord,
+    }[format]
+    if (!call) throw new Error(`Unsupported export format "${format}"`)
+
+    // Excel/Word return JSON with base64; JSON/XML/CSV return the file content.
+    const res = await call(reportId, {
+        responseType: (format === 'xlsx' || format === 'docx') ? 'json' : 'blob',
+    })
+
+    let blob, filename
+    if (res.data?.base64) {
+        const binary = atob(res.data.base64)
+        const bytes = new Uint8Array(binary.length)
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+        blob = new Blob([bytes], { type: EXPORT_MIME[format] || 'application/octet-stream' })
+        filename = res.data.filename || `${baseName}.${format}`
+    } else {
+        blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: EXPORT_MIME[format] })
+        filename = `${baseName}.${format}`
+    }
+    saveBlob(blob, filename)
+}
+
+export function saveBlob(blob, filename) {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    setTimeout(() => window.URL.revokeObjectURL(url), 1000)
+}
+
+// Download an order's client submission as a ZIP. Large orders do not fit in one
+// serverless response (413): then return the per-file signed links instead, for
+// the page to offer (OrderFileLinksModal). Returns null when the ZIP was saved.
+export async function downloadOrderSubmission(orderId, filename) {
+    try {
+        const res = await ordersAPI.downloadOrder(orderId)
+        saveBlob(new Blob([res.data], { type: 'application/zip' }), filename)
+        return null
+    } catch (e) {
+        if (e.status !== 413) throw e
+        const links = await ordersAPI.getFileLinks(orderId)
+        return links.data?.files || []
+    }
+}
+
+// "Save Locally": the report as JSON, straight from what the browser already holds.
+export function downloadReportJson(report, baseName = 'CreditReport') {
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
+    saveBlob(blob, `${baseName}.json`)
 }
 
 // ---------------------------------------------------------------------------
@@ -461,8 +559,18 @@ export const deliveryAPI = {
         api.get(`/delivery/${reportId}/invoice`),
 
     // Admin only, and refused unless DELIVERY_SEND_ENABLED is set server-side.
-    send: (reportId) =>
-        api.post(`/delivery/${reportId}/send`),
+    // `pdf` (optional File) is attached instead of the HTML rendering; `resend`
+    // is required to email a report that was already delivered (else 409).
+    // -> { sent, to, transport, attached_as, resent, marked_delivered }
+    send: (reportId, { pdf = null, resend = false } = {}) => {
+        const config = resend ? { params: { resend: true } } : {}
+        if (pdf) {
+            const form = new FormData()
+            form.append('pdf', pdf)
+            return api.post(`/delivery/${reportId}/send`, form, { ...config, headers: { 'Content-Type': 'multipart/form-data' } })
+        }
+        return api.post(`/delivery/${reportId}/send`, null, config)
+    },
 }
 
 export default api

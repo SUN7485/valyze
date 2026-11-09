@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { Search, Plus, Eye, Edit3, Trash2, X, Loader2, Copy, CheckCircle, Clock, AlertTriangle, Key, ExternalLink, CopyCheck, FileText } from 'lucide-react'
 import { clientsAPI, ordersAPI, invoicesAPI } from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
 function Modal({ isOpen, onClose, title, children }) {
   if (!isOpen) return null
@@ -113,7 +114,7 @@ function GeneratePortalModal({ clientId, onDone }) {
           <div className="space-y-4">
             <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-500/20 rounded-xl flex items-start gap-3">
               <AlertTriangle size={18} className="text-amber-600 dark:text-amber-400 mt-0.5" />
-              <p className="text-xs text-amber-800 dark:text-amber-200 font-semibold">Save this password — it won't be shown again.</p>
+              <p className="text-xs text-amber-800 dark:text-amber-200 font-semibold">Copy this password now — it is not stored and won't be shown again.</p>
             </div>
             {[
               { label: 'Portal URL', value: result.portal_url, key: 'url' },
@@ -132,6 +133,58 @@ function GeneratePortalModal({ clientId, onDone }) {
             <button onClick={() => { setOpen(false); setResult(null); setError(''); onDone && onDone() }} className="w-full py-3 px-4 bg-primary text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:opacity-90 shadow-lg shadow-primary/20 transition-all mt-2">Done</button>
           </div>
         )}
+      </Modal>
+    </>
+  )
+}
+
+/* Reset a portal session's password. The new password exists only in this
+   response — the server keeps a hash — so it is shown once, with a copy button. */
+function ResetPasswordButton({ sessionId, onError }) {
+  const [busy, setBusy]         = useState(false)
+  const [password, setPassword] = useState('')
+  const [copied, setCopied]     = useState(false)
+
+  const reset = async () => {
+    if (!window.confirm('Reset this session\'s password? The client\'s current password stops working.')) return
+    setBusy(true)
+    try {
+      const res = await clientsAPI.resetSessionPassword(sessionId)
+      const pwd = res.data?.new_password
+      if (!pwd) throw new Error('The server did not return a new password')
+      setPassword(pwd)
+    } catch (e) {
+      onError?.(e.message || 'Failed to reset password')
+    } finally { setBusy(false) }
+  }
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(password)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { alert('Clipboard unavailable') }
+  }
+
+  return (
+    <>
+      <button onClick={reset} disabled={busy} className="px-2.5 py-1.5 text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 rounded-lg hover:bg-amber-500/20 uppercase tracking-wider disabled:opacity-50 flex items-center gap-1">
+        {busy ? <Loader2 size={12} className="animate-spin" /> : <Key size={12} />} Reset Password
+      </button>
+      <Modal isOpen={!!password} onClose={() => setPassword('')} title="New Portal Password">
+        <div className="space-y-4">
+          <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-500/20 rounded-xl flex items-start gap-3">
+            <AlertTriangle size={18} className="text-amber-600 dark:text-amber-400 mt-0.5" />
+            <p className="text-xs text-amber-800 dark:text-amber-200 font-semibold">Copy this password now — it is not stored and won't be shown again.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input readOnly value={password} className="flex-1 px-3 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-xs font-mono text-slate-700 dark:text-slate-200" />
+            <button onClick={copy} className="px-3 py-2.5 border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 rounded-lg hover:bg-slate-50 dark:hover:bg-white/5" title="Copy">
+              {copied ? <CopyCheck size={16} className="text-emerald-500" /> : <Copy size={16} className="text-slate-500" />}
+            </button>
+          </div>
+          <button onClick={() => setPassword('')} className="w-full py-3 px-4 bg-primary text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:opacity-90 shadow-lg shadow-primary/20 transition-all">Done</button>
+        </div>
       </Modal>
     </>
   )
@@ -159,6 +212,10 @@ function DeleteConfirm({ isOpen, onClose, onConfirm, name }) {
 export default function ClientDetailPage() {
   const { clientId } = useParams()
   const navigate = useNavigate()
+  const { isAdmin } = useAuth()
+  // Failures of individual actions — shown as a banner, unlike `error` which
+  // replaces the page (it means the client could not be loaded).
+  const [actionError, setActionError]   = useState('')
   const [client, setClient]             = useState(null)
   const [loading, setLoading]           = useState(true)
   const [error, setError]               = useState('')
@@ -217,7 +274,15 @@ export default function ClientDetailPage() {
     catch (err) { setEditError(err.message || 'Failed') } finally { setEditSaving(false) }
   }
 
-  const handleDelete = async () => { await clientsAPI.delete(deleteTarget.clientId); navigate('/clients') }
+  const handleDelete = async () => {
+    try {
+      await clientsAPI.delete(deleteTarget.clientId)
+      navigate('/clients')
+    } catch (e) {
+      setDeleteTarget({ open: false, clientId: null, name: '' })
+      setActionError(e.message || 'Failed to delete client')
+    }
+  }
   const copy = async (text) => { try { await navigator.clipboard.writeText(text) } catch { alert('Clipboard unavailable') } }
 
   const viewOrder = (orderId) => {
@@ -232,7 +297,7 @@ export default function ClientDetailPage() {
       await fetchClient()
       if (invoiceId) navigate(`/invoices/${invoiceId}`)
     } catch (e) {
-      setError(e.message || 'Failed to generate invoice')
+      setActionError(e.message || 'Failed to generate invoice')
     } finally {
       setActionLoading(prev => ({ ...prev, [orderId]: false }))
     }
@@ -244,7 +309,7 @@ export default function ClientDetailPage() {
       await invoicesAPI.updateStatus(invoice.id, 'paid')
       await fetchClient()
     } catch (e) {
-      setError(e.message || 'Failed to mark invoice paid')
+      setActionError(e.message || 'Failed to mark invoice paid')
     } finally {
       setActionLoading(prev => ({ ...prev, [invoice.id]: false }))
     }
@@ -276,7 +341,9 @@ export default function ClientDetailPage() {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={openEdit} className="px-4 py-2.5 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 text-xs font-bold uppercase rounded-lg hover:bg-slate-200 dark:hover:bg-white/10 flex items-center gap-2"><Edit3 size={14} /> Edit</button>
-            <button onClick={() => setDeleteTarget({ open: true, clientId: client.id, name: client.client_name })} className="px-4 py-2.5 bg-rose-500 text-white text-xs font-bold uppercase rounded-lg hover:bg-rose-600 flex items-center gap-2"><Trash2 size={14} /> Delete</button>
+            {isAdmin && (
+              <button onClick={() => setDeleteTarget({ open: true, clientId: client.id, name: client.client_name })} className="px-4 py-2.5 bg-rose-500 text-white text-xs font-bold uppercase rounded-lg hover:bg-rose-600 flex items-center gap-2"><Trash2 size={14} /> Delete</button>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-6 text-sm text-slate-500 dark:text-slate-400">
@@ -286,6 +353,13 @@ export default function ClientDetailPage() {
           {client.country && <span>{client.country}</span>}
         </div>
       </div>
+
+      {actionError && (
+        <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-3 text-rose-600 dark:text-rose-400 text-sm">
+          <AlertTriangle size={16} /> <span className="flex-1">{actionError}</span>
+          <button onClick={() => setActionError('')} className="opacity-70 hover:opacity-100" aria-label="Dismiss"><X size={16} /></button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex items-center gap-2 mb-6 border-b border-slate-200 dark:border-white/10 pb-1">
@@ -342,7 +416,7 @@ export default function ClientDetailPage() {
                               <button onClick={() => viewOrder(order.id)} className="px-3 py-1.5 text-[10px] font-bold text-primary bg-primary/10 rounded-lg hover:bg-primary/20 uppercase tracking-wider">View</button>
                               {invoice ? (
                                 <button onClick={() => navigate(`/invoices/${invoice.id}`)} className="px-3 py-1.5 text-[10px] font-bold text-purple-600 bg-purple-500/10 rounded-lg hover:bg-purple-500/20 uppercase tracking-wider">View Invoice</button>
-                              ) : order.status === 'completed' ? (
+                              ) : (isAdmin && order.status === 'completed') ? (
                                 <button onClick={() => generateInvoice(order.id)} disabled={actionLoading[order.id]} className="px-3 py-1.5 text-[10px] font-bold text-purple-600 bg-purple-500/10 rounded-lg hover:bg-purple-500/20 uppercase tracking-wider disabled:opacity-50 flex items-center gap-1">
                                   {actionLoading[order.id] ? <Loader2 size={12} className="animate-spin" /> : null} Generate Invoice
                                 </button>
@@ -364,7 +438,7 @@ export default function ClientDetailPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-black text-slate-700 dark:text-slate-200 uppercase tracking-tight">Portal Sessions</h2>
-            <GeneratePortalModal clientId={clientId} onDone={fetchClient} />
+            {isAdmin && <GeneratePortalModal clientId={clientId} onDone={fetchClient} />}
           </div>
           {sessions.length === 0 ? <div className="glass-card p-8 text-center text-slate-400 text-sm">No portal sessions created yet.</div> : (
             <div className="glass-card overflow-hidden">
@@ -407,7 +481,14 @@ export default function ClientDetailPage() {
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-2">
                               <button onClick={async () => { await navigator.clipboard.writeText(session.portal_url || session.url || '') }} className="px-2.5 py-1.5 text-[10px] font-bold text-primary bg-primary/10 rounded-lg hover:bg-primary/20 uppercase tracking-wider">Copy Link</button>
-                              <button onClick={async () => { if (!window.confirm('Revoke this session?')) return; await clientsAPI.revokeSession(session.id); fetchClient() }} className="px-2.5 py-1.5 text-[10px] font-bold text-rose-600 bg-rose-500/10 rounded-lg hover:bg-rose-500/20 uppercase tracking-wider">Revoke</button>
+                              {isAdmin && <ResetPasswordButton sessionId={session.id} onError={setActionError} />}
+                              {isAdmin && (
+                                <button onClick={async () => {
+                                  if (!window.confirm('Revoke this session?')) return
+                                  try { await clientsAPI.revokeSession(session.id) } catch (e) { setActionError(e.message || 'Failed to revoke session') }
+                                  fetchClient()
+                                }} className="px-2.5 py-1.5 text-[10px] font-bold text-rose-600 bg-rose-500/10 rounded-lg hover:bg-rose-500/20 uppercase tracking-wider">Revoke</button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -448,7 +529,7 @@ export default function ClientDetailPage() {
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-2">
                             <button onClick={() => navigate(`/invoices/${inv.id}`)} className="px-3 py-1.5 text-[10px] font-bold text-primary bg-primary/10 rounded-lg hover:bg-primary/20 uppercase tracking-wider">View</button>
-                            {inv.status !== 'paid' && (
+                            {isAdmin && inv.status !== 'paid' && (
                               <button onClick={() => markInvoicePaid(inv)} disabled={actionLoading[inv.id]} className="px-3 py-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-500/10 rounded-lg hover:bg-emerald-500/20 uppercase tracking-wider disabled:opacity-50 flex items-center gap-1">
                                 {actionLoading[inv.id] ? <Loader2 size={12} className="animate-spin" /> : null} Mark Paid
                               </button>

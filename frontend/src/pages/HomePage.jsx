@@ -297,31 +297,32 @@ export default function HomePage() {
                 reportAPI.getAllReportsCombined(0, 10).catch(() => ({ data: { reports: [] } }))
             ])
 
-            const ordersList = Array.isArray(ordersRes.data) ? ordersRes.data : ordersRes.data.orders || []
-            const clientsList = Array.isArray(clientsRes.data) ? clientsRes.data : []
-            const invoicesList = Array.isArray(invoicesRes.data) ? invoicesRes.data : invoicesRes.data.invoices || []
-            const reportsList = reportsRes.data.reports || []
+            const ordersList = Array.isArray(ordersRes.data) ? ordersRes.data : ordersRes.data?.orders || []
+            const clientsList = Array.isArray(clientsRes.data) ? clientsRes.data : clientsRes.data?.clients || []
+            const invoicesList = Array.isArray(invoicesRes.data) ? invoicesRes.data : invoicesRes.data?.invoices || []
+            const reportsList = reportsRes.data?.reports || []
 
             // Calculations
             const openOrders = ordersList.filter(o => o.status === 'pending' || o.status === 'in_progress')
-            
-            // Filter user's assigned orders (matching by email or analyst name)
+
+            // The user's own open orders — orders carry the assignee in auto_assigned_analyst.
             const userEmail = user?.email?.toLowerCase() || ''
-            const myOrders = ordersList.filter(o => 
-                (o.analyst && String(o.analyst).toLowerCase() === userEmail) ||
-                (o.analyst_email && String(o.analyst_email).toLowerCase() === userEmail)
+            const myOrders = openOrders.filter(o =>
+                userEmail && String(o.auto_assigned_analyst || '').toLowerCase() === userEmail
             )
 
-            const unpaidInvoices = invoicesList.filter(i => i.status === 'unpaid' || i.status === 'sent')
-            const totalUnpaidAmount = unpaidInvoices.reduce((acc, curr) => acc + Number(curr.amount || 0), 0)
+            // Outstanding = issued but not yet paid. Invoice statuses are draft | sent | paid.
+            const outstandingInvoices = invoicesList.filter(i => i.status === 'draft' || i.status === 'sent')
+            const totalOutstanding = outstandingInvoices.reduce((acc, curr) => acc + (Number(curr.total) || 0), 0)
 
             setStats({
                 openOrders: openOrders.length,
                 myOrdersCount: myOrders.length,
                 activeClients: clientsList.length,
-                totalInvoicedAmount: totalUnpaidAmount,
-                pendingInvoicesCount: unpaidInvoices.length,
-                totalReports: reportsList.length
+                totalInvoicedAmount: totalOutstanding,
+                pendingInvoicesCount: outstandingInvoices.length,
+                // The list endpoint returns at most 10 here; `total` is the real count.
+                totalReports: reportsRes.data?.total ?? reportsList.length
             })
 
             // Set detail lists
@@ -373,11 +374,31 @@ export default function HomePage() {
         setShowOrderSummary(true)
     }
 
+    const [startError, setStartError] = useState('')
+
+    // "Start New": create an empty report seeded with the order details, then run
+    // the Extractor on it — the extractor saves its result straight back to the
+    // report and opens the editor.
     const handleOrderSubmit = async (orderData) => {
         setShowOrderSummary(false)
+        setStartError('')
         if (pendingAction === 'new') {
             clearReport()
-            navigate('/upload')
+            try {
+                const startRes = await reportAPI.startReport({
+                    client_name: orderData?.client_name || '',
+                    analyst_name: orderData?.analyst_name || user?.name || '',
+                    client_reference: orderData?.client_reference || '',
+                    analyst_id: orderData?.analyst_id || '',
+                    order_comment: orderData?.order_comment || '',
+                })
+                const newReportId = startRes.data?.report_id
+                if (!newReportId) throw new Error('No report id was returned')
+                saveReportId(newReportId)
+                navigate(`/extractor/${newReportId}`)
+            } catch (e) {
+                setStartError(`Could not start a new report: ${e.message}`)
+            }
         } else if (pendingAction === 'easy') {
             setShowEasyWay(true)
         }
@@ -409,9 +430,9 @@ export default function HomePage() {
         })
         const newReportId = startRes.data.report_id
         
-        await reportAPI.easyWayImport(newReportId, data)
+        const importRes = await reportAPI.easyWayImport(newReportId, data)
         saveReportId(newReportId)
-        navigate(`/editor/${newReportId}`)
+        navigate(`/editor/${newReportId}`, { state: { ignoredKeys: importRes?.data?.ignored_keys || [] } })
     }
 
     const getGreeting = () => {
@@ -435,6 +456,11 @@ export default function HomePage() {
             </div>
 
             <div className="relative z-10 max-w-[1550px] mx-auto px-6 lg:px-12 pt-16">
+                {startError && (
+                    <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center gap-3 text-rose-600 dark:text-rose-400 text-sm">
+                        <AlertCircle size={18} /> {startError}
+                    </div>
+                )}
                 
                 {/* 1. Header & Welcome Area */}
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 mb-12 animate-in slide-up duration-700">
@@ -825,7 +851,7 @@ export default function HomePage() {
                                                 <h3 className="font-bold text-slate-800 dark:text-white truncate group-hover:text-accent transition-colors text-sm">{inv.client_name || 'Client'}</h3>
                                             </div>
                                             <div className="text-right flex-shrink-0">
-                                                <div className="font-black text-slate-800 dark:text-white text-sm">{formatCurrency(inv.amount)}</div>
+                                                <div className="font-black text-slate-800 dark:text-white text-sm">{formatCurrency(Number(inv.total) || 0)}</div>
                                                 <span className={`inline-block px-2 py-0.5 border rounded-full text-[9px] font-black uppercase tracking-wider mt-1.5 ${INVOICE_STATUS_COLORS[inv.status] || INVOICE_STATUS_COLORS.unpaid}`}>
                                                     {inv.status}
                                                 </span>
