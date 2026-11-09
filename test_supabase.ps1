@@ -1,12 +1,13 @@
-$url = "https://dnhtowmzrluqtlivdqqj.supabase.co/rest/v1/reports?select=id&limit=1"
+# Quick connectivity probe. Set SUPABASE_URL and SUPABASE_ANON_KEY in the environment first.
+$url = "$env:SUPABASE_URL/rest/v1/reports?select=id&limit=1"
 $headers = @{
-    "apikey" = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRuaHRvd216cmx1cXRsaXZkcXFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNzg5NDUsImV4cCI6MjA5MTg1NDk0NX0.ALa47kw9C5D8sK3IcBiZB0flIOpW-vaXjr2bxaqSOIQ"
-    "Authorization" = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRuaHRvd216cmx1cXRsaXZkcXFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNzg5NDUsImV4cCI6MjA5MTg1NDk0NX0.ALa47kw9C5D8sK3IcBiZB0flIOpW-vaXjr2bxaqSOIQ"
+    "apikey" = $env:SUPABASE_ANON_KEY
+    "Authorization" = "Bearer $env:SUPABASE_ANON_KEY"
 }
 try {
     $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get
-    $response | ConvertTo-Json | Out-File "d:\valyez final\supabase_test.txt"
+    $response | ConvertTo-Json
 } catch {
-    $_.Exception.Message | Out-File "d:\valyez final\supabase_test.txt"
-    $_.ErrorDetails.Message | Out-File "d:\valyez final\supabase_test.txt" -Append
+    $_.Exception.Message
+    $_.ErrorDetails.Message
 }
