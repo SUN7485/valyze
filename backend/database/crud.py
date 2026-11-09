@@ -6,15 +6,12 @@ but ignore it; they call Supabase REST API via services.supabase_client.
 
 import asyncio
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-from types import SimpleNamespace
+from datetime import datetime, timedelta, timezone
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from services.supabase_client import (
     create_report as sb_create_report,
     get_report as sb_get_report,
-    update_report as sb_update_report,
-    delete_report as sb_delete_report,
     get_all_reports as sb_get_all_reports,
     add_uploaded_file as sb_add_uploaded_file,
     get_uploaded_files as sb_get_uploaded_files,
@@ -23,9 +20,21 @@ from services.supabase_client import (
     get_report_by_client_reference as sb_get_report_by_client_reference,
     get_report_by_company_name as sb_get_report_by_company_name,
 )
-from models.report_schema import FullReport, build_empty_report, FieldData
-from models.field_meta import FIELD_REGISTRY
-from database.exceptions import DuplicateReportError
+from services.report_queries import (
+    conditional_update_report,
+    delete_report_cascade,
+    get_report_updated_at,
+)
+from models.report_schema import FullReport, ReportArrays, build_empty_report, FieldData
+from models.field_meta import is_known_field
+from database.exceptions import (
+    DuplicateReportError,
+    FieldLockedError,
+    InvalidArrayDataError,
+    InvalidReportDataError,
+    ReportConflictError,
+    UnknownFieldError,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -68,25 +77,114 @@ async def create_report(db, report_id: str, files_info=None) -> FullReport:
         raise
 
 
-async def get_report(db, report_id: str) -> Optional[FullReport]:
-    """Fetch a report by ID and return a FullReport object."""
-    data = await asyncio.to_thread(sb_get_report, report_id)
-    if not data:
-        return None
-    report_json = data.get("report_json")
-    if not report_json:
-        return None
-    # report_json may already be a dict (JSONB) or a JSON string
+def _parse_report_json(report_json: Any) -> Tuple[Any, bool]:
+    """Return (parsed report_json, stored_as_string)."""
     if isinstance(report_json, str):
         try:
-            report_json = json.loads(report_json)
+            return json.loads(report_json), True
         except json.JSONDecodeError:
-            report_json = {}
+            return None, True
+    return report_json, False
+
+
+async def _read_report(report_id: str) -> Tuple[Optional[FullReport], bool]:
+    """(report, stored_as_string). (None, False) when the row doesn't exist.
+    Raises InvalidReportDataError when the row exists but report_json is
+    empty or fails validation."""
+    data = await asyncio.to_thread(sb_get_report, report_id)
+    if not data:
+        return None, False
+    report_json, as_string = _parse_report_json(data.get("report_json"))
+    if not report_json:
+        print(f"[CRUD] Report {report_id} has empty report_json")
+        raise InvalidReportDataError(report_id)
     try:
-        return FullReport.model_validate(report_json)
+        return FullReport.model_validate(report_json), as_string
     except Exception as e:
         print(f"[CRUD] Failed to validate FullReport for {report_id}: {e}")
+        raise InvalidReportDataError(report_id) from e
+
+
+async def get_report(db, report_id: str, strict: bool = False) -> Optional[FullReport]:
+    """Fetch a report by ID and return a FullReport object.
+
+    None when the row doesn't exist. A row whose report_json is empty or invalid
+    raises InvalidReportDataError when `strict` (API reads map it to 422);
+    otherwise it is logged and treated as None for older callers.
+    """
+    try:
+        report, _ = await _read_report(report_id)
+        return report
+    except InvalidReportDataError:
+        if strict:
+            raise
         return None
+
+
+def _next_updated_at(previous: Optional[str]) -> str:
+    now = datetime.now(timezone.utc).isoformat()
+    if now == previous:  # same microsecond: keep the version token unique
+        now = (datetime.now(timezone.utc) + timedelta(microseconds=1)).isoformat()
+    return now
+
+
+async def mutate_report(
+    report_id: str,
+    mutate: Callable[[FullReport], None],
+    expected_updated_at: Optional[str] = None,
+    retries: int = 3,
+) -> Optional[FullReport]:
+    """Read-modify-write a report with an atomic compare-and-set on updated_at.
+
+    `mutate(report)` edits the model in place (it may raise to abort). The write
+    only lands if report_json.updated_at is still what we read.
+    - With `expected_updated_at` (the caller's last-known version): a mismatch,
+      before or during the write, raises ReportConflictError.
+    - Without it: a concurrent write makes us re-read and re-apply (up to
+      `retries` times), so two quick edits to different fields both survive.
+    Returns None when the report doesn't exist. updated_at is always bumped.
+    """
+    for _ in range(max(1, retries)):
+        report, as_string = await _read_report(report_id)
+        if report is None:
+            return None
+        if expected_updated_at is not None and report.updated_at != expected_updated_at:
+            raise ReportConflictError(report.updated_at)
+        base = report.updated_at
+        mutate(report)
+        report.updated_at = _next_updated_at(base)
+        written = await asyncio.to_thread(
+            conditional_update_report,
+            report_id,
+            report.model_dump(),
+            None if as_string else base,
+        )
+        if written:
+            return report
+        exists, current = await asyncio.to_thread(get_report_updated_at, report_id)
+        if not exists:
+            return None
+        if expected_updated_at is not None:
+            raise ReportConflictError(current)
+    raise ReportConflictError(current)
+
+
+def _check_field_names(report: FullReport, names) -> None:
+    unknown = [n for n in names if n not in report.fields and not is_known_field(n)]
+    if unknown:
+        raise UnknownFieldError(unknown)
+
+
+def _set_field(report: FullReport, name: str, value: Any, confidence: str, source: str) -> None:
+    existing = report.fields.get(name)
+    if existing is not None:
+        existing.value = value
+        existing.confidence = confidence
+        existing.source = source
+    else:
+        report.fields[name] = FieldData(
+            value=value, confidence=confidence, source=source, locked=False
+        )
 
 
 async def update_report_field(
@@ -96,98 +194,71 @@ async def update_report_field(
     value: Any,
     confidence: str = "high",
     source: str = "user",
+    expected_updated_at: Optional[str] = None,
+    respect_lock: bool = False,
 ) -> Optional[FullReport]:
-    """Update a single field in the report."""
-    report = await get_report(db, report_id)
-    if report is None:
-        return None
+    """Update a single field in the report (atomic; see mutate_report).
 
-    if field_name in report.fields:
-        report.fields[field_name].value = value
-        report.fields[field_name].confidence = confidence
-        report.fields[field_name].source = source
-    elif field_name in FIELD_REGISTRY:
-        report.fields[field_name] = FieldData(
-            value=value, confidence=confidence, source=source, locked=False
-        )
+    Raises UnknownFieldError for a name that is neither on the report nor known,
+    FieldLockedError when `respect_lock` and the field is locked, and
+    ReportConflictError on a version mismatch.
+    """
 
-    report.updated_at = datetime.now(timezone.utc).isoformat()
-    await save_report_json(db, report_id, report)
-    return report
+    def apply(report: FullReport) -> None:
+        _check_field_names(report, [field_name])
+        existing = report.fields.get(field_name)
+        if respect_lock and existing is not None and existing.locked:
+            raise FieldLockedError(field_name)
+        _set_field(report, field_name, value, confidence, source)
+
+    return await mutate_report(report_id, apply, expected_updated_at)
 
 
 async def update_report_fields_bulk(
     db,
     report_id: str,
     fields_dict: Dict[str, Any],
+    expected_updated_at: Optional[str] = None,
 ) -> Optional[FullReport]:
-    """Update multiple fields at once."""
-    report = await get_report(db, report_id)
-    if report is None:
-        return None
+    """Update multiple fields at once (all or nothing; see update_report_field)."""
 
-    for field_name, value in fields_dict.items():
-        if field_name in report.fields:
-            report.fields[field_name].value = value
-            report.fields[field_name].confidence = "high"
-            report.fields[field_name].source = "user"
-        elif field_name in FIELD_REGISTRY:
-            # Add new field (for backwards compatibility)
-            report.fields[field_name] = FieldData(
-                value=value,
-                confidence="high",
-                source="user",
-                locked=False,
-            )
+    def apply(report: FullReport) -> None:
+        _check_field_names(report, list(fields_dict))
+        for field_name, value in fields_dict.items():
+            _set_field(report, field_name, value, "high", "user")
 
-    report.updated_at = datetime.now(timezone.utc).isoformat()
-    await save_report_json(db, report_id, report)
-    return report
+    return await mutate_report(report_id, apply, expected_updated_at)
 
 
-async def save_report_json(db, report_id: str, json_data: Any) -> bool:
-    """Save raw JSON data to report. Accepts FullReport object, dict, or JSON string.
-    Raises DuplicateReportError if the update would create a duplicate cr_number.
-    """
-    # Parse and validate input
-    if isinstance(json_data, str):
+async def update_report_array(
+    db,
+    report_id: str,
+    array_name: str,
+    items: List[Any],
+    expected_updated_at: Optional[str] = None,
+) -> Optional[FullReport]:
+    """Replace one array (atomic; bumps updated_at). Raises InvalidArrayDataError
+    when the items don't fit the array's schema."""
+
+    def apply(report: FullReport) -> None:
+        arrays_dict = report.arrays.model_dump()
+        arrays_dict[array_name] = items
         try:
-            json_data = json.loads(json_data)
-        except json.JSONDecodeError:
-            pass  # keep original string? Let validation handle
-
-    if isinstance(json_data, dict):
-        try:
-            report = FullReport.model_validate(json_data)
+            report.arrays = ReportArrays.model_validate(arrays_dict)
         except Exception as e:
-            print(f"[CRUD] Invalid report data: {e}")
-            raise
-    else:
-        report = json_data
+            print(f"[CRUD] Invalid items for array '{array_name}' on {report_id}: {e}")
+            raise InvalidArrayDataError(array_name) from e
 
-    # No duplicate detection - all allowed with warnings on frontend
-
-    # Proceed with update
-    report_dict = report.model_dump()
-    await asyncio.to_thread(sb_update_report, report_id, report_dict)
-    return True
-
-
-
+    return await mutate_report(report_id, apply, expected_updated_at)
 
 
 async def update_report_status(db, report_id: str, status: str) -> bool:
-    """Update only the status column and save."""
-    report = await get_report(db, report_id)
-    if report is None:
-        return False
+    """Update only the status (atomic; bumps updated_at). False if not found."""
 
-    report.status = status
-    report.updated_at = datetime.now(timezone.utc).isoformat()
+    def apply(report: FullReport) -> None:
+        report.status = status
 
-    report_dict = report.model_dump()
-    await asyncio.to_thread(sb_update_report, report_id, report_dict)
-    return True
+    return await mutate_report(report_id, apply) is not None
 
 
 async def get_all_reports(db) -> List[dict]:
@@ -197,9 +268,10 @@ async def get_all_reports(db) -> List[dict]:
 
 
 async def delete_report(db, report_id: str) -> bool:
-    """Delete a report by ID."""
-    success = await asyncio.to_thread(sb_delete_report, report_id)
-    return success
+    """Delete a report (and its uploaded_files rows) by ID, without reading or
+    validating report_json first. True when a row was deleted, False when none
+    matched. Raises ReportLinkedError if an order company still points at it."""
+    return await asyncio.to_thread(delete_report_cascade, report_id)
 
 
 async def get_report_json(db, report_id: str) -> Optional[str]:

@@ -153,6 +153,8 @@ class ReportArrays(BaseModel):
     phone_numbers: List[PhoneNumber] = Field(default_factory=list)
     board_members: List[Dict[str, Any]] = Field(default_factory=list)
     extra_reg_fields: List[Dict[str, Any]] = Field(default_factory=list)
+    # Field names hidden with the editor's eye toggle; the PDF renderer skips them.
+    hidden_fields: List[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

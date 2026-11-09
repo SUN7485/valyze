@@ -2,6 +2,7 @@
 Field metadata definitions for the Valyze Credit report system.
 """
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -493,4 +494,68 @@ ARRAY_FIELDS: list[str] = [
     "threats",
     "management_team",
     "phone_numbers",
+    "board_members",
+    "extra_reg_fields",
+    # Field names the analyst hid with the editor's eye toggle; the PDF
+    # renderer drops them (pdf_generator._build_context reads this array).
+    "hidden_fields",
 ]
+
+
+# -- Known-but-unregistered field names ------------------------------------
+# Field names the editor, the Easy-Way importer and the PDF template use that
+# are deliberately NOT in FIELD_REGISTRY (so build_empty_report doesn't pre-create
+# them). Edits and imports accept a field only when is_known_field() says so;
+# anything else is rejected instead of being silently stored or dropped.
+EXTRA_KNOWN_FIELDS: frozenset[str] = frozenset(
+    {
+        # Financial statement meta
+        "fin_currency", "fin_unit_scale", "fin_statement_type", "fin_period_end",
+        "fin_scope", "fin_ratio_basis", "fin_parent_note",
+        # Year-less financial bases (year-indexed variants match the pattern below)
+        "ar", "ltd", "cogs", "opex", "equity",
+        # Financial ratios (the *_prev/_industry/_status/_label/_interpretation
+        # variants match the pattern below)
+        "cash_ratio", "roa", "roe", "debt_assets", "dio", "dso", "dpo", "ccc",
+        # Risk score details
+        "viability_level", "viability_probability", "viability_meaning",
+        "delinquency_level", "delinquency_probability", "delinquency_meaning",
+        "failure_level", "failure_probability", "failure_meaning",
+        "payment_level", "payment_probability", "payment_meaning",
+        # Monitoring
+        "payment_delay_status", "credit_utilization", "financial_trend",
+        # Sector / industry overview
+        "sector_country_label", "sector_year", "sector_market_size",
+        "sector_market_size_comment", "sector_forecast_period",
+        "sector_growth_forecast", "sector_growth_comment", "sector_local_share",
+        "sector_local_comment", "sector_trade_flow", "sector_trade_comment",
+        "sector_risks", "sector_drivers", "sector_major_players",
+        "sector_summary_text",
+        # Appendices / data quality
+        "data_quality_rating", "data_limitations", "data_source_analyst_comment",
+        # Company history
+        "former_address", "former_company_name", "former_owners",
+        "former_registration_details", "core_activities_description",
+        "credit_opinion",
+    }
+)
+
+# Generated families: year columns (revenue_1, cash_flow_operating_3, *_trend),
+# ratio columns (current_ratio_prev, roa_status, …), colour/badge fields, the
+# per-page exclude flags and the show_* section toggles.
+_KNOWN_FIELD_PATTERN = re.compile(
+    r"^(?:exclude_page_\d{1,2}"
+    r"|show_[a-z0-9_]+"
+    r"|[a-z][a-z0-9_]*_(?:1|2|3|trend|prev|industry|status|label|interpretation|color|badge))$"
+)
+
+
+def is_known_field(name: str) -> bool:
+    """True when `name` is a scalar report field the app knows how to use."""
+    if not isinstance(name, str):
+        return False
+    if name in FIELD_REGISTRY or name in EXTRA_KNOWN_FIELDS:
+        return True
+    if name in ARRAY_FIELDS:
+        return False
+    return bool(_KNOWN_FIELD_PATTERN.match(name))

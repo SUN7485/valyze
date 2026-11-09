@@ -56,7 +56,7 @@ def is_field_empty(value: Any, field_name: str | None = None) -> bool:
     # Flatten FieldData objects if passed directly
     # (Defensive: typically we receive .value already)
     if hasattr(value, "value"):
-        value = value.value
+        return is_field_empty(value.value, field_name)
 
     # Handle lists/arrays
     if isinstance(value, (list, tuple)):

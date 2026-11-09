@@ -6,13 +6,51 @@ The frontend uses html2pdf.js to convert HTML to PDF in the browser.
 No Gotenberg, no Playwright, no Docker needed.
 """
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 
 from database.crud import get_report
+from database.exceptions import InvalidReportDataError
 from pdf_generator import PDFGenerator
+from services.report_queries import get_report_fields, is_valid_report_id
 
 router = APIRouter(prefix="/api/pdf", tags=["pdf"])
+
+
+# -----------------------------------------------------------------
+# HELPERS
+# -----------------------------------------------------------------
+
+
+async def _load(report_id: str):
+    if not is_valid_report_id(report_id):
+        raise HTTPException(400, "Invalid report_id format")
+    try:
+        report = await get_report(None, report_id, strict=True)
+    except InvalidReportDataError:
+        raise HTTPException(422, "Report data is empty or invalid")
+    if report is None:
+        raise HTTPException(404, "Report not found")
+    return report
+
+
+def _render(report) -> str:
+    # Template rendering is synchronous CPU + file I/O: keep it off the event loop.
+    return PDFGenerator().get_html_preview(report.model_dump())
+
+
+def _has_value(val) -> bool:
+    return val is not None and val != "" and val != "N/A"
+
+
+def _report_has_identity(report) -> bool:
+    def has_value(key):
+        f = report.fields.get(key)
+        return f is not None and _has_value(getattr(f, "value", None))
+
+    return has_value("company_name") or has_value("legal_name") or has_value("cr_number")
 
 
 # -----------------------------------------------------------------
@@ -23,12 +61,8 @@ router = APIRouter(prefix="/api/pdf", tags=["pdf"])
 @router.get("/html/{report_id}")
 async def get_report_html(report_id: str):
     """Get rendered HTML for a report. Client converts to PDF."""
-    report = await get_report(None, report_id)
-    if report is None:
-        raise HTTPException(404, "Report not found")
-
-    generator = PDFGenerator()
-    html_content = generator.get_html_preview(report.model_dump())
+    report = await _load(report_id)
+    html_content = await asyncio.to_thread(_render, report)
 
     if not html_content or len(html_content) < 100:
         raise HTTPException(400, "Report has no data to generate PDF")
@@ -42,33 +76,14 @@ async def generate_report_pdf(report_id: str):
     Return HTML for client-side PDF generation.
     The frontend fetches this HTML and converts it to PDF using html2pdf.js.
     """
-    report = await get_report(None, report_id)
-    if report is None:
-        raise HTTPException(404, "Report not found")
+    report = await _load(report_id)
 
-    def has_value(key):
-        f = report.fields.get(key)
-        if f is None:
-            return False
-        val = (
-            f.value
-            if hasattr(f, "value")
-            else (f.get("value") if isinstance(f, dict) else f)
-        )
-        return val is not None and val != "" and val != "N/A"
-
-    has_data = (
-        has_value("company_name") or has_value("legal_name") or has_value("cr_number")
-    )
-
-    if not has_data:
+    if not _report_has_identity(report):
         raise HTTPException(
             400, "Report has no data yet. Please use Easy Way Import first."
         )
 
-    generator = PDFGenerator()
-    report_dict = report.model_dump()
-    html_content = generator.get_html_preview(report_dict)
+    html_content = await asyncio.to_thread(_render, report)
 
     return {
         "success": True,
@@ -82,13 +97,10 @@ async def generate_report_pdf(report_id: str):
 @router.get("/preview/{report_id}")
 async def preview_report_html(report_id: str):
     """Preview rendered HTML in browser."""
-    report = await get_report(None, report_id)
-    if report is None:
-        raise HTTPException(404, "Report not found")
+    report = await _load(report_id)
 
     try:
-        generator = PDFGenerator()
-        html_content = generator.get_html_preview(report.model_dump())
+        html_content = await asyncio.to_thread(_render, report)
 
         if not html_content or len(html_content) < 100:
             return HTMLResponse(
@@ -111,29 +123,37 @@ async def view_report_html(report_id: str):
 
 @router.get("/status/{report_id}")
 async def get_pdf_status(report_id: str):
-    """Check PDF generation status."""
-    report = await get_report(None, report_id)
-    if report is None:
+    """Check PDF generation status (reads summary columns, not report_json)."""
+    if not is_valid_report_id(report_id):
+        raise HTTPException(400, "Invalid report_id format")
+    try:
+        row = await asyncio.to_thread(
+            get_report_fields, report_id, "id,status,company_name,legal_name,cr_number"
+        )
+    except Exception as e:
+        print(f"[PDF] Status lookup failed for {report_id}: {e}")
+        raise HTTPException(500, "Failed to check report")
+    if row is None:
         raise HTTPException(404, "Report not found")
 
-    def has_value(key):
-        f = report.fields.get(key)
-        if f is None:
-            return False
-        val = (
-            f.value
-            if hasattr(f, "value")
-            else (f.get("value") if isinstance(f, dict) else f)
-        )
-        return val is not None and val != "" and val != "N/A"
-
-    can_generate = (
-        has_value("company_name") or has_value("legal_name") or has_value("cr_number")
+    can_generate = any(
+        _has_value(row.get(k)) for k in ("company_name", "legal_name", "cr_number")
     )
+    status = row.get("status")
+    if not can_generate:
+        # The summary columns mirror these fields on every save; only an empty
+        # (or legacy) row gets the full read to be sure.
+        try:
+            report = await get_report(None, report_id, strict=True)
+        except InvalidReportDataError:
+            report = None
+        if report is not None:
+            can_generate = _report_has_identity(report)
+            status = report.status
 
     return {
         "report_id": report_id,
-        "report_status": report.status,
+        "report_status": status,
         "can_generate": can_generate,
         "engine": "client-side (html2pdf.js)",
         "message": "PDF is generated in the browser",

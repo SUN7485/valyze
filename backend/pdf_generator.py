@@ -4,6 +4,7 @@ from __future__ import annotations
 PDF Generator for Valyze Credit Reports.
 """
 
+import html
 import re
 from pathlib import Path
 from typing import Dict, Any, Set
@@ -109,14 +110,48 @@ PHYSICAL_ASSETS_FIELDS = [
 ]
 
 
+_HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+_NAMED_COLORS = frozenset(
+    {
+        "green", "red", "orange", "yellow", "blue", "gray", "grey", "black",
+        "white", "darkgreen", "darkred", "darkorange", "goldenrod", "teal", "navy",
+    }
+)
+_LEADING_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _safe_css_color(value: Any, default: str) -> str:
+    """A colour that is safe inside style="color:…": #rgb / #rrggbb or a known
+    colour name; anything else (e.g. "red;background:url(//x)") -> default."""
+    c = str(value).strip() if value is not None else ""
+    if _HEX_COLOR.match(c):
+        return c
+    if c.lower() in _NAMED_COLORS:
+        return c.lower()
+    return default
+
+
+def _score_pct(value: Any) -> str:
+    """A 0-100 number for a bar width, parsed from values like 72, "72%",
+    "72/100"; non-numeric text becomes 0."""
+    if isinstance(value, bool):
+        n = 0.0
+    elif isinstance(value, (int, float)):
+        n = float(value)
+    else:
+        m = _LEADING_NUMBER.search(str(value or ""))
+        n = float(m.group(0)) if m else 0.0
+    if n != n:  # NaN
+        n = 0.0
+    n = max(0.0, min(100.0, n))
+    return str(int(n)) if n == int(n) else f"{n:.1f}"
+
+
 class PDFGenerator:
     def __init__(self):
         # Use absolute path based on this file's location
         base_dir = Path(__file__).resolve().parent
         self.template_path = base_dir / "templates" / "template.html"
-        # Use /tmp for writable directory in Vercel serverless
-        self.output_dir = Path("/tmp/outputs")
-        self.output_dir.mkdir(parents=True, exist_ok=True)
         print(f"[PDF] Template path: {self.template_path}")
         print(f"[PDF] Template exists: {self.template_path.exists()}")
 
@@ -212,86 +247,6 @@ class PDFGenerator:
         except ValueError:
             # It's text - return without adding %
             return s.replace("%%", "%")
-
-    def _hex_to_css_class(self, color: Any) -> str:
-        """
-        Convert hex color values to CSS class names for template rendering.
-        Maps hex colors to: 'green', 'yellow', 'red'
-        Also passes through existing CSS class names unchanged.
-        """
-        if color is None or color == "" or color == "N/A":
-            return "yellow"
-        c = str(color).strip().lower()
-        # Already a CSS class name
-        if c in (
-            "green",
-            "yellow",
-            "red",
-            "orange",
-            "blue",
-            "info",
-            "success",
-            "warning",
-            "danger",
-        ):
-            return c
-        # Hex color mapping
-        green_hexes = {
-            "#27ae60",
-            "#2ecc71",
-            "#28a745",
-            "#20c997",
-            "#00b894",
-            "#00cec9",
-            "#55efc4",
-        }
-        yellow_hexes = {
-            "#f39c12",
-            "#e67e22",
-            "#ffa500",
-            "#fdcb6e",
-            "#ffeaa7",
-            "#fab1a0",
-            "#ff7675",
-        }
-        red_hexes = {"#e74c3c", "#c0392b", "#dc3545", "#d63031", "#ff6b6b", "#ee5a24"}
-        if c in green_hexes:
-            return "green"
-        if c in red_hexes:
-            return "red"
-        if c in yellow_hexes:
-            return "yellow"
-        # Fuzzy match by first 4 chars
-        if (
-            c.startswith("#27a")
-            or c.startswith("#2ec")
-            or c.startswith("#28a")
-            or c.startswith("#20c")
-            or c.startswith("#00b")
-            or c.startswith("#00c")
-            or c.startswith("#55e")
-        ):
-            return "green"
-        if (
-            c.startswith("#e74")
-            or c.startswith("#c03")
-            or c.startswith("#dc3")
-            or c.startswith("#d63")
-            or c.startswith("#ff6")
-            or c.startswith("#ee5")
-        ):
-            return "red"
-        if (
-            c.startswith("#f39")
-            or c.startswith("#e67")
-            or c.startswith("#ffa")
-            or c.startswith("#fdc")
-            or c.startswith("#ffe")
-            or c.startswith("#fab")
-            or c.startswith("#ff7")
-        ):
-            return "yellow"
-        return "yellow"
 
     def _hex_to_css_class(self, color: Any) -> str:
         """
@@ -997,6 +952,12 @@ class PDFGenerator:
             "delinquency_score": gf("delinquency_score", 0),
             "failure_score": gf("failure_score", 0),
             "paydex_score": gf("paydex_score", 0),
+            # Bar widths for style="width:…%": numbers clamped to 0-100, never
+            # raw text (which could carry CSS into the style attribute).
+            "viability_score_pct": _score_pct(gf("viability_score", 0)),
+            "payment_score_pct": _score_pct(gf("payment_score", 0)),
+            "delinquency_score_pct": _score_pct(gf("delinquency_score", 0)),
+            "failure_score_pct": _score_pct(gf("failure_score", 0)),
             "company_size": gf("company_size"),
             "company_size_explanation": gf("company_size_explanation"),
             "payment_risk": gf("payment_risk"),
@@ -1091,11 +1052,12 @@ class PDFGenerator:
             "sector_summary_text": gf("sector_summary_text"),
             # -- MONITORING -----------------------------------------------
             "payment_delay_status": gf("payment_delay_status"),
-            "payment_delay_color": gf("payment_delay_color", "green"),
+            # These three go into style="color:…": whitelisted, else the default.
+            "payment_delay_color": _safe_css_color(gf("payment_delay_color", "green"), "green"),
             "credit_utilization": util_display,
-            "utilization_color": gf("utilization_color", "#1a5f7a"),
+            "utilization_color": _safe_css_color(gf("utilization_color", "#1a5f7a"), "#1a5f7a"),
             "financial_trend": gf("financial_trend"),
-            "trend_color": gf("trend_color", "#1a5f7a"),
+            "trend_color": _safe_css_color(gf("trend_color", "#1a5f7a"), "#1a5f7a"),
             "legal_threshold": gf("legal_threshold"),
             "payment_delay_threshold": gf("payment_delay_threshold"),
             "next_review_date": gf("next_review_date"),
@@ -1230,110 +1192,134 @@ class PDFGenerator:
     # MUSTACHE RENDERER
     # -----------------------------------------------------------------
 
+    # Fallback renderer for when chevron is unavailable. It parses the template
+    # ONCE into a tree and renders that tree, so substituted values are never
+    # re-scanned for tags, and every {{variable}} is HTML-escaped like chevron.
+    _MUSTACHE_TAG = re.compile(r"\{\{\{\s*(.+?)\s*\}\}\}|\{\{([#^/!>&]?)\s*(.*?)\s*\}\}", re.DOTALL)
+
+    @staticmethod
+    def _mustache_parse(template: str) -> list:
+        root: list = []
+        stack: list = [("", root)]
+        pos = 0
+        for m in PDFGenerator._MUSTACHE_TAG.finditer(template):
+            if m.start() > pos:
+                stack[-1][1].append(("text", template[pos : m.start()]))
+            pos = m.end()
+            if m.group(1) is not None:  # {{{name}}}: still escaped here
+                stack[-1][1].append(("var", m.group(1)))
+                continue
+            sigil, name = m.group(2), m.group(3)
+            if sigil in ("!", ">"):
+                continue
+            if sigil in ("#", "^"):
+                children: list = []
+                stack[-1][1].append(("section" if sigil == "#" else "inverted", name, children))
+                stack.append((name, children))
+            elif sigil == "/":
+                # Close the matching open section; ignore stray closers.
+                for i in range(len(stack) - 1, 0, -1):
+                    if stack[i][0] == name:
+                        while len(stack) > i + 1:
+                            PDFGenerator._mustache_unwrap(stack)
+                        stack.pop()
+                        break
+            else:  # plain or & variable
+                stack[-1][1].append(("var", name))
+        if pos < len(template):
+            stack[-1][1].append(("text", template[pos:]))
+        # A section that is never closed (template.html has one) does not wrap
+        # the rest of the document: its tag is dropped and its content kept,
+        # as the previous regex renderer did.
+        while len(stack) > 1:
+            PDFGenerator._mustache_unwrap(stack)
+        return root
+
+    @staticmethod
+    def _mustache_unwrap(stack: list) -> None:
+        """Pop the innermost open section and splice its content into the parent."""
+        _, children = stack.pop()
+        parent = stack[-1][1]
+        parent[-1:] = children
+
+    @staticmethod
+    def _mustache_lookup(stack: list, key: str) -> Any:
+        if key == ".":
+            for frame in reversed(stack):
+                if "." in frame:
+                    return frame["."]
+            return None
+        for frame in reversed(stack):
+            if key in frame:
+                return frame[key]
+        # dotted names: a.b -> frame[a][b]
+        if "." in key:
+            head, *rest = key.split(".")
+            val = PDFGenerator._mustache_lookup(stack, head)
+            for part in rest:
+                val = val.get(part) if isinstance(val, dict) else None
+            return val
+        return None
+
     def _render_mustache(self, template: str, ctx: dict) -> str:
-        def process_sections(tmpl: str, context: dict) -> str:
-            pattern = re.compile(r"\{\{#([\w.]+)\}\}(.*?)\{\{/\1\}\}", re.DOTALL)
+        # Section/inverted truthiness deliberately matches the renderer this
+        # replaced (and so the PDFs produced so far): a section renders for any
+        # truthy value ("N/A" included); an inverted section renders for
+        # None, "", "N/A" or an empty list.
+        def is_empty(val: Any) -> bool:
+            return val is None or val == "" or val == "N/A" or (
+                isinstance(val, list) and len(val) == 0
+            )
 
-            def replace_section(m):
-                key = m.group(1)
-                inner = m.group(2)
-
-                # Handle .length property access (e.g., "strengths.length")
-                if key.endswith(".length"):
-                    base_key = key[:-7]  # Remove ".length" from end
-                    val = context.get(base_key)
-                    if isinstance(val, list) and len(val) > 0:
-                        # Render the section ONLY ONCE if the list has items
-                        rendered = process_sections(inner, context)
-                        rendered = process_inverted(rendered, context)
-                        rendered = replace_variables(rendered, context)
-                        return rendered
+        def render(nodes: list, stack: list, out: list) -> None:
+            for node in nodes:
+                kind = node[0]
+                if kind == "text":
+                    out.append(node[1])
+                elif kind == "var":
+                    val = self._mustache_lookup(stack, node[1])
+                    if val is None:
+                        text = "N/A"
+                    elif isinstance(val, (list, dict)):
+                        text = ""
+                    elif isinstance(val, bool):
+                        text = str(val).lower()
                     else:
-                        return ""
+                        text = str(val)
+                    out.append(html.escape(text, quote=True))
+                elif kind == "section":
+                    key, children = node[1], node[2]
+                    if key.endswith(".length"):
+                        val = self._mustache_lookup(stack, key[: -len(".length")])
+                        if isinstance(val, list) and val:
+                            render(children, stack, out)
+                        continue
+                    val = self._mustache_lookup(stack, key)
+                    if isinstance(val, list):
+                        for item in val:
+                            if isinstance(item, dict):
+                                frame = item
+                            elif isinstance(item, str):
+                                frame = {".": item, "name": item}
+                            else:
+                                frame = {".": item}
+                            render(children, stack + [frame], out)
+                    elif val:
+                        frame = val if isinstance(val, dict) else {}
+                        render(children, stack + [frame], out)
+                elif kind == "inverted":
+                    key, children = node[1], node[2]
+                    if key.endswith(".length"):
+                        val = self._mustache_lookup(stack, key[: -len(".length")])
+                        if not (isinstance(val, list) and val):
+                            render(children, stack, out)
+                        continue
+                    if is_empty(self._mustache_lookup(stack, key)):
+                        render(children, stack, out)
 
-                val = context.get(key)
-
-                if isinstance(val, list) and len(val) > 0:
-                    result = ""
-                    for item in val:
-                        if isinstance(item, dict):
-                            item_ctx = {**context, **item}
-                        elif isinstance(item, str):
-                            item_ctx = {**context, ".": item, "name": item}
-                        else:
-                            item_ctx = context
-                        rendered = process_sections(inner, item_ctx)
-                        rendered = process_inverted(rendered, item_ctx)
-                        rendered = replace_variables(rendered, item_ctx)
-                        result += rendered
-                    return result
-                elif val and not isinstance(val, list):
-                    rendered = process_sections(inner, context)
-                    rendered = process_inverted(rendered, context)
-                    rendered = replace_variables(rendered, context)
-                    return rendered
-                return ""
-
-            prev = None
-            while prev != tmpl:
-                prev = tmpl
-                tmpl = pattern.sub(replace_section, tmpl)
-            return tmpl
-
-        def process_inverted(tmpl: str, context: dict) -> str:
-            pattern = re.compile(r"\{\{\^([\w.]+)\}\}(.*?)\{\{/\1\}\}", re.DOTALL)
-
-            def replace_inverted(m):
-                key = m.group(1)
-                inner = m.group(2)
-
-                # Handle .length property access (e.g., "strengths.length")
-                if key.endswith(".length"):
-                    base_key = key[:-7]  # Remove ".length" from end
-                    val = context.get(base_key)
-                    is_empty = not (isinstance(val, list) and len(val) > 0)
-                    if is_empty:
-                        rendered = process_sections(inner, context)
-                        rendered = replace_variables(rendered, context)
-                        return rendered
-                    return ""
-
-                val = context.get(key)
-                is_empty = (
-                    val is None
-                    or val == ""
-                    or val == "N/A"
-                    or (isinstance(val, list) and len(val) == 0)
-                )
-                if is_empty:
-                    rendered = process_sections(inner, context)
-                    rendered = replace_variables(rendered, context)
-                    return rendered
-                return ""
-
-            return pattern.sub(replace_inverted, tmpl)
-
-        def replace_variables(tmpl: str, context: dict) -> str:
-            def replacer(m):
-                key = m.group(1).strip()
-                if key == ".":
-                    return str(context.get(".", ""))
-                val = context.get(key)
-                if val is None:
-                    return "N/A"
-                if isinstance(val, list):
-                    return ""
-                if isinstance(val, bool):
-                    return str(val).lower()
-                return str(val)
-
-            return re.sub(r"\{\{([^#^/!>].*?)\}\}", replacer, tmpl)
-
-        result = process_sections(template, ctx)
-        result = process_inverted(result, ctx)
-        result = replace_variables(result, ctx)
-        result = re.sub(r"\{\{[^}]*\}\}", "", result)
-        return result
+        out: list = []
+        render(self._mustache_parse(template), [ctx], out)
+        return "".join(out)
 
     # -----------------------------------------------------------------
     # -----------------------------------------------------------------
@@ -1424,12 +1410,6 @@ class PDFGenerator:
 
             traceback.print_exc()
             return html_content
-        except Exception as e:
-            print(f"[PDF] Field stripping error: {e}")
-            import traceback
-
-            traceback.print_exc()
-            return html_content
 
     def _render_html(self, report_data: Dict[str, Any]) -> str:
         ctx = self._build_context(report_data)
@@ -1465,108 +1445,23 @@ class PDFGenerator:
         return self._emergency_html(ctx)
 
     def _emergency_html(self, ctx: dict) -> str:
+        def esc(key: str) -> str:
+            val = ctx.get(key)
+            return html.escape("N/A" if val is None else str(val), quote=True)
+
         return f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="font-family:Arial;padding:40px">
 <h1>Valyze Credit Report (fallback)</h1>
-<p>Company: {ctx.get("legal_name", "N/A")}</p>
-<p>Credit Rating: {ctx.get("credit_rating", "N/A")}</p>
-<p>Risk Level: {ctx.get("risk_level", "N/A")}</p>
-<p>Currency: {ctx.get("fin_currency", "N/A")}</p>
+<p>Company: {esc("legal_name")}</p>
+<p>Credit Rating: {esc("credit_rating")}</p>
+<p>Risk Level: {esc("risk_level")}</p>
+<p>Currency: {esc("fin_currency")}</p>
 </body></html>"""
 
     # -----------------------------------------------------------------
     # PUBLIC API
     # -----------------------------------------------------------------
-
-    async def generate_pdf(
-        self, report_data: Dict[str, Any], report_id: str
-    ) -> Dict[str, Any]:
-        try:
-            from playwright.async_api import async_playwright
-
-            html_content = self._render_html(report_data)
-            output_path = self.output_dir / f"{report_id}.pdf"
-
-            async with async_playwright() as p:
-                browser = await p.chromium.launch()
-                page = await browser.new_page()
-                await page.set_content(html_content, wait_until="networkidle")
-
-                fields = report_data.get("fields", {}) or {}
-
-                def get_bool_field(key):
-                    f = fields.get(key)
-                    if not f:
-                        return False
-                    if isinstance(f, dict):
-                        return bool(f.get("value"))
-                    return bool(getattr(f, "value", False))
-
-                exclude_list = [
-                    get_bool_field(f"exclude_page_{i}") for i in range(1, 20)
-                ]
-
-                js_script = f"""
-                () => {{
-                    const hiddenToken = "__HIDDEN__";
-                    const walkDOM = (node) => {{
-                        if (node.nodeType === 3 &&
-                            node.nodeValue.includes(hiddenToken)) {{
-                            let p = node.parentElement;
-                            let container = p;
-                            while (p && p.tagName !== 'BODY' &&
-                                   !p.classList.contains('page')) {{
-                                if (p.classList.contains('card') ||
-                                    p.classList.contains('metric-box') ||
-                                    p.tagName === 'TR' ||
-                                    p.classList.contains('summary-item')) {{
-                                    container = p; break;
-                                }}
-                                p = p.parentElement;
-                            }}
-                            if (container) container.style.display = 'none';
-                        }} else {{
-                            for (let i = 0; i < node.childNodes.length; i++)
-                                walkDOM(node.childNodes[i]);
-                        }}
-                    }};
-                    walkDOM(document.body);
-                    const excludeList = {str(exclude_list).lower()};
-                    const pages = document.querySelectorAll('.page');
-                    Array.from(pages).forEach((p, idx) => {{
-                        if (excludeList[idx]) p.style.display = 'none';
-                    }});
-                }}
-                """
-                await page.evaluate(js_script)
-                await page.pdf(
-                    path=str(output_path),
-                    format="A4",
-                    print_background=True,
-                    margin={
-                        "top": "10mm",
-                        "bottom": "10mm",
-                        "left": "10mm",
-                        "right": "10mm",
-                    },
-                )
-                await browser.close()
-
-            file_size_kb = round(output_path.stat().st_size / 1024, 1)
-            print(f"[PDF] OK {output_path} ({file_size_kb} KB)")
-            return {
-                "success": True,
-                "pdf_path": str(output_path),
-                "file_size_kb": file_size_kb,
-            }
-
-        except Exception as e:
-            print(f"[PDF] ERROR {e}")
-            import traceback
-
-            traceback.print_exc()
-            return {"success": False, "error": str(e)}
 
     def get_html_preview(self, report_data: Dict[str, Any]) -> str:
         return self._render_html(report_data)

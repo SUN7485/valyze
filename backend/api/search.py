@@ -5,14 +5,17 @@ All endpoints require authentication.
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from api.auth import get_current_user
+from api.report import delete_report_or_raise
+from services.report_queries import is_valid_report_id, list_reports_page
+
+# Handlers are plain `def` on purpose: they make blocking HTTP calls to
+# Supabase, which FastAPI then runs in its threadpool instead of on the event loop.
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -33,7 +36,7 @@ class SearchResponse(BaseModel):
 
 
 @router.post("/")
-async def search_reports(request: SearchRequest):
+def search_reports(request: SearchRequest):
     """Search reports with various filters."""
     try:
         from services.supabase_client import search_reports as supabase_search
@@ -58,7 +61,7 @@ async def search_reports(request: SearchRequest):
 
 
 @router.get("/")
-async def search_reports_get(
+def search_reports_get(
     q: str = "",
     company_name: Optional[str] = None,
     cr_number: Optional[str] = None,
@@ -99,7 +102,7 @@ async def search_reports_get(
 
 
 @router.get("/reports")
-async def get_all_reports(limit: int = 100, offset: int = 0):
+def get_all_reports(limit: int = 100, offset: int = 0):
     """Get all reports from Supabase with pagination."""
     try:
         from services.supabase_client import (
@@ -123,8 +126,10 @@ async def get_all_reports(limit: int = 100, offset: int = 0):
 
 
 @router.post("/load/{report_id}")
-async def load_report_from_cloud(report_id: str):
+def load_report_from_cloud(report_id: str):
     """Fetch a report from Supabase (primary source). Legacy endpoint."""
+    if not is_valid_report_id(report_id):
+        raise HTTPException(400, "Invalid report_id format")
     try:
         from services.supabase_client import get_report as get_from_cloud
 
@@ -146,7 +151,7 @@ async def load_report_from_cloud(report_id: str):
 
 
 @router.get("/count")
-async def get_reports_count():
+def get_reports_count():
     """Get total reports count from Supabase."""
     try:
         from services.supabase_client import get_reports_count as get_count
@@ -164,37 +169,21 @@ async def get_reports_count():
 
 
 @router.get("/local")
-async def get_local_reports(
+def get_local_reports(
     skip: int = 0,
     limit: int = 50,
     status: Optional[str] = None,
     search: Optional[str] = None,
 ):
-    """Get reports from Supabase (local alias for compatibility)."""
+    """Get one page of reports; filtering, paging and counting run in PostgREST."""
     try:
-        from services.supabase_client import get_all_reports as sb_get_all
-
-        # Fetch all reports (Supabase returns already sorted by created_at desc)
-        all_reports = await asyncio.to_thread(sb_get_all, limit=1000)
-
-        # Filter by status if provided
-        if status:
-            all_reports = [r for r in all_reports if r.get("status") == status]
-
-        # Filter by search if provided
-        if search:
-            search_lower = search.lower()
-            all_reports = [
-                r
-                for r in all_reports
-                if search_lower in (r.get("company_name") or "").lower()
-                or search_lower in (r.get("cr_number") or "").lower()
-                or search_lower in (r.get("client_reference") or "").lower()
-            ]
-
-        total = len(all_reports)
-        reports = all_reports[skip : skip + limit]
-
+        reports, total = list_reports_page(
+            offset=skip,
+            limit=limit,
+            status=status,
+            search=search,
+            search_columns=("company_name", "cr_number", "client_reference"),
+        )
         return {
             "total": total,
             "skip": skip,
@@ -207,7 +196,7 @@ async def get_local_reports(
 
 
 @router.get("/local/count")
-async def get_local_reports_count():
+def get_local_reports_count():
     """Get total count of reports (Supabase)."""
     try:
         from services.supabase_client import get_reports_count as get_count
@@ -220,24 +209,13 @@ async def get_local_reports_count():
 
 
 @router.delete("/local/{report_id}")
-async def delete_local_report(report_id: str):
-    """Delete a report from Supabase."""
-    try:
-        from services.supabase_client import delete_report as sb_delete
-
-        success = sb_delete(report_id)
-        if not success:
-            raise HTTPException(404, f"Report {report_id} not found")
-
-        return {
-            "success": True,
-            "message": f"Report {report_id} deleted",
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"[SEARCH] Failed to delete report: {e}")
-        raise HTTPException(500, "Failed to delete report")
+async def delete_local_report(report_id: str, user: dict = Depends(get_current_user)):
+    """Delete a report (admin only). Same behaviour as DELETE /api/report/{id}."""
+    await delete_report_or_raise(report_id, user)
+    return {
+        "success": True,
+        "message": f"Report {report_id} deleted",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -246,44 +224,28 @@ async def delete_local_report(report_id: str):
 
 
 @router.get("/all")
-async def get_all_reports_combined(
+def get_all_reports_combined(
     skip: int = 0,
     limit: int = 100,
     search: Optional[str] = None,
     country: Optional[str] = None,
 ):
-    """Get all reports from Supabase with location 'cloud'."""
+    """One page of reports (newest first) with location 'cloud'.
+
+    Search (company name / CR number, case-insensitive), the exact country
+    filter, paging and the total all run in PostgREST, so reports beyond the
+    first 1,000 are reachable and counted.
+    """
     try:
-        from services.supabase_client import get_all_reports as sb_get_all
-
-        all_reports = await asyncio.to_thread(sb_get_all)
-
-        # Assign location = "cloud" for all (since all in Supabase)
-        for r in all_reports:
-            r["location"] = "cloud"
-
-        # Apply search filter
-        if search:
-            search_lower = search.lower()
-            all_reports = [
-                r
-                for r in all_reports
-                if search_lower in (r.get("company_name") or "").lower()
-                or search_lower in (r.get("cr_number") or "").lower()
-            ]
-
-        # Apply country filter
-        if country:
-            all_reports = [r for r in all_reports if r.get("country") == country]
-
-        # Sort by updated_at descending
-        all_reports.sort(
-            key=lambda x: x.get("updated_at") or x.get("created_at") or "", reverse=True
+        reports, total = list_reports_page(
+            offset=skip,
+            limit=limit,
+            country=country,
+            search=search,
+            search_columns=("company_name", "cr_number"),
         )
-
-        total = len(all_reports)
-        reports = all_reports[skip : skip + limit]
-
+        for r in reports:
+            r["location"] = "cloud"
         return {
             "total": total,
             "skip": skip,
@@ -293,120 +255,3 @@ async def get_all_reports_combined(
     except Exception as e:
         print(f"[SEARCH] Failed to get all reports: {e}")
         raise HTTPException(500, "Failed to get all reports")
-
-
-# ---------------------------------------------------------------------------
-# Output Folder Reports (Generated files: PDF, Excel, etc)
-# ---------------------------------------------------------------------------
-
-
-@router.get("/output")
-async def get_output_reports(
-    search: Optional[str] = None,
-):
-    """Get reports from output folder (generated PDF/Export files)."""
-    try:
-        output_dir = Path("/tmp/outputs")
-
-        if not output_dir.exists():
-            return {"total": 0, "reports": []}
-
-        # Get all files in output folder
-        files = []
-        for f in output_dir.iterdir():
-            if f.is_file():
-                name = f.stem
-                parts = name.split("_", 1)
-                report_id = parts[1] if len(parts) > 1 else parts[0]
-
-                stat = f.stat()
-
-                files.append(
-                    {
-                        "id": report_id,
-                        "filename": f.name,
-                        "format": f.suffix.replace(".", ""),
-                        "size_kb": round(stat.st_size / 1024, 1),
-                        "created_at": datetime.fromtimestamp(stat.st_ctime).isoformat()
-                        if stat.st_ctime
-                        else None,
-                        "updated_at": datetime.fromtimestamp(stat.st_mtime).isoformat()
-                        if stat.st_mtime
-                        else None,
-                    }
-                )
-
-        # Group by report_id
-        reports_dict = {}
-        for f in files:
-            rid = f["id"]
-            if rid not in reports_dict:
-                reports_dict[rid] = {
-                    "id": rid,
-                    "files": [],
-                    "updated_at": f["updated_at"],
-                    "created_at": f["created_at"],
-                }
-            reports_dict[rid]["files"].append(
-                {
-                    "filename": f["filename"],
-                    "format": f["format"],
-                    "size_kb": f["size_kb"],
-                }
-            )
-
-        all_reports = list(reports_dict.values())
-
-        for r in all_reports:
-            if r["files"]:
-                r["filename"] = r["files"][0]["filename"]
-                r["format"] = r["files"][0]["format"]
-
-        if search:
-            search_lower = search.lower()
-            all_reports = [r for r in all_reports if search_lower in r["id"].lower()]
-
-        all_reports.sort(key=lambda x: x.get("updated_at") or "", reverse=True)
-
-        return {
-            "total": len(all_reports),
-            "reports": all_reports,
-        }
-    except Exception as e:
-        print(f"[SEARCH] Failed to get output reports: {e}")
-        raise HTTPException(500, "Failed to get output reports")
-
-
-@router.delete("/output/{report_id}")
-async def delete_output_report(report_id: str):
-    """Delete all output files for a report."""
-    try:
-        output_dir = Path("/tmp/outputs")
-
-        if not output_dir.exists():
-            raise HTTPException(404, "Output folder not found")
-
-        # Find and delete all files for this report
-        deleted = []
-        for f in output_dir.iterdir():
-            if f.is_file():
-                name = f.stem
-                parts = name.split("_", 1)
-                rid = parts[1] if len(parts) > 1 else parts[0]
-                if rid == report_id:
-                    f.unlink()
-                    deleted.append(f.name)
-
-        if not deleted:
-            raise HTTPException(404, f"No output files found for report {report_id}")
-
-        return {
-            "success": True,
-            "message": f"Deleted {len(deleted)} files",
-            "deleted_files": deleted,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"[SEARCH] Failed to delete output files: {e}")
-        raise HTTPException(500, "Failed to delete output files")

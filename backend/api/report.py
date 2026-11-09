@@ -8,36 +8,40 @@ SINGLE SOURCE OF TRUTH. NO AUTO-RECALCULATION. EVER.
 
 from __future__ import annotations
 
-import shutil
-from services.supabase_client import get_order_companies as sb_get_order_companies_for_report
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+import asyncio
+from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException, Path as PathParam
-from pydantic import BaseModel, Field
-import re
+from fastapi import APIRouter, Depends, HTTPException, Path as PathParam
 
-
-# Note: db dependency retained for backward compatibility but not used
-# from database.db import get_db  # removed
-
+from api.auth import get_current_user, require_admin
 from database.crud import (
     delete_report as crud_delete_report,
     get_all_reports,
     get_report,
-    save_report_json,
+    mutate_report,
+    update_report_array,
     update_report_field,
     update_report_fields_bulk,
-    update_report_status,
 )
-from models.field_meta import ARRAY_FIELDS
+from database.exceptions import (
+    FieldLockedError,
+    InvalidArrayDataError,
+    InvalidReportDataError,
+    ReportConflictError,
+    UnknownFieldError,
+)
+from models.field_meta import ARRAY_FIELDS, is_known_field
 from models.report_schema import (
     FieldData,
     FullReport,
     UpdateArrayRequest,
     UpdateFieldRequest,
     UpdateFieldsBulkRequest,
+)
+from services.report_queries import (
+    REPORT_ID_PATTERN,
+    ReportLinkedError,
+    get_order_companies_for_report,
 )
 
 # All endpoints require authentication
@@ -97,12 +101,120 @@ def force_write(report: FullReport, key: str, value: Any):
         )
 
 
+def _as_dict(value: Any) -> Dict[str, Any]:
+    """An import section, or {} when it is missing or not an object."""
+    return value if isinstance(value, dict) else {}
+
+
+def _scalar_text(value: Any) -> str:
+    """Text of a scalar or FieldData-style {"value": ...} import value."""
+    if isinstance(value, dict):
+        value = value.get("value")
+    if value is None or isinstance(value, (dict, list)):
+        return ""
+    return str(value).strip()
+
+
+def _swot_text(item: Any) -> str:
+    """A SWOT entry as text. Object items ({"point": ..., "detail": ...})
+    are reduced to their main text instead of crashing the de-duplication."""
+    if isinstance(item, dict):
+        for key in ("text", "point", "title", "item", "description", "value", "detail"):
+            if isinstance(item.get(key), str) and item[key].strip():
+                return item[key].strip()
+        parts = [str(v).strip() for v in item.values() if isinstance(v, (str, int, float))]
+        return " - ".join(p for p in parts if p)
+    if item is None or isinstance(item, list):
+        return ""
+    return str(item).strip()
+
+
 def pick(*args):
     """Return the first non-None, non-empty value from args."""
     for v in args:
         if v is not None and v != "":
             return v
     return None
+
+
+# Report statuses the app writes or reads (backend + frontend). The status
+# endpoint only accepts these, so a typo can't strand a report in a state no
+# list, KPI or workflow step recognises.
+REPORT_STATUSES = frozenset(
+    {
+        "uploading",
+        "extracting",
+        "ready",
+        "editing",
+        "in_progress",
+        "generating",
+        "done",
+        "complete",
+        "completed",
+        "delivered",
+    }
+)
+
+
+def _require_valid_id(report_id: str) -> None:
+    if not REPORT_ID_PATTERN.match(report_id or ""):
+        raise HTTPException(status_code=400, detail="Invalid report_id format")
+
+
+def _conflict(current_updated_at) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "error": "conflict",
+            "message": "Report was modified by another user. Please reload and reapply your changes.",
+            "current_updated_at": current_updated_at,
+        },
+    )
+
+
+def _invalid_data() -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail="Report data is empty or invalid and cannot be opened. It can still be deleted.",
+    )
+
+
+async def _load_report(report_id: str) -> FullReport:
+    """Validated read for API handlers: 400 bad id, 404 missing, 422 invalid JSON."""
+    _require_valid_id(report_id)
+    try:
+        report = await get_report(None, report_id, strict=True)
+    except InvalidReportDataError:
+        raise _invalid_data()
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report
+
+
+async def _run_edit(coro):
+    """Await a crud edit and map its domain errors onto HTTP responses."""
+    try:
+        updated = await coro
+    except ReportConflictError as e:
+        raise _conflict(e.current_updated_at)
+    except UnknownFieldError as e:
+        raise HTTPException(
+            status_code=400, detail=f"Unknown field(s): {', '.join(e.names)}"
+        )
+    except FieldLockedError as e:
+        raise HTTPException(status_code=400, detail=f"Field '{e.name}' is locked")
+    except InvalidArrayDataError as e:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid items for array '{e.args[0]}'"
+        )
+    except InvalidReportDataError:
+        raise _invalid_data()
+    except Exception as e:
+        print(f"[REPORT] Edit failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save the report")
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return updated
 
 
 # ---------------------------------------------------------------------------
@@ -125,24 +237,21 @@ async def list_reports():
 # ---------------------------------------------------------------------------
 
 
-REPORT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,100}$")
-
-
 @router.get("/{report_id}")
 async def get_report_detail(
     report_id: str = PathParam(..., description="Report unique identifier"),
 ):
-    if not REPORT_ID_PATTERN.match(report_id):
-        raise HTTPException(status_code=400, detail="Invalid report_id format")
-    report = await get_report(None, report_id)
-    if report is None:
-        raise HTTPException(status_code=404, detail="Report not found")
+    report = await _load_report(report_id)
     return report.model_dump()
 
 
 # ---------------------------------------------------------------------------
 # PATCH single field
 # ---------------------------------------------------------------------------
+# Every edit is an atomic compare-and-set on report_json.updated_at. When the
+# client sends last_known_updated_at and the report has moved on (before or
+# during the write), the edit is refused with 409. Every success returns the
+# new top-level updated_at for the client's next edit.
 
 
 @router.patch("/{report_id}/field")
@@ -150,38 +259,19 @@ async def update_single_field(
     report_id: str,
     body: UpdateFieldRequest,
 ):
-    report = await get_report(None, report_id)
-    if report is None:
-        raise HTTPException(status_code=404, detail="Report not found")
-
-    # Optimistic locking check
-    if body.last_known_updated_at and report.updated_at != body.last_known_updated_at:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "conflict",
-                "message": "Report was modified by another user. Please reload and reapply your changes.",
-                "current_updated_at": report.updated_at,
-            },
+    _require_valid_id(report_id)
+    updated = await _run_edit(
+        update_report_field(
+            None,
+            report_id,
+            body.field_name,
+            body.value,
+            confidence="high",
+            source=body.source,
+            expected_updated_at=body.last_known_updated_at,
+            respect_lock=True,
         )
-
-    if body.field_name in report.fields and report.fields[body.field_name].locked:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Field '{body.field_name}' is locked",
-        )
-
-    updated = await update_report_field(
-        None,
-        report_id,
-        body.field_name,
-        body.value,
-        confidence="high",
-        source=body.source,
     )
-    if updated is None:
-        raise HTTPException(status_code=500, detail="Failed to update field")
-
     return {
         "field_name": body.field_name,
         "value": body.value,
@@ -200,28 +290,21 @@ async def update_fields_bulk(
     report_id: str,
     body: UpdateFieldsBulkRequest,
 ):
-    report = await get_report(None, report_id)
-    if report is None:
-        raise HTTPException(status_code=404, detail="Report not found")
-
-    # Optimistic locking check
-    if body.last_known_updated_at and report.updated_at != body.last_known_updated_at:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "conflict",
-                "message": "Report was modified by another user. Please reload and reapply your changes.",
-                "current_updated_at": report.updated_at,
-            },
+    _require_valid_id(report_id)
+    # All-or-nothing: an unknown name rejects the whole request (400), so every
+    # key reported back below was actually applied.
+    updated = await _run_edit(
+        update_report_fields_bulk(
+            None,
+            report_id,
+            body.fields,
+            expected_updated_at=body.last_known_updated_at,
         )
-
-    updated = await update_report_fields_bulk(None, report_id, body.fields)
-    if updated is None:
-        raise HTTPException(status_code=500, detail="Failed to update fields")
-
+    )
+    applied = [k for k in body.fields if k in updated.fields]
     return {
-        "updated_count": len(body.fields),
-        "fields": list(body.fields.keys()),
+        "updated_count": len(applied),
+        "fields": applied,
         "updated_at": updated.updated_at,
     }
 
@@ -236,21 +319,7 @@ async def update_array(
     report_id: str,
     body: UpdateArrayRequest,
 ):
-    report = await get_report(None, report_id)
-    if report is None:
-        raise HTTPException(status_code=404, detail="Report not found")
-
-    # Optimistic locking check
-    if body.last_known_updated_at and report.updated_at != body.last_known_updated_at:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "conflict",
-                "message": "Report was modified by another user. Please reload and reapply your changes.",
-                "current_updated_at": report.updated_at,
-            },
-        )
-
+    _require_valid_id(report_id)
     if body.array_name not in ARRAY_FIELDS:
         raise HTTPException(
             status_code=400,
@@ -258,17 +327,19 @@ async def update_array(
             f"Valid: {', '.join(ARRAY_FIELDS)}",
         )
 
-    try:
-        arrays_dict = report.arrays.model_dump()
-        arrays_dict[body.array_name] = body.data
-        report.arrays = report.arrays.model_validate(arrays_dict)
-        await save_report_json(None, report_id, report.model_dump_json())
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to update array: {e}")
-
+    updated = await _run_edit(
+        update_report_array(
+            None,
+            report_id,
+            body.array_name,
+            body.data,
+            expected_updated_at=body.last_known_updated_at,
+        )
+    )
     return {
         "array_name": body.array_name,
         "items_count": len(body.data),
+        "updated_at": updated.updated_at,
     }
 
 
@@ -286,9 +357,7 @@ async def recalculate_report_financials(
     The imported JSON is the SINGLE SOURCE OF TRUTH.
     This endpoint exists for API compatibility but does NOTHING.
     """
-    report = await get_report(None, report_id)
-    if report is None:
-        raise HTTPException(status_code=404, detail="Report not found")
+    report = await _load_report(report_id)
 
     def gfv(name):
         f = report.fields.get(name)
@@ -317,9 +386,7 @@ async def recalculate_report_financials(
 
 @router.get("/{report_id}/stats")
 async def get_stats(report_id: str):
-    report = await get_report(None, report_id)
-    if report is None:
-        raise HTTPException(status_code=404, detail="Report not found")
+    report = await _load_report(report_id)
     return report.extraction_stats.model_dump()
 
 
@@ -337,70 +404,37 @@ async def easy_way_import(
     Import complete JSON — JSON is the FINAL WORD.
     No recalculation. No auto-triggers. What comes in is final.
     """
-    print(f"[DEBUG] Easy Way Import called for report_id: {report_id}")
-    print(f"[DEBUG] Data keys: {list(data.keys()) if data else 'None'}")
-
-    report = await get_report(None, report_id)
-    if not report:
-        print(f"[DEBUG] Report not found: {report_id}")
-        raise HTTPException(404, "Report not found")
-    print(f"[DEBUG] Report found: {report_id}, status: {report.status}")
+    _require_valid_id(report_id)
+    print(f"[EASY WAY] Import for {report_id}: {len(data or {})} top-level keys")
 
     # -- Top-level sections ------------------------------------------------
-    financial_data = data.get("financial_data", {}) or {}
-    swot_analysis = data.get("swot_analysis", {}) or {}
-    news_and_events = data.get("news_and_events", {}) or {}
-    ci = data.get("company_identity", {}) or {}
-    os_ = data.get("ownership_structure", {}) or {}
-    fr = data.get("financial_ratios", {}) or {}
-    ta = data.get("trend_analysis", {}) or {}
-    op = (
+    financial_data = _as_dict(data.get("financial_data"))
+    swot_analysis = _as_dict(data.get("swot_analysis"))
+    news_and_events = _as_dict(data.get("news_and_events"))
+    ci = _as_dict(data.get("company_identity"))
+    os_ = _as_dict(data.get("ownership_structure"))
+    fr = _as_dict(data.get("financial_ratios"))
+    ta = _as_dict(data.get("trend_analysis"))
+    op = _as_dict(
         data.get("operational_profile")
         or data.get("operations")
         or data.get("operational_details")
-        or {}
-    ) or {}
-    ia = data.get("industry_analysis", {}) or {}
-    cr = (
+    )
+    ia = _as_dict(data.get("industry_analysis"))
+    cr = _as_dict(
         data.get("credit_risk_assessment")
         or data.get("risk_assessment")
         or data.get("risk_analysis")
-        or {}
-    ) or {}
-    rec = (
+    )
+    rec = _as_dict(
         data.get("credit_recommendations")
         or data.get("credit_recommendation")
         or data.get("recommendation")
-        or {}
-    ) or {}
-    dq = data.get("data_quality", {}) or {}
+    )
+    dq = _as_dict(data.get("data_quality"))
 
     # -- Initialize updates dict FIRST -------------------------------------
     updates: Dict[str, Any] = {}
-
-    # -- Pull SWOT arrays from swot_analysis -------------------------------
-    # The flatten() function only processes arrays at the top level,
-    # but SWOT data comes nested inside swot_analysis object.
-    # Extract them explicitly.
-    # -- Extract SWOT arrays with deduplication ---------------------------
-    for swot_key in ["strengths", "weaknesses", "opportunities", "threats"]:
-        items = []
-        # Check swot_analysis object
-        if swot_analysis and swot_key in swot_analysis:
-            val = swot_analysis[swot_key]
-            if isinstance(val, list):
-                items.extend(val)
-
-        # Check top-level
-        if swot_key in data:
-            val = data[swot_key]
-            if isinstance(val, list):
-                items.extend(val)
-
-        if items:
-            # Deduplicate while preserving order
-            seen = set()
-            updates[swot_key] = [x for x in items if not (x in seen or seen.add(x))]
 
     # -- Array keys --------------------------------------------------------
     ARRAY_KEYS = {
@@ -421,13 +455,16 @@ async def easy_way_import(
         "management_team",
         "extra_reg_fields",
         "board_members",
-        "key_competitors",
-        "supporting_documents",
         "phone_numbers",
     }
+    # key_competitors / supporting_documents are deliberately NOT imported: the
+    # report schema, editor and PDF have no place for them, so they were always
+    # dropped silently. They are now reported back under "ignored_keys".
+    IGNORED_ARRAY_KEYS = {"key_competitors", "supporting_documents"}
+    ignored_keys: List[str] = []
 
     # Pull arrays from related_concerns if present
-    related_concerns = data.get("related_concerns", {}) or {}
+    related_concerns = _as_dict(data.get("related_concerns"))
     if related_concerns.get("branches"):
         updates["branches"] = related_concerns["branches"]
     if related_concerns.get("regional_affiliates"):
@@ -836,6 +873,8 @@ async def easy_way_import(
             if isinstance(v, list):
                 if k in ARRAY_KEYS:
                     updates[k] = v
+                elif k in IGNORED_ARRAY_KEYS and k not in ignored_keys:
+                    ignored_keys.append(k)
                 continue
 
             # Dicts
@@ -864,9 +903,29 @@ async def easy_way_import(
 
     flatten(data)
 
+    # -- SWOT arrays (after flatten, which would otherwise overwrite them) --
+    # SWOT data may sit inside swot_analysis and/or at the top level; merge
+    # both, turn object items ({"point": ...}) into text, de-duplicate.
+    for swot_key in ["strengths", "weaknesses", "opportunities", "threats"]:
+        items = []
+        for source in (swot_analysis, data):
+            val = source.get(swot_key) if isinstance(source, dict) else None
+            if isinstance(val, list):
+                items.extend(val)
+        if items:
+            seen = set()
+            texts = []
+            for item in items:
+                text = _swot_text(item)
+                if text and text not in seen:
+                    seen.add(text)
+                    texts.append(text)
+            updates[swot_key] = texts
+
     # -- Currency detection ------------------------------------------------
-    # Priority: explicit fin_currency in JSON > country detection
-    country_val = ci.get("country", "") or data.get("country", "") or ""
+    # Priority: explicit fin_currency in JSON > country detection.
+    # country may arrive as a FieldData-style {"value": ...} object.
+    country_val = _scalar_text(ci.get("country")) or _scalar_text(data.get("country"))
 
     has_currency = "fin_currency" in updates or "currency" in updates
 
@@ -912,52 +971,6 @@ async def easy_way_import(
         updates["headquarters_address"] = comp_addr
     elif hq_addr and not comp_addr:
         updates["company_address"] = hq_addr
-
-    # =====================================================================
-    # APPLY UPDATES -- WRITE EVERYTHING, IGNORE ALL LOCKS
-    # =====================================================================
-
-    now_ts = datetime.now(timezone.utc).isoformat()
-    fields_updated = 0
-    arrays_updated = 0
-
-    for key, value in updates.items():
-        if value is None:
-            continue
-
-        # Arrays
-        if key in ARRAY_KEYS:
-            try:
-                if hasattr(report.arrays, key):
-                    arr = report.arrays.model_dump()
-                    arr[key] = value
-                    report.arrays = report.arrays.model_validate(arr)
-                    arrays_updated += 1
-            except Exception as e:
-                print(f"[EASY WAY] Array '{key}' error: {e}")
-            continue
-
-        # Scalars — write regardless of lock status
-        existing = report.fields.get(key)
-        if existing is not None:
-            if hasattr(existing, "value"):
-                existing.value = value
-                existing.confidence = "high"
-                existing.source = "easy_way_import"
-                existing.locked = False
-            elif isinstance(existing, dict):
-                existing["value"] = value
-                existing["confidence"] = "high"
-                existing["source"] = "easy_way_import"
-                existing["locked"] = False
-        else:
-            report.fields[key] = FieldData(
-                value=value,
-                confidence="high",
-                source="easy_way_import",
-                locked=False,
-            )
-        fields_updated += 1
 
     # =====================================================================
     # FORCE OVERRIDE CRITICAL FIELDS
@@ -1136,68 +1149,107 @@ async def easy_way_import(
         ),
     }
 
-    forced_count = 0
-    for key, value in critical.items():
-        if value is None:
-            continue
-        force_write(report, key, value)
-        forced_count += 1
-        print(f"[FORCE] {key} = {value}")
-
-    print(
-        f"[EASY WAY] forced={forced_count} fields={fields_updated} arrays={arrays_updated}"
-    )
-
-    # -- Recalculate extraction stats ---------------------------------------
-    total = len(report.fields)
-    high = sum(1 for f in report.fields.values() if f.confidence == "high")
-    medium = sum(1 for f in report.fields.values() if f.confidence == "medium")
-    calc = sum(1 for f in report.fields.values() if f.confidence == "calculated")
-    missing = total - high - medium - calc
-
-    report.extraction_stats.total_fields = total
-    report.extraction_stats.high_confidence = high
-    report.extraction_stats.medium_confidence = medium
-    report.extraction_stats.calculated = calc
-    report.extraction_stats.missing = missing
-
-    print(
-        f"[EASY WAY] Stats: total={total} high={high} medium={medium} "
-        f"calc={calc} missing={missing}"
-    )
-
-    # -- Save --------------------------------------------------------------
-    print(f"[DEBUG] Saving report for {report_id}")
-    report.updated_at = now_ts
-    await save_report_json(None, report_id, report)
-    await update_report_status(None, report_id, "ready")
-    # -- Check linked order_companies --
+    # -- Status, decided BEFORE the single save ------------------------------
+    # A report linked to order companies stays "in_progress" until one of them
+    # is completed; otherwise an import makes it "ready".
+    new_status = "ready"
     try:
-        order_companies = sb_get_order_companies_for_report(report_id)
-        if order_companies:
-            linked = [oc for oc in order_companies if oc.get("report_id") == report_id]
-            if linked:
-                statuses = [oc.get("status", "") for oc in linked]
-                if "completed" not in statuses:
-                    print("[EASY WAY] Linked order_companies not completed - keeping in_progress")
-                    await update_report_status(None, report_id, "in_progress")
+        linked = await asyncio.to_thread(get_order_companies_for_report, report_id)
+        if linked and not any(oc.get("status") == "completed" for oc in linked):
+            new_status = "in_progress"
     except Exception as exc:
-        print("[EASY WAY] order_companies check failed: " + exc)
-    print(f"[DEBUG] Report saved successfully")
+        print(f"[EASY WAY] order_companies check failed: {exc}")
 
+    counts: Dict[str, int] = {}
+
+    # =====================================================================
+    # APPLY UPDATES -- WRITE EVERYTHING, IGNORE ALL LOCKS
+    # =====================================================================
+    # Runs inside an atomic read-modify-write; on a concurrent edit it is
+    # re-applied to the fresh copy, so it must only depend on its argument.
+    def apply(report: FullReport) -> None:
+        fields_updated = 0
+        arrays_updated = 0
+        skipped: List[str] = []
+
+        for key, value in updates.items():
+            if value is None:
+                continue
+
+            # Arrays
+            if key in ARRAY_KEYS:
+                try:
+                    arr = report.arrays.model_dump()
+                    arr[key] = value
+                    report.arrays = report.arrays.model_validate(arr)
+                    arrays_updated += 1
+                except Exception as e:
+                    print(f"[EASY WAY] Array '{key}' rejected: {e}")
+                    skipped.append(key)
+                continue
+
+            # Scalars: only names the app knows (registered, used by the editor
+            # or PDF, or already on this report). Everything else is reported
+            # back instead of being stored where nothing reads it.
+            if key not in report.fields and not is_known_field(key):
+                skipped.append(key)
+                continue
+            force_write(report, key, value)
+            fields_updated += 1
+
+        forced_count = 0
+        for key, value in critical.items():
+            if value is None:
+                continue
+            force_write(report, key, value)
+            forced_count += 1
+
+        # -- Recalculate extraction stats -----------------------------------
+        total = len(report.fields)
+        high = sum(1 for f in report.fields.values() if f.confidence == "high")
+        medium = sum(1 for f in report.fields.values() if f.confidence == "medium")
+        calc = sum(1 for f in report.fields.values() if f.confidence == "calculated")
+        report.extraction_stats.total_fields = total
+        report.extraction_stats.high_confidence = high
+        report.extraction_stats.medium_confidence = medium
+        report.extraction_stats.calculated = calc
+        report.extraction_stats.missing = total - high - medium - calc
+
+        report.status = new_status
+        counts.update(
+            fields_updated=fields_updated,
+            arrays_updated=arrays_updated,
+            forced_count=forced_count,
+        )
+        counts["skipped"] = skipped  # type: ignore[assignment]
+
+    updated = await _run_edit(mutate_report(report_id, apply))
+    fields_updated = counts.get("fields_updated", 0)
+    arrays_updated = counts.get("arrays_updated", 0)
+    forced_count = counts.get("forced_count", 0)
+    ignored = sorted(set(ignored_keys) | set(counts.get("skipped") or []))
+    print(
+        f"[EASY WAY] {report_id}: forced={forced_count} fields={fields_updated} "
+        f"arrays={arrays_updated} ignored={len(ignored)} status={new_status}"
+    )
+
+    news_events = news_and_events.get("news_events")
     return {
         "success": True,
         "fields_updated": fields_updated,
         "arrays_updated": arrays_updated,
         "forced_fields": forced_count,
         "total_updates": fields_updated + arrays_updated,
+        "ignored_keys": ignored,
+        "status": new_status,
+        "updated_at": updated.updated_at,
         "years_imported": [
-            (financial_data.get(f"year_{i}") or {}).get("year")
+            _as_dict(financial_data.get(f"year_{i}")).get("year")
             for i in [1, 2, 3]
-            if (financial_data.get(f"year_{i}") or {}).get("year")
+            if _as_dict(financial_data.get(f"year_{i}")).get("year")
         ],
         "swot_imported": bool(swot_analysis.get("strengths")),
-        "news_imported": len(news_and_events.get("news_events", [])),
+        "news_imported": len(news_events) if isinstance(news_events, list) else 0,
         "message": (
             f"Easy Way: {fields_updated} fields + "
             f"{arrays_updated} arrays + "
@@ -1216,11 +1268,19 @@ async def update_status(
     report_id: str,
     body: dict,
 ):
+    _require_valid_id(report_id)
     new_status = body.get("status")
     if not new_status:
         raise HTTPException(status_code=400, detail="Status is required")
-    await update_report_status(None, report_id, new_status)
-    return {"success": True, "status": new_status}
+    if not isinstance(new_status, str) or new_status not in REPORT_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status. Valid: {', '.join(sorted(REPORT_STATUSES))}",
+        )
+    updated = await _run_edit(
+        mutate_report(report_id, lambda report: setattr(report, "status", new_status))
+    )
+    return {"success": True, "status": new_status, "updated_at": updated.updated_at}
 
 
 # ---------------------------------------------------------------------------
@@ -1228,22 +1288,30 @@ async def update_status(
 # ---------------------------------------------------------------------------
 
 
+async def delete_report_or_raise(report_id: str, user: dict) -> None:
+    """Shared by every report-delete endpoint: admin only, valid id, deletes
+    the row and its uploaded_files rows without reading report_json first (so
+    reports with broken JSON can still be removed); 404 when nothing matched."""
+    require_admin(user)
+    _require_valid_id(report_id)
+    try:
+        deleted = await crud_delete_report(None, report_id)
+    except ReportLinkedError:
+        raise HTTPException(
+            status_code=409,
+            detail="Report is linked to an order company; unlink it from the order first.",
+        )
+    except Exception as e:
+        print(f"[REPORT] Failed to delete report {report_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete report")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+
 @router.delete("/{report_id}")
 async def delete_report(
     report_id: str = PathParam(..., description="Report unique identifier"),
+    user: dict = Depends(get_current_user),
 ):
-    if not REPORT_ID_PATTERN.match(report_id):
-        raise HTTPException(status_code=400, detail="Invalid report_id format")
-    report = await get_report(None, report_id)
-    if report is None:
-        raise HTTPException(status_code=404, detail="Report not found")
-
-    upload_dir = Path("uploads") / report_id
-    if upload_dir.exists():
-        shutil.rmtree(upload_dir, ignore_errors=True)
-
-    deleted = await crud_delete_report(None, report_id)
-    if not deleted:
-        raise HTTPException(status_code=500, detail="Failed to delete report")
-
+    await delete_report_or_raise(report_id, user)
     return {"deleted": True, "report_id": report_id}

@@ -9,15 +9,18 @@ import csv
 import io
 import json as json_mod
 import base64
+import re
 from datetime import datetime, timezone
-from pathlib import Path
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
-from api.auth import get_current_user, require_admin
+from api._http import content_disposition
+from api.auth import get_current_user, get_current_user_flexible, require_admin
 from database.crud import get_report
+from database.exceptions import InvalidReportDataError
+from services.report_queries import is_valid_report_id
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
@@ -53,10 +56,34 @@ def _safe(val) -> str:
 
 
 async def _get_report_or_404(report_id: str):
-    report = await get_report(None, report_id)
+    if not is_valid_report_id(report_id):
+        raise HTTPException(400, "Invalid report_id format")
+    try:
+        report = await get_report(None, report_id, strict=True)
+    except InvalidReportDataError:
+        raise HTTPException(422, "Report data is empty or invalid")
     if report is None:
         raise HTTPException(404, f"Report {report_id} not found")
     return report
+
+
+_XML_NAME_BAD = re.compile(r"[^A-Za-z0-9_.-]")
+# Characters XML 1.0 cannot carry at all (C0 controls other than tab/CR/LF).
+_XML_TEXT_BAD = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")
+
+
+def _xml_tag(key: str) -> str:
+    """A valid XML element name for a field key ("1st_year" -> "_1st_year",
+    "net margin" -> "net_margin"); names may not start with a digit, '-', '.'
+    or the reserved "xml" prefix."""
+    tag = _XML_NAME_BAD.sub("_", str(key)) or "_"
+    if not (tag[0].isalpha() or tag[0] == "_") or tag.lower().startswith("xml"):
+        tag = "_" + tag
+    return tag
+
+
+def _xml_text(value: str) -> str:
+    return _XML_TEXT_BAD.sub("", value)
 
 
 def _company_name(report) -> str:
@@ -79,7 +106,7 @@ async def export_report_json(report_id: str, user: dict = Depends(get_current_us
     return Response(
         content=content,
         media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="{report_id}.json"'},
+        headers={"Content-Disposition": content_disposition(f"{report_id}.json")},
     )
 
 
@@ -93,7 +120,7 @@ async def export_report_xml(report_id: str, user: dict = Depends(get_current_use
     for key in sorted(fields.keys()):
         val = _fv(fields, key)
         if val:
-            SubElement(root, key).text = val
+            SubElement(root, _xml_tag(key)).text = _xml_text(val)
 
     xml_bytes = tostring(root, encoding="unicode", method="xml")
     xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_bytes
@@ -101,7 +128,7 @@ async def export_report_xml(report_id: str, user: dict = Depends(get_current_use
     return Response(
         content=xml_str,
         media_type="application/xml",
-        headers={"Content-Disposition": f'attachment; filename="{report_id}.xml"'},
+        headers={"Content-Disposition": content_disposition(f"{report_id}.xml")},
     )
 
 
@@ -120,7 +147,7 @@ async def export_report_csv(report_id: str, user: dict = Depends(get_current_use
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{_company_name(report)}.csv"'},
+        headers={"Content-Disposition": content_disposition(f"{_company_name(report)}.csv")},
     )
 
 
@@ -206,31 +233,11 @@ async def export_report_word(report_id: str, user: dict = Depends(get_current_us
         raise HTTPException(500, "Word export failed")
 
 
-# ---------------------------------------------------------------------------
-# Legacy download endpoint (kept for backward compatibility)
-# ---------------------------------------------------------------------------
-
-OUTPUT_DIR = Path("/tmp/outputs")
-
-
-@router.get("/download/{report_id}/{format}")
-async def download_export(report_id: str, format: str):
-    """Download previously generated export file."""
-    filename = f"{report_id}.{format}"
-    file_path = OUTPUT_DIR / filename
-    if not file_path.exists():
-        raise HTTPException(404, "Export file not found")
-    from fastapi.responses import FileResponse
-    return FileResponse(
-        path=str(file_path),
-        filename=filename,
-        media_type="application/octet-stream",
-    )
-
-
 @router.get("/status/{report_id}")
 async def export_status(report_id: str):
     """Check export generation status."""
+    if not is_valid_report_id(report_id):
+        raise HTTPException(400, "Invalid report_id format")
     return {
         "report_id": report_id,
         "engine": "inline",
@@ -244,7 +251,7 @@ async def export_status(report_id: str):
 
 
 @router.get("/backup/all")
-async def export_all_reports_backup(user: dict = Depends(get_current_user)):
+async def export_all_reports_backup(user: dict = Depends(get_current_user_flexible)):
     """Export all reports as JSON. Admin-only — this dumps the whole database."""
     require_admin(user)
     from database.crud import get_all_reports
@@ -260,7 +267,7 @@ async def export_all_reports_backup(user: dict = Depends(get_current_user)):
 
 
 @router.get("/backup/download/all")
-async def download_all_reports_backup(user: dict = Depends(get_current_user)):
+async def download_all_reports_backup(user: dict = Depends(get_current_user_flexible)):
     """Download all reports as a JSON backup. Admin-only — dumps the whole database."""
     require_admin(user)
     from database.crud import get_all_reports
@@ -277,5 +284,5 @@ async def download_all_reports_backup(user: dict = Depends(get_current_user)):
     return Response(
         content=content,
         media_type="application/json",
-        headers={"Content-Disposition": 'attachment; filename="valyze_backup.json"'},
+        headers={"Content-Disposition": content_disposition("valyze_backup.json")},
     )
