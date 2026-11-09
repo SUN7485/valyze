@@ -128,7 +128,10 @@ async def ready():
         return {"status": "ok", "supabase": "connected", "db_status": f"connected ({count} reports)"}
     except Exception as e:
         traceback.print_exc()
-        return JSONResponse(content={"status": "error", "supabase": "unavailable", "error": str(e)}, status_code=503)
+        content = {"status": "error", "supabase": "unavailable"}
+        if not _is_prod():
+            content["error"] = str(e)
+        return JSONResponse(content=content, status_code=503)
 
 
 def _missing_supabase_env() -> list[str]:
@@ -140,8 +143,37 @@ def _missing_supabase_env() -> list[str]:
     return missing_env
 
 
+def _require_admin_request(request: Request, allow_link_query: bool = False) -> dict:
+    """Admin gate for the diagnostic routes. api.auth is imported here, not at
+    module level, so a broken auth import can't take the whole app down."""
+    try:
+        from api.auth import authenticate_request, require_admin
+    except Exception:
+        raise HTTPException(status_code=503, detail="Authentication is unavailable")
+    user = authenticate_request(request, allow_link_query=allow_link_query)
+    require_admin(user)
+    return user
+
+
+def _count_rows(table: str) -> int:
+    """Exact row count via PostgREST's count header — no rows transferred."""
+    import requests as _rq
+
+    from services.supabase_client import get_base_url, get_headers
+
+    headers = {**get_headers(), "Prefer": "count=exact", "Range-Unit": "items", "Range": "0-0"}
+    r = _rq.get(f"{get_base_url()}/{table}", params={"select": "id"}, headers=headers, timeout=15)
+    if r.status_code >= 400:
+        raise RuntimeError(f"count {table} failed ({r.status_code}): {r.text[:200]}")
+    total = (r.headers.get("content-range") or "").rsplit("/", 1)[-1]
+    if not total.isdigit():
+        raise RuntimeError(f"count {table}: no total in Content-Range")
+    return int(total)
+
+
 @app.get("/ready/tables")
-async def ready_tables():
+def ready_tables(request: Request):
+    _require_admin_request(request)
     missing_env = _missing_supabase_env()
     if missing_env:
         return JSONResponse(
@@ -150,22 +182,11 @@ async def ready_tables():
         )
 
     try:
-        from services.supabase_client import (
-            get_all_clients,
-            get_all_invoices,
-            get_all_orders,
-            get_all_reports,
-        )
-        counts = {
-            "reports": len(get_all_reports()),
-            "clients": len(get_all_clients()),
-            "orders": len(get_all_orders()),
-            "invoices": len(get_all_invoices()),
-        }
+        counts = {table: _count_rows(table) for table in ("reports", "clients", "orders", "invoices")}
         return {"status": "ok", "tables": counts}
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
-        return JSONResponse(content={"status": "error", "error": str(e)}, status_code=503)
+        return JSONResponse(content={"status": "error", "error": "Table check failed"}, status_code=503)
 
 
 @app.get("/ready/storage")
@@ -185,26 +206,14 @@ async def ready_storage(request: Request):
     serve anonymously even when no single field is itself a secret. Auth is
     resolved in the body rather than as a `Depends` default because this module
     imports api.auth lazily further down — referencing it in the signature would
-    NameError at import time and take the whole app with it. Accepts a Bearer
-    header or `?token=`, so it can be opened straight in a browser.
+    NameError at import time and take the whole app with it. Accepts a staff
+    Bearer header or a `?token=` link token (POST /api/auth/link-token), so it
+    can be opened straight in a browser.
     """
     import base64
     import json as _json
 
-    try:
-        from api.auth import decode_token, require_admin
-    except Exception:
-        raise HTTPException(status_code=503, detail="Authentication is unavailable")
-
-    auth_header = request.headers.get("authorization") or ""
-    token = (
-        auth_header.split(" ", 1)[1].strip()
-        if auth_header.lower().startswith("bearer ")
-        else request.query_params.get("token")
-    )
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    require_admin(decode_token(token))
+    _require_admin_request(request, allow_link_query=True)
 
     key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY") or ""
     role = None
@@ -322,7 +331,8 @@ def _safe_register(name, module_path, prefix=None, tags=None, dependencies=None)
 # NOTE: pdf + export endpoints carry confidential report data, so they are now
 # protected too — via a header-OR-query-token guard (get_current_user_flexible),
 # because the UI opens them as raw browser URLs (window.open / link.href) that
-# cannot send an Authorization header. The frontend appends `?token=<jwt>`.
+# cannot send an Authorization header. The frontend appends `?token=<link token>`
+# from POST /api/auth/link-token (120 s); the 24 h login token is header-only.
 try:
     from api.auth import (
         get_current_user as _auth_dep,

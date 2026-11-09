@@ -31,17 +31,12 @@ create table if not exists uploaded_files (
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- Enable RLS (Row Level Security) - optional but recommended
+-- Enable RLS (Row Level Security) with NO policies: only the backend's
+-- service_role key (which bypasses RLS) can read or write. Never add a
+-- `using (true)` policy here — the anon key is public, so it would expose every
+-- row to anyone. See supabase/migrations/012_lockdown_rls.sql.
 alter table reports enable row level security;
 alter table uploaded_files enable row level security;
-
--- Create policies for anonymous access (adjust as needed for production)
--- Allow all operations for now - in production you'd want stricter policies
-create policy "Allow all operations on reports" on reports
-    for all using (true) with check (true);
-
-create policy "Allow all operations on uploaded_files" on uploaded_files
-    for all using (true) with check (true);
 
 -- Create indexes for better performance
 create index if not exists idx_reports_status on reports(status);
@@ -184,24 +179,7 @@ alter table order_companies enable row level security;
 alter table order_files enable row level security;
 alter table invoices enable row level security;
 
--- Create permissive policies for new tables
-create policy "Allow all operations on clients" on clients
-    for all using (true) with check (true);
-
-create policy "Allow all operations on client_sessions" on client_sessions
-    for all using (true) with check (true);
-
-create policy "Allow all operations on orders" on orders
-    for all using (true) with check (true);
-
-create policy "Allow all operations on order_companies" on order_companies
-    for all using (true) with check (true);
-
-create policy "Allow all operations on order_files" on order_files
-    for all using (true) with check (true);
-
-create policy "Allow all operations on invoices" on invoices
-    for all using (true) with check (true);
+-- No policies on purpose (service_role only) — see the note on reports above.
 
 -- Create indexes for new tables
 create index if not exists idx_clients_valyze_id on clients(valyze_id);

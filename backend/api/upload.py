@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -28,6 +29,7 @@ from database.crud import (
     update_report_status,
 )
 from services.supabase_client import get_report_by_cr_number
+from api._http import content_disposition
 
 load_dotenv()
 
@@ -336,7 +338,9 @@ async def get_portal_files(report_id: str):
             "filename": fr.get("filename"),
             "file_type": fr.get("file_type"),
             "file_size": fr.get("file_size"),
-            "download_path": f"/api/upload/download/{report_id}/{fr.get('filename')}",
+            "download_path": (
+                f"/api/upload/download/{quote(str(report_id), safe='')}/{quote(fr.get('filename'), safe='')}"
+            ),
         }
         for fr in file_rows
         if fr.get("filename")
@@ -376,7 +380,7 @@ async def download_file(report_id: str, filename: str):
         return FastAPIResponse(
             content=content,
             media_type=mime,
-            headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+            headers={"Content-Disposition": content_disposition(safe_name)},
         )
 
     local = Path(file_path) if file_path else UPLOAD_DIR / report_id / safe_name

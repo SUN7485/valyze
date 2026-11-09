@@ -19,12 +19,13 @@ from typing import Any, Dict, List, Literal, Optional
 
 import jwt
 import requests
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Path as PathParam, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path as PathParam, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from api.auth import JWT_ALGORITHM, JWT_SECRET
+from api._http import content_disposition
+from api.auth import JWT_ALGORITHM, JWT_SECRET, PORTAL_AUDIENCE, LoginThrottle, client_ip
 from api.orders import (
     assign_analyst,
     generate_order_number,
@@ -49,6 +50,7 @@ router = APIRouter(tags=["portal"])
 
 PORTAL_JWT_EXPIRY_HOURS = 4
 security = HTTPBearer(auto_error=False)
+portal_login_throttle = LoginThrottle("portal")
 
 SERVICE_LEVELS = {"basic", "standard", "express", "urgent"}
 REPORT_TYPES = {"standard", "full"}
@@ -289,11 +291,47 @@ async def _clear_temp_password(session_id: str) -> None:
     await _update_session(session_id, {"password_plain_temp": None})
 
 
+def _rpc_increment_session_use(session_id: str) -> Optional[bool]:
+    """Atomically consume one use via the `increment_portal_session_use` SQL
+    function (migration 013). Returns True/False for consumed/limit reached, or
+    None when the function isn't installed yet (caller falls back)."""
+    response = requests.post(
+        f"{get_base_url()}/rpc/increment_portal_session_use",
+        json={"p_session_id": session_id},
+        headers=get_headers(),
+        timeout=30,
+    )
+    if response.status_code == 404 or "PGRST202" in (response.text or ""):
+        return None
+    if response.status_code >= 400:
+        logger.error(
+            "[portal] increment_portal_session_use failed (%s): %s",
+            response.status_code,
+            response.text,
+        )
+        raise HTTPException(status_code=500, detail="A server error occurred. Please try again.")
+    try:
+        return bool(response.json())
+    except ValueError:
+        return bool((response.text or "").strip().lower() == "true")
+
+
 async def _increment_session_used_count(session_id: str) -> None:
+    """Consume one use of the portal link, refusing once max_uses is reached."""
+    consumed = await asyncio.to_thread(_rpc_increment_session_use, session_id)
+    if consumed is True:
+        return
+    if consumed is False:
+        raise HTTPException(status_code=401, detail="Portal session has reached its usage limit")
+
+    # Migration 013 not applied: non-atomic read-modify-write fallback.
     session = await _get_session(session_id)
     if not session:
         raise HTTPException(status_code=401, detail="Portal session not found")
     current_used = int(session.get("used_count") or 0)
+    max_uses = session.get("max_uses")
+    if max_uses is not None and current_used >= int(max_uses):
+        raise HTTPException(status_code=401, detail="Portal session has reached its usage limit")
     await _update_session(session_id, {"used_count": current_used + 1})
 
 
@@ -324,6 +362,8 @@ def create_portal_token(session_id: str, client_id: str) -> str:
         "session_id": session_id,
         "client_id": client_id,
         "type": "portal",
+        # Staff guards decode without an audience, so PyJWT rejects this token there.
+        "aud": PORTAL_AUDIENCE,
         "exp": datetime.now(timezone.utc) + timedelta(hours=PORTAL_JWT_EXPIRY_HOURS),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -331,11 +371,23 @@ def create_portal_token(session_id: str, client_id: str) -> str:
 
 def decode_portal_token(token: str) -> Dict[str, Any]:
     try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM], audience=PORTAL_AUDIENCE)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Portal token expired")
+    except jwt.MissingRequiredClaimError:
+        # Portal tokens issued before the `aud` claim was added (they live at
+        # most PORTAL_JWT_EXPIRY_HOURS). Only accept them as type "portal".
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Portal token expired")
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Invalid portal token")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid portal token")
+    if payload.get("type") != "portal":
+        raise HTTPException(status_code=401, detail="Invalid portal token")
+    return payload
 
 
 def get_portal_current_client(
@@ -724,7 +776,7 @@ async def _submit_order_payload(
     report_types_str = ",".join(resolved_report_types)
     report_type_derived = "full" if "analysis_financial" in resolved_report_types else "standard"
 
-    # Usage limit is checked (and later incremented) ONCE per submission, even
+    # Usage limit is checked (and consumed below) ONCE per submission, even
     # though a submission now produces one order per company.
     session = await _load_portal_session(portal_client)
     max_uses = session.get("max_uses")
@@ -746,6 +798,10 @@ async def _submit_order_payload(
     # Fail before creating anything if the documents can't be stored.
     if uploads:
         await _ensure_file_pipeline_ready()
+
+    # Consume the use up front (atomically when migration 013 is applied) so two
+    # concurrent submissions can't both pass the check above and exceed max_uses.
+    await _increment_session_used_count(portal_client["session_id"])
 
     now = datetime.now(timezone.utc).isoformat()
 
@@ -816,8 +872,6 @@ async def _submit_order_payload(
             "due_date": due_date_str,
         })
 
-    await _increment_session_used_count(portal_client["session_id"])
-
     first = created_orders[0] if created_orders else {}
     return {
         # Backward-compat: order_id/order_number/due_date reflect the first order.
@@ -832,12 +886,15 @@ async def _submit_order_payload(
 
 
 @router.post("/auth")
-async def portal_auth(body: PortalAuthRequest):
+async def portal_auth(body: PortalAuthRequest, request: Request):
     token = body.token.strip()
     password = body.password
+    ip = client_ip(request)
+    portal_login_throttle.check(ip, token)
 
     session = await _get_session_by_token(token)
     if not session:
+        portal_login_throttle.record_failure(ip, token)
         raise HTTPException(status_code=401, detail="Invalid portal token")
 
     if session.get("disabled"):
@@ -854,8 +911,10 @@ async def portal_auth(body: PortalAuthRequest):
     if max_uses is not None and used_count >= int(max_uses):
         raise HTTPException(status_code=401, detail="Portal session has reached its usage limit")
 
-    if not _verify_password(password, session.get("password_hash", "")):
+    if not await asyncio.to_thread(_verify_password, password, session.get("password_hash", "")):
+        portal_login_throttle.record_failure(ip, token)
         raise HTTPException(status_code=401, detail="Invalid portal password")
+    portal_login_throttle.record_success(token)
 
     client = await _get_client(session["client_id"])
     if not client:
@@ -1059,6 +1118,6 @@ async def portal_order_document(
         return Response(
             content=html,
             media_type=WORD_MIME,
-            headers={"Content-Disposition": f'attachment; filename="Order-{order_number}.doc"'},
+            headers={"Content-Disposition": content_disposition(f"Order-{order_number}.doc")},
         )
     return HTMLResponse(content=html)

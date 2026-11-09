@@ -22,6 +22,12 @@ services:
         sync: false  # Set manually in dashboard
       - key: SUPABASE_SERVICE_KEY
         sync: false  # Set manually in dashboard (sensitive!)
+      - key: JWT_SECRET
+        generateValue: true  # Random per service; set your own to share sessions with Vercel
+      - key: FRONTEND_URL
+        sync: false  # Staff app origin (CORS)
+      - key: PORTAL_URL
+        sync: false  # Client portal origin (CORS + portal links)
       # App Config
       - key: ENV
         value: production

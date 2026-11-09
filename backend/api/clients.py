@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Path as PathParam
 from pydantic import BaseModel, Field
 
-from api.auth import get_current_user
+from api.auth import get_current_user, require_admin
 from services.supabase_client import (
     create_client as create_client_record,
     create_client_session as create_client_session_record,
@@ -158,6 +158,17 @@ def _is_valid_session(session: Dict[str, Any]) -> bool:
     return datetime.now(timezone.utc) < expires_at
 
 
+def _get_session_or_none(session_id: str) -> Optional[Dict[str, Any]]:
+    from services.supabase_client import get_session as sb_get_session
+    return sb_get_session(session_id)
+
+
+def _update_session_or_fail(session_id: str, data: Dict[str, Any]) -> None:
+    from services.supabase_client import update_session as sb_update_session
+    if not sb_update_session(session_id, data):
+        raise HTTPException(status_code=500, detail="Failed to update session")
+
+
 def _public_order(order: Dict[str, Any]) -> Dict[str, Any]:
     return {field: order.get(field) for field in ORDER_FIELDS}
 
@@ -266,6 +277,7 @@ async def delete_client(
     client_id: str = PathParam(..., description="Client unique identifier"),
     user: dict = Depends(get_current_user),
 ):
+    require_admin(user)
     client = get_client_record(client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -288,6 +300,7 @@ async def generate_portal_link(
     body: Optional[PortalLinkRequest] = Body(default=None),
     user: dict = Depends(get_current_user),
 ):
+    require_admin(user)
     client = get_client_record(client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -307,6 +320,8 @@ async def generate_portal_link(
     # None max_uses means unlimited.
     max_uses = request.max_uses if request.max_uses is not None else UNLIMITED_USES
 
+    # The plaintext password is returned in this response only — it is never
+    # persisted (no password_plain_temp), so the admin must copy it now.
     session = create_client_session_record(
         {
             "client_id": client_id,
@@ -350,9 +365,11 @@ async def delete_client_session(
     session_id: str,
     user: dict = Depends(get_current_user),
 ):
-    deleted = delete_session_record(session_id)
-    if not deleted:
+    require_admin(user)
+    if not _get_session_or_none(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
+    if not delete_session_record(session_id):
+        raise HTTPException(status_code=500, detail="Failed to delete session")
     return {"deleted": True, "session_id": session_id}
 
 
@@ -361,18 +378,18 @@ async def reset_session_password(
     session_id: str,
     user: dict = Depends(get_current_user),
 ):
-    """Reset the password for a portal session without changing the link."""
-    from services.supabase_client import get_session as sb_get_session
-    session = sb_get_session(session_id)
-    if not session:
+    """Reset the password for a portal session without changing the link.
+    The new plaintext is returned in this response only and never stored."""
+    require_admin(user)
+    if not _get_session_or_none(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
 
     password_plain = _generate_password_plain()
     new_hash = _hash_password(password_plain)
 
-    from services.supabase_client import update_session as sb_update_session
-    sb_update_session(session_id, {
+    _update_session_or_fail(session_id, {
         "password_hash": new_hash,
+        "password_plain_temp": None,
     })
 
     return {
@@ -389,15 +406,12 @@ async def toggle_disable_session(
     user: dict = Depends(get_current_user),
 ):
     """Enable or disable a portal session temporarily without deleting the link."""
-    from services.supabase_client import get_session as sb_get_session
-    session = sb_get_session(session_id)
-    if not session:
+    require_admin(user)
+    if not _get_session_or_none(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
 
     disabled = body.get("disabled", True)
-
-    from services.supabase_client import update_session as sb_update_session
-    sb_update_session(session_id, {"disabled": disabled})
+    _update_session_or_fail(session_id, {"disabled": disabled})
 
     return {
         "session_id": session_id,
@@ -413,15 +427,12 @@ async def set_session_no_expiry(
     user: dict = Depends(get_current_user),
 ):
     """Set/unset no-expiry flag on session."""
-    from services.supabase_client import get_session as sb_get_session
-    session = sb_get_session(session_id)
-    if not session:
+    require_admin(user)
+    if not _get_session_or_none(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
 
     no_expiry = body.get("no_expiry", True)
-
-    from services.supabase_client import update_session as sb_update_session
-    sb_update_session(session_id, {"no_expiry": no_expiry})
+    _update_session_or_fail(session_id, {"no_expiry": no_expiry})
 
     return {
         "session_id": session_id,
