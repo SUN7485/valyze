@@ -1,5 +1,11 @@
 # Valyze — Full Code Review
 
+> **Status (2026-11-09): fixed in code on this branch** — see the commits after `docs: add full code review findings`.
+> Still needs a human: apply migrations 012–015 in Supabase, rotate the staff passwords and the
+> service-role key, confirm the Render service runs the new image. Deliberately left: the duplicate
+> staff-side `/portal` page, the unclosed `template.html` section (changes PDF output), in-memory
+> (per-instance) login throttling, Storage objects kept on report delete (shared with order files).
+
 _Date: 2026-11-08 · Scope: whole repo (backend FastAPI, frontend React, valyze-portal, Supabase SQL, deploy config, repo hygiene) · Read-only review, nothing changed in code._
 
 Each finding was checked against the code. The ones marked **[verified]** were also reproduced by running code. Anything that depends on the live database or deployment, which I couldn't see, is marked **[verify in prod]**. Prior audit: `SECURITY_FINDINGS.md` (2026-07). Its open items C1, C2, H2 and M1–M4 still apply and are repeated here only where something has changed.
