@@ -71,6 +71,71 @@ def get_base_url() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Query-string helpers
+# ---------------------------------------------------------------------------
+# PostgREST filter values must be percent-encoded exactly ONCE. Hand-building
+# `col=ilike.%{quote(v)}%` leaves bare `%` wildcards in the URL; `requests` sees
+# an invalid escape, gives up and re-quotes the whole URL (`%` → `%25`), so
+# Arabic or multi-word searches reached PostgREST double-encoded and never
+# matched. Build query strings with encode_query() and use the `*` wildcard.
+
+
+def encode_query(params: List[tuple]) -> str:
+    """Encode (key, value) pairs into a query string, each value encoded once.
+
+    Every reserved character is percent-encoded (spaces as %20, never `+`), so
+    the result contains only valid escapes and `requests` passes it through
+    unchanged.
+    """
+    return "&".join(
+        f"{quote(str(key), safe='')}={quote(str(value), safe='')}" for key, value in params
+    )
+
+
+def ilike_contains(value: Any) -> str:
+    """PostgREST ilike pattern matching `value` anywhere (`*` is the wildcard)."""
+    return f"*{str(value).strip()}*"
+
+
+def quote_or_value(value: Any) -> str:
+    """Double-quote a value for use inside `or=(...)` / `in.(...)`.
+
+    Commas, dots, colons and parentheses are reserved there; quoting makes them
+    literal. Backslashes and double quotes inside the value are escaped.
+    """
+    text = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{text}"'
+
+
+def rows_affected(response: requests.Response) -> Optional[int]:
+    """How many rows a write touched, from a `return=representation` body.
+
+    None when PostgREST sent no representation (204 / empty body), i.e. unknown.
+    """
+    if response.status_code == 204 or not response.text:
+        return None
+    try:
+        data = response.json()
+    except Exception:
+        return None
+    if isinstance(data, list):
+        return len(data)
+    return 1 if isinstance(data, dict) else None
+
+
+def write_succeeded(response: requests.Response) -> bool:
+    """True when a PATCH/DELETE succeeded AND matched at least one row.
+
+    PostgREST answers `200 []` when the filter matched nothing — that is not a
+    success (nothing was updated or deleted).
+    """
+    if response.status_code not in (200, 204):
+        return False
+    affected = rows_affected(response)
+    return affected is None or affected > 0
+
+
+# ---------------------------------------------------------------------------
 # Report Operations (using direct HTTP)
 # ---------------------------------------------------------------------------
 
@@ -163,7 +228,7 @@ def create_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]
 
 def get_report(report_id: str) -> Optional[Dict[str, Any]]:
     """Get a report by ID."""
-    url = f"{get_base_url()}/reports?id=eq.{report_id}"
+    url = f"{get_base_url()}/reports?id=eq.{quote(str(report_id), safe='')}"
 
     try:
         response = requests.get(url, headers=get_headers(), timeout=30)
@@ -174,13 +239,34 @@ def get_report(report_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def get_report_columns(report_id: str, columns: str) -> Optional[Dict[str, Any]]:
+    """Fetch only `columns` of one report (never the heavy report_json unless
+    asked). Returns None when the report does not exist or the read failed.
+
+    If a requested column does not exist yet (an un-applied migration), PostgREST
+    400s; callers that ask for optional columns should be ready for None.
+    """
+    url = f"{get_base_url()}/reports?" + encode_query([
+        ("select", columns),
+        ("id", f"eq.{report_id}"),
+        ("limit", "1"),
+    ])
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=30)
+        results = _handle_response(response)
+        return results[0] if results else None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Supabase] Get report columns failed: {e}")
+        return None
+
+
 def get_report_by_cr_number(cr_number: str) -> Optional[Dict[str, Any]]:
     """Get a report by exact cr_number match."""
     if not cr_number:
         return None
     # URL-encode the cr_number
     import urllib.parse
-    encoded = urllib.parse.quote(str(cr_number))
+    encoded = urllib.parse.quote(str(cr_number), safe='')
     url = f"{get_base_url()}/reports?cr_number=eq.{encoded}"
 
     try:
@@ -197,7 +283,7 @@ def get_report_by_company_name(company_name: str) -> Optional[Dict[str, Any]]:
     if not company_name:
         return None
     import urllib.parse
-    encoded = urllib.parse.quote(str(company_name))
+    encoded = urllib.parse.quote(str(company_name), safe='')
     url = f"{get_base_url()}/reports?company_name=eq.{encoded}"
 
     try:
@@ -214,7 +300,7 @@ def get_report_by_client_reference(client_reference: str) -> Optional[Dict[str, 
     if not client_reference:
         return None
     import urllib.parse
-    encoded = urllib.parse.quote(str(client_reference))
+    encoded = urllib.parse.quote(str(client_reference), safe='')
     url = f"{get_base_url()}/reports?client_reference=eq.{encoded}"
 
     try:
@@ -245,10 +331,10 @@ def search_reports(
 ) -> List[Dict[str, Any]]:
     """Search reports (summary columns only), case-insensitive. Named filters are
     ANDed; the free-text `query` matches any of the common columns (OR)."""
-    query_parts = [f"select={REPORT_LIST_COLUMNS}"]
+    params: List[tuple] = [("select", REPORT_LIST_COLUMNS)]
 
     def _ilike(column: str, value: str) -> None:
-        query_parts.append(f"{column}=ilike.%{quote(str(value).strip(), safe='')}%")
+        params.append((column, f"ilike.{ilike_contains(value)}"))
 
     if company_name:
         _ilike("company_name", company_name)
@@ -261,16 +347,17 @@ def search_reports(
     if analyst:
         _ilike("analyst", analyst)
     if query and query.strip():
-        q = quote(query.strip(), safe="")
-        query_parts.append(
-            f"or=(company_name.ilike.%{q}%,legal_name.ilike.%{q}%,"
-            f"cr_number.ilike.%{q}%,client_reference.ilike.%{q}%)"
-        )
+        q = quote_or_value(ilike_contains(query))
+        params.append((
+            "or",
+            f"(company_name.ilike.{q},legal_name.ilike.{q},"
+            f"cr_number.ilike.{q},client_reference.ilike.{q})",
+        ))
 
-    query_parts.append("order=updated_at.desc.nullslast")
-    query_parts.append(f"limit={int(limit)}")
+    params.append(("order", "updated_at.desc.nullslast"))
+    params.append(("limit", int(limit)))
 
-    url = f"{get_base_url()}/reports?{'&'.join(query_parts)}"
+    url = f"{get_base_url()}/reports?{encode_query(params)}"
     try:
         response = requests.get(url, headers=get_headers(), timeout=30)
         return _handle_response(response)
@@ -385,16 +472,16 @@ def _generate_valyze_id() -> str:
 
 def get_all_clients(search: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get all clients with optional search across name, ID, and email."""
-    url = f"{get_base_url()}/clients?select=*&order=client_name.asc.nullslast"
+    params: List[tuple] = [("select", "*"), ("order", "client_name.asc.nullslast")]
     if search:
         search_term = search.strip()
         if search_term:
-            encoded_term = quote(search_term, safe="")
-            or_filter = quote(
-                f"(client_name.ilike.%{encoded_term}%,valyze_id.ilike.%{encoded_term}%,email.ilike.%{encoded_term}%)",
-                safe="",
-            )
-            url += f"&or={or_filter}"
+            q = quote_or_value(ilike_contains(search_term))
+            params.append((
+                "or",
+                f"(client_name.ilike.{q},valyze_id.ilike.{q},email.ilike.{q})",
+            ))
+    url = f"{get_base_url()}/clients?{encode_query(params)}"
 
     try:
         response = requests.get(url, headers=get_headers(), timeout=30)
@@ -448,11 +535,13 @@ def update_client(client_id: str, data: Dict[str, Any]) -> Optional[Dict[str, An
         response = requests.patch(url, json=data, headers=get_headers(), timeout=30)
         if response.status_code in [200, 204]:
             if not response.text:
-                updated = get_client(client_id) or {}
-                updated.update(data)
-                return updated
-            result = response.json()
-            return result[0] if isinstance(result, list) else result
+                current = get_client(client_id)
+                if current is None:
+                    return None
+                current.update(data)
+                return current
+            # `200 []` = the filter matched no row: nothing was updated.
+            return _single_from_response(response)
         try:
             err_json = response.json()
             message = err_json.get("message", response.text[:200])
@@ -469,7 +558,7 @@ def delete_client(client_id: str) -> bool:
     url = f"{get_base_url()}/clients?id=eq.{quote(client_id, safe='')}"
     try:
         response = requests.delete(url, headers=get_headers(), timeout=30)
-        return response.status_code in [200, 204]
+        return write_succeeded(response)
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Delete client request failed: {e}")
         return False
@@ -623,7 +712,7 @@ def update_session(session_id: str, data: Dict[str, Any]) -> bool:
     url = f"{get_base_url()}/client_sessions?id=eq.{quote(session_id, safe='')}"
     try:
         response = requests.patch(url, json=data, headers=get_headers(), timeout=30)
-        return response.status_code in [200, 204]
+        return write_succeeded(response)
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Update session request failed: {e}")
         return False
@@ -635,7 +724,7 @@ def delete_session(session_id: str) -> bool:
     url = f"{get_base_url()}/client_sessions?id=eq.{quote(session_id, safe='')}"
     try:
         response = requests.delete(url, headers=get_headers(), timeout=30)
-        return response.status_code in [200, 204]
+        return write_succeeded(response)
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Delete session request failed: {e}")
         return False
@@ -648,7 +737,7 @@ def delete_session(session_id: str) -> bool:
 
 def update_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]:
     """Update an existing report."""
-    url = f"{get_base_url()}/reports?id=eq.{report_id}"
+    url = f"{get_base_url()}/reports?id=eq.{quote(str(report_id), safe='')}"
 
     # Extract fields for the columns that exist in the reports table
     fields = report_data.get("fields", {})
@@ -695,11 +784,11 @@ def update_report(report_id: str, report_data: Dict[str, Any]) -> Dict[str, Any]
 
 def delete_report(report_id: str) -> bool:
     """Delete a report."""
-    url = f"{get_base_url()}/reports?id=eq.{report_id}"
+    url = f"{get_base_url()}/reports?id=eq.{quote(str(report_id), safe='')}"
 
     try:
         response = requests.delete(url, headers=get_headers(), timeout=30)
-        return response.status_code in [200, 204]
+        return write_succeeded(response)
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Delete request failed: {e}")
         return False
@@ -747,7 +836,7 @@ def add_uploaded_file(
 
 def get_uploaded_files(report_id: str) -> List[Dict[str, Any]]:
     """Get all uploaded files for a report."""
-    url = f"{get_base_url()}/uploaded_files?report_id=eq.{report_id}"
+    url = f"{get_base_url()}/uploaded_files?report_id=eq.{quote(str(report_id), safe='')}"
     try:
         response = requests.get(url, headers=get_headers(), timeout=30)
         return _handle_response(response)
@@ -758,10 +847,13 @@ def get_uploaded_files(report_id: str) -> List[Dict[str, Any]]:
 
 def delete_uploaded_file_by_report_and_filename(report_id: str, filename: str) -> bool:
     """Delete uploaded file(s) matching report_id and filename."""
-    url = f"{get_base_url()}/uploaded_files?report_id=eq.{report_id}&filename=eq.{filename}"
+    url = f"{get_base_url()}/uploaded_files?" + encode_query([
+        ("report_id", f"eq.{report_id}"),
+        ("filename", f"eq.{filename}"),
+    ])
     try:
         response = requests.delete(url, headers=get_headers(), timeout=30)
-        return response.status_code in [200, 204]
+        return write_succeeded(response)
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Delete uploaded file failed: {e}")
         return False
@@ -769,10 +861,10 @@ def delete_uploaded_file_by_report_and_filename(report_id: str, filename: str) -
 
 def delete_uploaded_file_by_id(file_id: int) -> bool:
     """Delete uploaded file by its PK id."""
-    url = f"{get_base_url()}/uploaded_files?id=eq.{file_id}"
+    url = f"{get_base_url()}/uploaded_files?id=eq.{quote(str(file_id), safe='')}"
     try:
         response = requests.delete(url, headers=get_headers(), timeout=30)
-        return response.status_code in [200, 204]
+        return write_succeeded(response)
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Delete uploaded file failed: {e}")
         return False
@@ -971,7 +1063,7 @@ def delete_order(order_id: str) -> bool:
 
     try:
         response = requests.delete(url, headers=get_headers(), timeout=30)
-        return response.status_code in [200, 204]
+        return write_succeeded(response)
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Delete order failed: {e}")
         return False
@@ -983,7 +1075,7 @@ def delete_order_company(company_id: str) -> bool:
 
     try:
         response = requests.delete(url, headers=get_headers(), timeout=30)
-        return response.status_code in [200, 204]
+        return write_succeeded(response)
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Delete order company failed: {e}")
         return False
@@ -1048,17 +1140,36 @@ def get_order_files(order_id: str, order_company_id: Optional[str] = None) -> Li
         return []
 
 
-def update_order_company(company_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Update a single order_company record and return the updated row."""
+def update_order_company(
+    company_id: str,
+    data: Dict[str, Any],
+    extra_filters: Optional[Dict[str, str]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Update a single order_company record and return the updated row.
+
+    `extra_filters` ({column: "op.value"}) makes the write conditional, e.g.
+    {"report_id": "is.null"} — None is returned when the condition (or the id)
+    matched no row, so callers can detect that they lost a race.
+    """
     if not data:
         return get_order_company(company_id)
 
-    url = f"{get_base_url()}/order_companies?id=eq.{quote(company_id, safe='')}"
+    params: List[tuple] = [("id", f"eq.{company_id}")]
+    for column, condition in (extra_filters or {}).items():
+        params.append((column, condition))
+    url = f"{get_base_url()}/order_companies?{encode_query(params)}"
 
     try:
         response = requests.patch(url, json=data, headers=get_headers(), timeout=30)
         if response.status_code in [200, 204]:
             if not response.text:
+                if extra_filters:
+                    # No representation: we cannot tell whether the condition
+                    # matched, so verify against the row itself.
+                    current = get_order_company(company_id)
+                    if current and all(current.get(k) == v for k, v in data.items() if k != "updated_at"):
+                        return current
+                    return None
                 return get_order_company(company_id)
             return _single_from_response(response)
         try:
@@ -1093,9 +1204,14 @@ def create_invoice(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if response.status_code in [200, 201]:
             result = response.json() if response.text else {}
             return result[0] if isinstance(result, list) else result
+        # Keep the Postgres code and details ("Key (invoice_number)=… already
+        # exists") so the caller can tell an invoice-number collision apart from
+        # a second invoice for the same order.
         try:
             err_json = response.json()
-            message = err_json.get("message", response.text[:200])
+            message = " ".join(
+                str(err_json.get(k)) for k in ("code", "message", "details") if err_json.get(k)
+            ) or response.text[:200]
         except Exception:
             message = response.text[:200]
         raise Exception(f"Supabase create invoice failed ({response.status_code}): {message}")
@@ -1252,20 +1368,63 @@ def ensure_storage_bucket(bucket: str) -> bool:
         return False
 
 
-def get_all_invoices(filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-    """Get invoices with optional status and client filters."""
+INVOICE_LIST_EMBED = "client:clients(client_name,valyze_id,email),order:orders(order_number)"
+
+
+def get_all_invoices(
+    filters: Optional[Dict[str, Any]] = None,
+    embed: bool = False,
+) -> List[Dict[str, Any]]:
+    """Get invoices with optional status and client filters.
+
+    With `embed=True` each row also carries `client` and `order` (the few
+    columns the invoice list shows) from the same request instead of one extra
+    round-trip per invoice. If the embed is rejected (no FK relationship in this
+    database), falls back to plain rows without `client`/`order`.
+    """
     filters = filters or {}
-    url = f"{get_base_url()}/invoices?order=created_at.desc.nullslast"
+    params: List[tuple] = [("order", "created_at.desc.nullslast")]
     for key in ("status", "client_id", "order_id"):
         value = filters.get(key)
         if value:
-            url += f"&{key}=eq.{quote(str(value), safe='')}"
-    try:
+            params.append((key, f"eq.{value}"))
+
+    def _fetch(select: str) -> Optional[List[Dict[str, Any]]]:
+        url = f"{get_base_url()}/invoices?{encode_query([('select', select)] + params)}"
         response = requests.get(url, headers=get_headers(), timeout=30)
+        if response.status_code >= 400:
+            logger.error(f"[Supabase] Get invoices ({select[:20]}…) failed {response.status_code}: {response.text[:200]}")
+            return None
         return _handle_response(response)
+
+    try:
+        if embed:
+            rows = _fetch(f"*,{INVOICE_LIST_EMBED}")
+            if rows is not None:
+                return rows
+        return _fetch("*") or []
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Get all invoices failed: {e}")
         return []
+
+
+def get_rows_by_ids(table: str, ids: List[str], columns: str = "*") -> List[Dict[str, Any]]:
+    """Batch-read rows of `table` whose id is in `ids` (one request per 100 ids)."""
+    unique_ids = [i for i in dict.fromkeys(str(x) for x in ids if x)]
+    rows: List[Dict[str, Any]] = []
+    for start in range(0, len(unique_ids), 100):
+        chunk = unique_ids[start:start + 100]
+        id_list = ",".join(quote_or_value(i) for i in chunk)
+        url = f"{get_base_url()}/{table}?" + encode_query([
+            ("select", columns),
+            ("id", f"in.({id_list})"),
+        ])
+        try:
+            response = requests.get(url, headers=get_headers(), timeout=30)
+            rows.extend(_handle_response(response))
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Supabase] Batch read of {table} failed: {e}")
+    return rows
 
 
 def update_invoice(invoice_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1277,11 +1436,13 @@ def update_invoice(invoice_id: str, data: Dict[str, Any]) -> Optional[Dict[str, 
         response = requests.patch(url, json=data, headers=get_headers(), timeout=30)
         if response.status_code in [200, 204]:
             if not response.text:
-                updated = get_invoice(invoice_id) or {}
-                updated.update(data)
-                return updated
-            result = response.json()
-            return result[0] if isinstance(result, list) else result
+                current = get_invoice(invoice_id)
+                if current is None:
+                    return None
+                current.update(data)
+                return current
+            # `200 []` = no invoice matched: nothing was updated.
+            return _single_from_response(response)
         try:
             err_json = response.json()
             message = err_json.get("message", response.text[:200])
@@ -1294,26 +1455,40 @@ def update_invoice(invoice_id: str, data: Dict[str, Any]) -> Optional[Dict[str, 
 
 
 def get_analyst_workload() -> List[Dict[str, Any]]:
+    """Count active (pending/in_progress) orders per assigned analyst.
+
+    Returns rows like: [{"auto_assigned_analyst": "email", "count": 3}].
+
+    PostgREST has no GROUP BY in the query string (the old `count:id.count` +
+    `group=` request was rejected, returned [] and silently reduced assignment
+    to plain round-robin), so fetch the one column and count here. Emails are
+    compared case-insensitively.
     """
-    Aggregate query: count pending/in_progress orders per analyst.
-    Returns rows like: [{ "auto_assigned_analyst": "email", "count": 3 }]
-    """
-    url = (
-        f"{get_base_url()}/orders"
-        f"?select=auto_assigned_analyst,count:id.count"
-        f"&status=in.(pending,in_progress)"
-        f"&auto_assigned_analyst=not.is.null"
-        f"&order=auto_assigned_analyst"
-        f"&group=auto_assigned_analyst"
-    )
+    url = f"{get_base_url()}/orders?" + encode_query([
+        ("select", "auto_assigned_analyst"),
+        ("status", "in.(pending,in_progress)"),
+        ("auto_assigned_analyst", "not.is.null"),
+        ("limit", "10000"),
+    ])
 
     try:
         response = requests.get(url, headers=get_headers(), timeout=30)
-        results = _handle_response(response)
-        return results
+        rows = _handle_response(response)
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Get analyst workload failed: {e}")
         return []
+
+    return count_by_analyst(rows)
+
+
+def count_by_analyst(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Group order rows by (lower-cased) auto_assigned_analyst and count them."""
+    counts: Dict[str, int] = {}
+    for row in rows or []:
+        email = str(row.get("auto_assigned_analyst") or "").strip().lower()
+        if email:
+            counts[email] = counts.get(email, 0) + 1
+    return [{"auto_assigned_analyst": email, "count": n} for email, n in sorted(counts.items())]
 
 
 def get_active_order_assignments() -> List[Dict[str, Any]]:
@@ -1334,47 +1509,57 @@ def get_active_order_assignments() -> List[Dict[str, Any]]:
         return []
 
 
+def parse_invoice_sequence(invoice_number: Any, year: int) -> Optional[int]:
+    """`INV-2026-0042` → 42 for year 2026; None for anything else."""
+    match = re.fullmatch(rf"INV-{int(year)}-(\d+)", str(invoice_number or "").strip())
+    return int(match.group(1)) if match else None
+
+
 def get_max_invoice_number(year: Optional[int] = None) -> int:
-    """Get the maximum sequential invoice number for a given year."""
+    """Get the maximum sequential invoice number for a given year.
+
+    Compared NUMERICALLY: ordering the text column made INV-2026-9999 sort above
+    INV-2026-10000, so the sequence would restart into collisions. Invoices are
+    one per order, so reading just this column for the year is cheap.
+    """
     year = year or datetime.now(timezone.utc).year
-    prefix = f"INV-{year}-"
-    url = f"{get_base_url()}/invoices?invoice_number=like.{prefix}%&select=invoice_number&limit=1&order=invoice_number.desc.nullslast"
+    url = f"{get_base_url()}/invoices?" + encode_query([
+        ("select", "invoice_number"),
+        ("invoice_number", f"like.INV-{year}-*"),
+        ("limit", "100000"),
+    ])
 
     try:
         response = requests.get(url, headers=get_headers(), timeout=30)
         results = _handle_response(response)
-        if results:
-            invoice_number = results[0].get("invoice_number", "")
-            parts = invoice_number.split("-")
-            if len(parts) == 3:
-                try:
-                    return int(parts[2])
-                except ValueError:
-                    return 0
-        return 0
-    except (requests.exceptions.RequestException, ValueError, IndexError) as e:
+        sequences = [parse_invoice_sequence(r.get("invoice_number"), year) for r in results]
+        return max((n for n in sequences if n is not None), default=0)
+    except (requests.exceptions.RequestException, ValueError) as e:
         logger.error(f"[Supabase] Get max invoice number failed: {e}")
         return 0
-
 
 
 def get_max_order_number(year: int) -> Optional[int]:
     """Get the maximum sequential number for orders in a given year.
     Order numbers follow format: ORD-{YYYY}-{NNNN}.
-    Returns the max NNNN or 0 if none exist."""
-    prefix = f"ORD-{year}-"
-    url = f"{get_base_url()}/orders?order_number=like.{prefix}%&select=order_number&limit=1&order=order_number.desc"
+    Returns the max NNNN or 0 if none exist. Compared numerically (a text sort
+    puts ORD-2026-9999 above ORD-2026-10000)."""
+    url = f"{get_base_url()}/orders?" + encode_query([
+        ("select", "order_number"),
+        ("order_number", f"like.ORD-{int(year)}-*"),
+        ("limit", "100000"),
+    ])
 
     try:
         response = requests.get(url, headers=get_headers(), timeout=30)
         results = _handle_response(response)
-        if results:
-            order_number = results[0].get("order_number", "")
-            parts = order_number.split("-")
-            if len(parts) == 3:
-                return int(parts[2])
-        return 0
-    except (requests.exceptions.RequestException, ValueError, IndexError) as e:
+        best = 0
+        for row in results:
+            match = re.fullmatch(rf"ORD-{int(year)}-(\d+)", str(row.get("order_number") or "").strip())
+            if match:
+                best = max(best, int(match.group(1)))
+        return best
+    except (requests.exceptions.RequestException, ValueError) as e:
         logger.error(f"[Supabase] Get max order number failed: {e}")
         return 0
 
@@ -1384,34 +1569,52 @@ def get_max_order_number(year: int) -> Optional[int]:
 # ---------------------------------------------------------------------------
 
 
+ORDER_COMPANIES_MAX_ROWS = 5000
+
+
 def get_all_order_companies(
     status: Optional[str] = None,
     country: Optional[str] = None,
     search: Optional[str] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
     """Get all order companies flattened with order and client info.
     Each row represents one report (order_company) with joined order/client data.
+
+    Company-level filters (status, country), ordering and paging run in
+    PostgREST. `search` spans embedded order/client columns, so it stays in
+    Python — and then paging is applied after the search, not before it, so a
+    page never hides a match. Without an explicit limit the read is capped at
+    ORDER_COMPANIES_MAX_ROWS rather than unbounded.
     """
     # Select with joins to get order and client data. `order_companies` has no
     # FK to `clients` (client lives on `orders`), so the client must be embedded
     # through the order — embedding it directly here 400s and drops every row.
     select = "*,order:orders!inner(*,client:clients(client_name,valyze_id,email))"
-    query_parts = [f"select={quote(select, safe='(),*')}"]
-    
+    params: List[tuple] = [("select", select)]
+
     # Apply status filter on order company
     if status:
-        query_parts.append(f"status=eq.{quote(status, safe='')}")
-    
+        params.append(("status", f"eq.{status}"))
+
     # Apply country filter on order company
     if country:
-        query_parts.append(f"country=eq.{quote(country, safe='')}")
+        params.append(("country", f"eq.{country}"))
 
     # NOTE: the `search` param is applied in Python below (not at the DB level)
     # so it can span embedded columns too (order_number, client_ref, client name).
 
-    query_parts.append("order=created_at.desc.nullslast")
+    params.append(("order", "created_at.desc.nullslast"))
+    searching = bool(search and search.strip())
+    page_size = max(1, min(int(limit), ORDER_COMPANIES_MAX_ROWS)) if limit else None
+    if page_size and not searching:
+        params.append(("limit", page_size))
+        params.append(("offset", max(0, int(offset or 0))))
+    else:
+        params.append(("limit", ORDER_COMPANIES_MAX_ROWS))
 
-    full_url = f"{get_base_url()}/order_companies?{'&'.join(query_parts)}"
+    full_url = f"{get_base_url()}/order_companies?{encode_query(params)}"
 
     try:
         response = requests.get(full_url, headers=get_headers(), timeout=30)
@@ -1468,6 +1671,15 @@ def get_all_order_companies(
                     )
                 )
             ]
+            if page_size:
+                start = max(0, int(offset or 0))
+                flattened = flattened[start:start + page_size]
+
+        if len(results) >= ORDER_COMPANIES_MAX_ROWS:
+            logger.warning(
+                f"[Supabase] order_companies read hit the {ORDER_COMPANIES_MAX_ROWS}-row cap; "
+                "older rows are not listed — page with limit/offset."
+            )
 
         return flattened
     except requests.exceptions.RequestException as e:
@@ -1532,7 +1744,7 @@ def delete_app_user(user_id: str) -> bool:
     url = f"{get_base_url()}/app_users?id=eq.{quote(user_id, safe='')}"
     try:
         response = requests.delete(url, headers=get_headers(), timeout=30)
-        return response.status_code < 400
+        return write_succeeded(response)
     except requests.exceptions.RequestException as e:
         logger.error(f"[Supabase] Delete app_user failed: {e}")
         return False

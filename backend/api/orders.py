@@ -18,18 +18,18 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from api.auth import get_current_user, get_order_assignable_users, require_admin
+from api.auth import get_current_user, get_order_assignable_users, list_users, require_admin
 from database.crud import add_uploaded_file, create_report, update_report_field, update_report_status
 from services.order_documents import build_order_html, WORD_MIME
-from services.pricing_engine import calculate_invoice, generate_invoice_number
+from services.pricing_engine import calculate_invoice, create_numbered_invoice
 import logging
 from services.supabase_client import (
-    create_invoice as sb_create_invoice,
     create_order as sb_create_order,
+    create_signed_url,
     delete_order as sb_delete_order,
     delete_order_company as sb_delete_order_company,
     download_from_storage,
@@ -49,6 +49,14 @@ from services.supabase_client import (
 )
 
 logger = logging.getLogger(__name__)
+
+try:  # shared RFC 5987 helper (api/_http.py); inline fallback keeps this importable alone
+    from api._http import content_disposition
+except Exception:  # pragma: no cover - defensive
+    def content_disposition(filename: str, disposition: str = "attachment") -> str:
+        name = re.sub(r"[\x00-\x1f\x7f]", "", str(filename or "")).strip() or "download"
+        ascii_name = re.sub(r'[^A-Za-z0-9._ -]+', "_", name).strip(" ._") or "download"
+        return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name, safe='')}"
 
 # Local upload directory for report files
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
@@ -71,7 +79,32 @@ def _sanitize_filename(filename: str) -> str:
 router = APIRouter(tags=["orders"])
 
 VALID_STATUSES = {"pending", "in_progress", "completed", "invoiced", "cancelled"}
-VALID_COMPANY_STATUSES = {"pending", "in_progress", "completed"}
+# "cancelled" is written by cancel_order for the companies of a cancelled order.
+VALID_COMPANY_STATUSES = {"pending", "in_progress", "completed", "cancelled"}
+# /orders/companies/ also accepts the UI's "overdue" tab (a due-date view, not a
+# stored status).
+COMPANY_STATUS_FILTERS = VALID_COMPANY_STATUSES | {"overdue"}
+
+# Orders that are closed for work: nothing may start, complete or reopen them.
+CLOSED_ORDER_STATUSES = {"cancelled", "invoiced"}
+
+# Allowed manual status changes via PATCH /orders/{id} (admin only). The normal
+# lifecycle is driven by the workflow endpoints instead: start → in_progress,
+# last company complete → completed → (invoice created) → invoiced.
+# - completed requires every company to be completed;
+# - invoiced is only set by invoice creation, never by hand;
+# - cancelled and invoiced are terminal.
+ORDER_STATUS_TRANSITIONS: Dict[str, set] = {
+    "pending": {"in_progress", "cancelled"},
+    "in_progress": {"pending", "completed", "cancelled"},
+    "completed": {"in_progress"},
+    "invoiced": set(),
+    "cancelled": set(),
+}
+
+# Above this, the ZIP is refused: Vercel caps a serverless RESPONSE at ~4.5 MB.
+# The /files endpoint returns signed Storage URLs instead.
+ZIP_MAX_BYTES = 4 * 1024 * 1024
 VALID_SERVICE_LEVELS = {"basic", "standard", "express", "urgent"}
 VALID_REPORT_TYPES = {"standard", "full"}
 
@@ -99,9 +132,12 @@ class UpdateOrderRequest(BaseModel):
 
 
 class UpdateCompanyRequest(BaseModel):
-    status: Optional[str] = None
-    analyst_assigned: Optional[str] = None
-    report_id: Optional[str] = None
+    # status / analyst_assigned / report_id are NOT editable here — they move
+    # only through /start, /complete and /reassign-company, which enforce the
+    # workflow and the admin check. Unknown fields are rejected (422), so a
+    # caller sending them learns that instead of being silently ignored.
+    model_config = ConfigDict(extra="forbid")
+
     company_name: Optional[str] = None
     client_ref: Optional[str] = None
     country: Optional[str] = None
@@ -168,16 +204,18 @@ def assign_analyst(order: Optional[Dict[str, Any]] = None) -> str:
     if not assignable_users:
         raise HTTPException(status_code=503, detail="No analyst or admin users are available for assignment")
 
+    # Workload rows are {"auto_assigned_analyst": email, "count": n}, counted
+    # from active (pending/in_progress) orders; emails compared lower-cased.
+    by_lower = {email.lower(): email for email in assignable_users}
     workload: Dict[str, int] = {email: 0 for email in assignable_users}
     for row in workload_rows:
-        email = row.get("auto_assigned_analyst")
-        if email not in assignable_users:
+        email = by_lower.get(str(row.get("auto_assigned_analyst") or "").strip().lower())
+        if email is None:
             continue
-        count = row.get("count") or row.get("count:id") or 0
         try:
-            workload[email] = int(count)
+            workload[email] += int(row.get("count") or 0)
         except (TypeError, ValueError):
-            workload[email] = 0
+            continue
 
     min_count = min(workload[email] for email in assignable_users)
     tied = [email for email in assignable_users if workload[email] == min_count]
@@ -364,6 +402,12 @@ def _get_company_or_404(order_id: str, company_id: str) -> Dict[str, Any]:
 
 
 def _trigger_invoice_creation(order: Dict[str, Any], companies: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Create the order's draft invoice (or return the one that exists).
+
+    Returns None when no invoice could be created. A pricing failure is NOT
+    papered over with a $0 invoice: it is logged and skipped, so an admin can
+    create a correct one later from /invoices/generate.
+    """
     existing = sb_get_order_invoice(order.get("id", ""))
     if existing:
         return existing
@@ -380,46 +424,24 @@ def _trigger_invoice_creation(order: Dict[str, Any], companies: List[Dict[str, A
     # Build pricing inputs
     pricing_order = dict(order)
     pricing_order["companies"] = companies or []
+    pricing_order["company_count"] = len(companies or []) or order.get("company_count")
     pricing_client = dict(client)
     pricing_client["invoice_count"] = len(existing_invoices)
 
-    # Use the pricing engine to calculate proper values
     try:
         pricing = calculate_invoice(pricing_order, pricing_client)
     except Exception as exc:
-        print(f"[ORDERS] Pricing calculation failed for order {order.get('id')}: {exc}")
-        # Fallback to a basic invoice without pricing
-        payload = {
-            "id": str(uuid.uuid4()),
-            "invoice_number": generate_invoice_number(),
-            "order_id": order.get("id"),
-            "client_id": order.get("client_id"),
-            "service_level": order.get("service_level"),
-            "report_type": order.get("report_type"),
-            "company_count": order.get("company_count") or len(companies),
-            "unit_price": 0,
-            "subtotal": 0,
-            "is_pilot": False,
-            "volume_discount_pct": 0,
-            "discount_amount": 0,
-            "total": 0,
-            "currency": "USD",
-            "line_items": [],
-            "status": "draft",
-            "notes": "Auto-generated when order was marked completed.",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        try:
-            return sb_create_invoice(payload)
-        except Exception as exc2:
-            print(f"[ORDERS] Fallback invoice creation failed for order {order.get('id')}: {exc2}")
-            return None
+        logger.error(
+            f"[ORDERS] Pricing failed for order {order.get('id')} — no invoice created; "
+            f"generate it from the order page once pricing is fixed: {exc}",
+            exc_info=True,
+        )
+        return None
 
-    # Build properly priced invoice payload
+    # Build properly priced invoice payload (the number is allocated, with
+    # collision retry, by create_numbered_invoice).
     payload = {
         "id": str(uuid.uuid4()),
-        "invoice_number": generate_invoice_number(),
         "order_id": order.get("id"),
         "client_id": order.get("client_id"),
         "service_level": order.get("service_level"),
@@ -440,18 +462,8 @@ def _trigger_invoice_creation(order: Dict[str, Any], companies: List[Dict[str, A
     }
 
     try:
-        return sb_create_invoice(payload)
+        return create_numbered_invoice(payload)
     except Exception as exc:
-        error_msg = str(exc).lower()
-        # Handle unique constraint violation (PostgreSQL error code 23505)
-        # This means another concurrent request already created the invoice
-        if "23505" in error_msg or "unique" in error_msg or "duplicate" in error_msg:
-            logger.info(
-                f"[ORDERS] Invoice already exists for order {order.get('id')} "
-                f"(concurrent creation detected). Fetching existing."
-            )
-            existing = sb_get_order_invoice(order.get("id", ""))
-            return existing
         logger.error(
             f"[ORDERS] Invoice creation FAILED for order {order.get('id')}: {exc}",
             exc_info=True,
@@ -459,22 +471,51 @@ def _trigger_invoice_creation(order: Dict[str, Any], companies: List[Dict[str, A
         return None
 
 
-def _complete_order_if_ready(order_id: str, companies: Optional[List[Dict[str, Any]]] = None) -> Dict[str, int]:
-    companies = companies if companies is not None else sb_get_order_companies(order_id)
+def _finish_order(order_id: str, order: Dict[str, Any], companies: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Mark a fully-completed order completed, create its invoice and, when the
+    invoice exists, move the order to "invoiced" (the status the rest of the app
+    — delete/cancel guards, /invoices/generate, the UI — reads as "billed")."""
     progress = _progress_from_companies(companies)
-    if progress["completed"] < progress["total"]:
-        return progress
-
-    order = _get_order_or_404(order_id)
+    now = datetime.now(timezone.utc).isoformat()
     order_updates: Dict[str, Any] = {
         "status": "completed",
         "completed_count": progress["completed"],
         "company_count": progress["total"],
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": now,
     }
     updated = sb_update_order(order_id, order_updates) or {**order, **order_updates}
-    _trigger_invoice_creation(updated, companies)
-    return progress
+    invoice = _trigger_invoice_creation(updated, companies)
+    if invoice:
+        invoiced = sb_update_order(order_id, {"status": "invoiced", "updated_at": now})
+        updated = invoiced or {**updated, "status": "invoiced"}
+    return updated
+
+
+def _complete_order_if_ready(
+    order_id: str, companies: Optional[List[Dict[str, Any]]] = None
+) -> tuple[Dict[str, int], Optional[str]]:
+    """Close the order once every company is completed.
+
+    Returns (progress, order_status). A cancelled or invoiced order is never
+    reopened or re-invoiced from here.
+    """
+    companies = companies if companies is not None else sb_get_order_companies(order_id)
+    progress = _progress_from_companies(companies)
+    order = _get_order_or_404(order_id)
+    status = order.get("status")
+    if status in CLOSED_ORDER_STATUSES:
+        return progress, status
+    if progress["total"] == 0 or progress["completed"] < progress["total"]:
+        if order.get("completed_count") != progress["completed"]:
+            sb_update_order(order_id, {
+                "completed_count": progress["completed"],
+                "company_count": progress["total"],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+        return progress, status
+
+    updated = _finish_order(order_id, order, companies)
+    return progress, updated.get("status")
 
 
 @router.get("/companies/")
@@ -482,14 +523,40 @@ async def get_all_order_companies(
     status: Optional[str] = None,
     country: Optional[str] = None,
     search: Optional[str] = None,
+    limit: Optional[int] = Query(None, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
     user: dict = Depends(get_current_user),
 ):
-    """Get all order companies (reports) flattened with order and client info."""
-    if status and status not in VALID_STATUSES:
-        raise HTTPException(status_code=400, detail=f"Invalid status '{status}'. Valid: {', '.join(sorted(VALID_STATUSES))}")
+    """Get all order companies (reports) flattened with order and client info.
+
+    `status` is a COMPANY status (or "overdue": past the order's due date and
+    not completed/cancelled). `limit`/`offset` are optional paging; without
+    them the full list (capped server-side) is returned as before.
+    """
+    if status and status not in COMPANY_STATUS_FILTERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{status}'. Valid: {', '.join(sorted(COMPANY_STATUS_FILTERS))}",
+        )
 
     try:
-        companies = sb_get_all_order_companies(status=status, country=country, search=search)
+        overdue = status == "overdue"
+        companies = sb_get_all_order_companies(
+            status=None if overdue else status,
+            country=country,
+            search=search,
+            limit=None if overdue else limit,
+            offset=0 if overdue else offset,
+        )
+        if overdue:
+            now = datetime.now(timezone.utc)
+            companies = [
+                c for c in companies
+                if c.get("status") not in ("completed", "cancelled")
+                and (_parse_datetime(c.get("due_date")) or now) < now
+            ]
+            if limit:
+                companies = companies[offset:offset + limit]
         return companies
     except Exception as exc:
         logger.error(f"[ORDERS] Failed to list order companies: {exc}")
@@ -662,6 +729,36 @@ async def create_order(body: CreateOrderRequest, user: dict = Depends(get_curren
         raise HTTPException(status_code=500, detail="Failed to create order")
 
 
+@router.get("/analysts")
+async def list_assignable_analysts(user: dict = Depends(get_current_user)):
+    """Users an order or company can be assigned to (any staff may read this).
+
+    Registered before the `/{order_id}` routes so "analysts" is not taken as
+    an order id.
+    """
+    assignable = {email.lower() for email in get_order_assignable_users()}
+    analysts = [
+        {"email": u.get("email"), "name": u.get("name"), "role": u.get("role")}
+        for u in list_users()
+        if str(u.get("email") or "").lower() in assignable
+    ]
+    analysts.sort(key=lambda a: (str(a.get("name") or "").lower(), str(a.get("email") or "")))
+    return {"analysts": analysts}
+
+
+def _validated_analyst(value: Any) -> str:
+    """Return the assignable user's email for `value`, or 400."""
+    email = str(value or "").strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="Analyst email is required")
+    assignable = get_order_assignable_users()
+    by_lower = {a.lower(): a for a in assignable}
+    match = by_lower.get(email.lower())
+    if match is None:
+        raise HTTPException(status_code=400, detail=f"Invalid analyst. Valid: {', '.join(assignable)}")
+    return match
+
+
 @router.get("/{order_id}")
 async def get_order_detail(order_id: str, user: dict = Depends(get_current_user)):
     order = _get_order_or_404(order_id)
@@ -722,6 +819,12 @@ async def download_order(order_id: str, user: dict = Depends(get_current_user)):
     client = get_client(order.get("client_id", "")) or {}
     files = get_order_files(order_id)
 
+    # Vercel cannot return a response over ~4.5 MB. Refuse up front (from the
+    # recorded sizes) rather than download everything and fail opaquely.
+    declared = sum(int(f.get("file_size") or 0) for f in files)
+    if declared > ZIP_MAX_BYTES:
+        raise HTTPException(status_code=413, detail=_ZIP_TOO_LARGE.format(order_id=order_id))
+
     order_label = order.get("order_number") or order.get("id") or "order"
     safe_label = re.sub(r"[^\w\-]+", "_", str(order_label)).strip("_") or "order"
 
@@ -768,12 +871,44 @@ async def download_order(order_id: str, user: dict = Depends(get_current_user)):
                 used_names[arc_name] = 0
             archive.writestr(f"{safe_label}/files/{arc_name}", content)
 
-    buffer.seek(0)
+    content = buffer.getvalue()
+    if len(content) > ZIP_MAX_BYTES:
+        raise HTTPException(status_code=413, detail=_ZIP_TOO_LARGE.format(order_id=order_id))
     return Response(
-        content=buffer.getvalue(),
+        content=content,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{safe_label}.zip"'},
+        headers={"Content-Disposition": content_disposition(f"{safe_label}.zip")},
     )
+
+
+_ZIP_TOO_LARGE = (
+    "This order's files are too large to download as one ZIP (the server limit is about 4 MB). "
+    "Download the files individually: GET /api/orders/{order_id}/files returns a link for each."
+)
+
+
+@router.get("/{order_id}/files")
+async def order_file_links(order_id: str, user: dict = Depends(get_current_user)):
+    """Short-lived signed Storage URLs for every file of an order — the way to
+    fetch large submissions, which do not fit in one serverless response."""
+    _get_order_or_404(order_id)
+    links = []
+    for file in get_order_files(order_id):
+        file_path = file.get("file_path", "") or ""
+        url = None
+        if file_path.startswith("storage://"):
+            parts = file_path[len("storage://"):].split("/", 1)
+            if len(parts) == 2:
+                url = create_signed_url(parts[0], parts[1], expires_in=600)
+        links.append({
+            "id": file.get("id"),
+            "order_company_id": file.get("order_company_id"),
+            "filename": file.get("filename"),
+            "file_size": file.get("file_size", 0),
+            "url": url,
+            "expires_in": 600 if url else None,
+        })
+    return {"order_id": order_id, "files": links}
 
 
 @router.get("/{order_id}/document")
@@ -793,9 +928,26 @@ async def order_document(
         return Response(
             content=html,
             media_type=WORD_MIME,
-            headers={"Content-Disposition": f'attachment; filename="Order-{order_no}.doc"'},
+            headers={"Content-Disposition": content_disposition(f"Order-{order_no}.doc")},
         )
     return HTMLResponse(content=html)
+
+
+def check_status_transition(current: Optional[str], target: str) -> None:
+    """Raise 409 unless ORDER_STATUS_TRANSITIONS allows current → target."""
+    _validate_status(target)
+    current = current if current in ORDER_STATUS_TRANSITIONS else "pending"
+    if target == current:
+        return
+    allowed = ORDER_STATUS_TRANSITIONS[current]
+    if target not in allowed:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Cannot change an order from '{current}' to '{target}'. "
+                f"Allowed: {', '.join(sorted(allowed)) or 'none'}"
+            ),
+        )
 
 
 @router.patch("/{order_id}")
@@ -805,11 +957,10 @@ async def update_order(order_id: str, body: UpdateOrderRequest, user: dict = Dep
     if not updates:
         return _build_order_detail(existing)
 
-    if "auto_assigned_analyst" in updates or "service_level" in updates:
+    # Status, counters, analyst and service level are admin decisions.
+    if {"status", "company_count", "completed_count", "auto_assigned_analyst", "service_level"} & set(updates):
         require_admin(user)
 
-    if "status" in updates:
-        _validate_status(updates["status"])
     if "service_level" in updates and updates["service_level"] not in VALID_SERVICE_LEVELS:
         raise HTTPException(
             status_code=400,
@@ -820,31 +971,69 @@ async def update_order(order_id: str, body: UpdateOrderRequest, user: dict = Dep
             status_code=400,
             detail=f"Invalid report_type. Valid: {', '.join(sorted(VALID_REPORT_TYPES))}",
         )
-    assignable_users = get_order_assignable_users()
-    if "auto_assigned_analyst" in updates and updates["auto_assigned_analyst"] not in assignable_users:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid analyst. Valid: {', '.join(assignable_users)}",
-        )
+    if "auto_assigned_analyst" in updates:
+        updates["auto_assigned_analyst"] = _validated_analyst(updates["auto_assigned_analyst"])
+
+    companies = sb_get_order_companies(order_id)
+    progress = _progress_from_companies(companies)
+
+    # Counters are always derived from the companies — never taken from the
+    # request. Sending them just triggers a recount.
+    if "company_count" in updates or "completed_count" in updates or "status" in updates:
+        updates["company_count"] = progress["total"]
+        updates["completed_count"] = progress["completed"]
+
+    current_status = existing.get("status")
+    target_status = updates.get("status")
+    finishing = False
+    if target_status is not None:
+        check_status_transition(current_status, target_status)
+        if target_status != current_status:
+            if target_status == "completed":
+                if progress["total"] == 0 or progress["completed"] < progress["total"]:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Every company must be completed before the order can be completed.",
+                    )
+                finishing = True
+            # Never leave "completed" or cancel once an invoice exists.
+            if current_status == "completed" or target_status == "cancelled":
+                if sb_get_order_invoice(order_id):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="This order already has an invoice and cannot be reopened or cancelled.",
+                    )
 
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
-    status_changed_to_completed = updates.get("status") == "completed" and existing.get("status") != "completed"
 
     try:
         updated = sb_update_order(order_id, updates)
         if not updated:
-            raise HTTPException(status_code=500, detail="Failed to update order")
+            raise HTTPException(status_code=404, detail="Order not found")
     except HTTPException:
         raise
     except Exception as exc:
         logger.error(f"[ORDERS] Failed to update order: {exc}")
         raise HTTPException(status_code=500, detail="Failed to update order")
 
-    companies = sb_get_order_companies(order_id)
-    if status_changed_to_completed:
-        _trigger_invoice_creation(updated, companies)
+    if target_status == "cancelled" and current_status != "cancelled":
+        _cancel_open_companies(companies)
+        companies = sb_get_order_companies(order_id)
+    if finishing:
+        # Creates the invoice only now that every company is done, and moves
+        # the order to "invoiced" when it succeeds.
+        updated = _finish_order(order_id, updated, companies)
 
     return _build_order_detail(updated, companies=companies)
+
+
+def _cancel_open_companies(companies: List[Dict[str, Any]]) -> None:
+    for company in companies:
+        if company.get("status") in ("pending", "in_progress"):
+            sb_update_order_company(company["id"], {
+                "status": "cancelled",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
 
 
 @router.patch("/{order_id}/companies/{company_id}")
@@ -861,15 +1050,12 @@ async def update_order_company(
     if not updates:
         return _public_company(_get_company_or_404(order_id, company_id))
 
-    if "status" in updates:
-        _validate_company_status(updates["status"])
-
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     try:
         updated = sb_update_order_company(company_id, updates)
         if not updated:
-            raise HTTPException(status_code=500, detail="Failed to update order company")
+            raise HTTPException(status_code=404, detail="Company not found in this order")
     except HTTPException:
         raise
     except Exception as exc:
@@ -883,6 +1069,7 @@ async def update_order_company(
 async def start_company_work(order_id: str, company_id: str, user: dict = Depends(get_current_user)):
     order = _get_order_or_404(order_id)
     company = _get_company_or_404(order_id, company_id)
+    _ensure_open_for_work(order, company)
 
     if company.get("status") == "completed":
         raise HTTPException(status_code=400, detail="Company work is already completed")
@@ -962,7 +1149,8 @@ async def start_company_work(order_id: str, company_id: str, user: dict = Depend
                     file_size=pf.get("file_size", 0),
                 )
 
-        # Step b: Link report to company
+        # Step b: Link report to company — conditionally, only while no report
+        # is linked, so two concurrent "start" clicks cannot both link one.
         updated_company = sb_update_order_company(
             company_id,
             {
@@ -971,15 +1159,24 @@ async def start_company_work(order_id: str, company_id: str, user: dict = Depend
                 "date_assigned": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
+            extra_filters={"report_id": "is.null"},
         )
         if not updated_company:
             # Compensating transaction: delete the orphaned report
-            logger.error(f"[ORDERS] Failed to link report {report_id} to company {company_id} — rolling back report creation")
             try:
                 from services.supabase_client import delete_report as sb_delete_report
                 sb_delete_report(report_id)
             except Exception as cleanup_err:
                 logger.error(f"[ORDERS] Failed to clean up orphaned report {report_id}: {cleanup_err}")
+            winner = sb_get_order_company(company_id) or {}
+            if winner.get("report_id"):
+                # Another request linked a report first — hand back that one.
+                logger.info(f"[ORDERS] Company {company_id} was started concurrently; using report {winner['report_id']}")
+                return {
+                    "report_id": winner["report_id"],
+                    "redirect_url": f"/extractor/{winner['report_id']}",
+                }
+            logger.error(f"[ORDERS] Failed to link report {report_id} to company {company_id} — rolled back report creation")
             raise HTTPException(status_code=500, detail="Failed to link report to company — report was rolled back")
 
         # Step c: Update order status if pending
@@ -1027,8 +1224,9 @@ async def start_company_work(order_id: str, company_id: str, user: dict = Depend
 
 @router.post("/{order_id}/companies/{company_id}/complete")
 async def complete_company_work(order_id: str, company_id: str, user: dict = Depends(get_current_user)):
-    _get_order_or_404(order_id)
+    order = _get_order_or_404(order_id)
     company = _get_company_or_404(order_id, company_id)
+    _ensure_open_for_work(order, company)
     if company.get("status") == "completed":
         raise HTTPException(status_code=400, detail="Company work is already completed")
 
@@ -1043,20 +1241,32 @@ async def complete_company_work(order_id: str, company_id: str, user: dict = Dep
         raise HTTPException(status_code=500, detail="Failed to complete company")
 
     companies = sb_get_order_companies(order_id)
-    progress = _complete_order_if_ready(order_id, companies)
+    progress, order_status = _complete_order_if_ready(order_id, companies)
 
     return {
         "company": _public_company(updated_company),
         "order_id": order_id,
         "progress": progress,
+        "order_status": order_status,
     }
+
+
+def _ensure_open_for_work(order: Dict[str, Any], company: Dict[str, Any]) -> None:
+    """Refuse workflow actions on a cancelled/invoiced order or a cancelled company."""
+    status = order.get("status")
+    if status in CLOSED_ORDER_STATUSES:
+        raise HTTPException(status_code=409, detail=f"This order is {status}; its companies can no longer be worked on.")
+    if company.get("status") == "cancelled":
+        raise HTTPException(status_code=409, detail="This company was cancelled.")
 
 
 @router.delete("/{order_id}")
 async def delete_order(order_id: str, user: dict = Depends(get_current_user)):
     require_admin(user)
     order = _get_order_or_404(order_id)
-    if str(order.get("status") or "").lower() == "invoiced":
+    # An invoice row is the real "billed" signal — also catches orders whose
+    # status was never moved to invoiced. Deleting would orphan the invoice.
+    if str(order.get("status") or "").lower() == "invoiced" or sb_get_order_invoice(order_id):
         raise HTTPException(
             status_code=409,
             detail="Invoiced orders cannot be deleted.",
@@ -1089,10 +1299,8 @@ async def reassign_order(
 ):
     """Reassign an order (all companies) to a different analyst."""
     require_admin(user)
-    order = _get_order_or_404(order_id)
-    analyst = body.get("analyst")
-    if not analyst:
-        raise HTTPException(status_code=400, detail="Analyst email is required")
+    _get_order_or_404(order_id)
+    analyst = _validated_analyst(body.get("analyst"))
 
     # Update all companies in the order
     companies = sb_get_order_companies(order_id)
@@ -1121,27 +1329,26 @@ async def cancel_order(
     order_id: str,
     user: dict = Depends(get_current_user),
 ):
-    """Cancel an order. Sets status to 'cancelled'."""
+    """Cancel an order. Sets status to 'cancelled'. Admin only (a status change)."""
+    require_admin(user)
     order = _get_order_or_404(order_id)
     if order.get("status") in ("completed", "invoiced", "cancelled"):
         raise HTTPException(
             status_code=409,
             detail=f"Cannot cancel order with status '{order.get('status')}'",
         )
+    if sb_get_order_invoice(order_id):
+        raise HTTPException(status_code=409, detail="This order already has an invoice and cannot be cancelled.")
 
-    sb_update_order(order_id, {
+    updated = sb_update_order(order_id, {
         "status": "cancelled",
         "updated_at": datetime.now(timezone.utc).isoformat(),
     })
+    if not updated:
+        raise HTTPException(status_code=404, detail="Order not found")
 
     # Also cancel all pending companies
-    companies = sb_get_order_companies(order_id)
-    for company in companies:
-        if company.get("status") in ("pending", "in_progress"):
-            sb_update_order_company(company["id"], {
-                "status": "cancelled",
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            })
+    _cancel_open_companies(sb_get_order_companies(order_id))
 
     return {
         "order_id": order_id,
@@ -1160,9 +1367,8 @@ async def reassign_company(
     """Reassign a single company/report to a different analyst."""
     require_admin(user)
     _get_order_or_404(order_id)
-    analyst = body.get("analyst")
-    if not analyst:
-        raise HTTPException(status_code=400, detail="Analyst email is required")
+    _get_company_or_404(order_id, company_id)
+    analyst = _validated_analyst(body.get("analyst"))
 
     updated = sb_update_order_company(company_id, {
         "analyst_assigned": analyst,

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -29,19 +30,22 @@ import requests
 from html import escape
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from api.auth import get_current_user, require_admin
 from services.mailer import configured_transport, send_email, transport_status
 from services.pricing_engine import calculate_invoice
 from services.supabase_client import (
+    get_all_invoices,
     get_base_url,
     get_client,
     get_headers,
     get_order,
     get_order_companies,
-    get_report,
+    get_order_invoice,
+    get_report_columns,
+    write_succeeded,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +57,23 @@ router = APIRouter(prefix="/api/delivery", tags=["delivery"])
 SEND_ENABLED = os.getenv("DELIVERY_SEND_ENABLED", "").lower() in {"1", "true", "yes"}
 
 VALID_VERDICTS = {"pass", "fail"}
+
+# Who may record a QA verdict. The verdict is the only gate before a report is
+# emailed to a client, so the author cannot sign off their own work.
+QA_ROLES = {"reviewer", "admin", "super_admin"}
+
+# reports.status is "complete"; some older rows say "completed".
+COMPLETE_REPORT_STATUSES = {"complete", "completed"}
+
+# Columns the delivery pages need — never the heavy report_json.
+REPORT_BASE_COLUMNS = "id,company_name,cr_number,country,analyst,status,updated_at"
+REPORT_QA_COLUMNS = (
+    "qa_verdict,qa_checked_at,qa_finding_count,qa_critical_count,qa_major_count,"
+    "qa_minor_count,qa_findings,delivered_at"
+)
+
+# A report HTML bigger than this is not attached (mail providers cap ~10-40 MB).
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 
 class QAVerdictBody(BaseModel):
@@ -73,8 +94,9 @@ SEVERITY_WEIGHT = {"critical": 5.0, "major": 2.0, "minor": 0.5}
 
 def _patch_report(report_id: str, payload: Dict[str, Any]) -> bool:
     """PATCH a report row. Returns False when the QA columns are not there yet
-    (migration 011 not applied) rather than blowing up the caller."""
-    url = f"{get_base_url()}/reports?id=eq.{report_id}"
+    (migration 011 not applied) — or the report matched no row — rather than
+    blowing up the caller."""
+    url = f"{get_base_url()}/reports?id=eq.{quote(str(report_id), safe='')}"
     try:
         resp = requests.patch(url, headers=get_headers(), json=payload, timeout=15)
     except requests.RequestException as exc:
@@ -82,6 +104,9 @@ def _patch_report(report_id: str, payload: Dict[str, Any]) -> bool:
         return False
 
     if resp.status_code in (200, 204):
+        if not write_succeeded(resp):
+            logger.error(f"[DELIVERY] PATCH report {report_id} matched no row")
+            return False
         return True
 
     # PostgREST says PGRST204 for an unknown column — that is the un-run migration,
@@ -98,20 +123,56 @@ def _patch_report(report_id: str, payload: Dict[str, Any]) -> bool:
     return False
 
 
+def _slim_report(report_id: str, with_qa: bool = True) -> Optional[Dict[str, Any]]:
+    """The report's summary + QA columns, without report_json.
+
+    Falls back to the base columns when the QA columns do not exist yet
+    (migration 011 not applied), so the report still resolves.
+    """
+    if with_qa:
+        row = get_report_columns(report_id, f"{REPORT_BASE_COLUMNS},{REPORT_QA_COLUMNS}")
+        if row is not None:
+            return row
+    return get_report_columns(report_id, REPORT_BASE_COLUMNS)
+
+
+def _report_authors(report_id: str, report: Dict[str, Any]) -> List[str]:
+    """Who wrote this report, lower-cased: reports.analyst plus the analyst the
+    order assigned to it. Empty when unknown."""
+    authors = {str(report.get("analyst") or "").strip().lower()}
+    url = f"{get_base_url()}/order_companies?select=analyst_assigned&report_id=eq.{quote(str(report_id), safe='')}"
+    try:
+        resp = requests.get(url, headers=get_headers(), timeout=15)
+        if resp.status_code < 400:
+            for row in resp.json() or []:
+                authors.add(str(row.get("analyst_assigned") or "").strip().lower())
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning(f"[DELIVERY] author lookup for report {report_id} failed: {exc}")
+    return sorted(a for a in authors if a)
+
+
 @router.patch("/qa/{report_id}")
 async def save_qa_verdict(
     report_id: str,
     body: QAVerdictBody,
     user: Dict[str, Any] = Depends(get_current_user),
 ):
-    """Record the outcome of a QA run. Any analyst may do this."""
+    """Record the outcome of a QA run. Reviewers and admins only, and never on
+    a report the same person wrote."""
+    if user.get("role") not in QA_ROLES:
+        raise HTTPException(status_code=403, detail="Only a reviewer or an admin can record a QA verdict")
     if body.verdict not in VALID_VERDICTS:
         raise HTTPException(status_code=400, detail="verdict must be 'pass' or 'fail'")
 
-    if get_report(report_id) is None:
+    report = _slim_report(report_id, with_qa=False)
+    if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
-    saved = _patch_report(report_id, {
+    me = {str(user.get("email") or "").strip().lower(), str(user.get("name") or "").strip().lower()} - {""}
+    if me & set(_report_authors(report_id, report)):
+        raise HTTPException(status_code=403, detail="You cannot record the QA verdict for your own report")
+
+    payload = {
         "qa_verdict": body.verdict,
         "qa_checked_at": datetime.now(timezone.utc).isoformat(),
         "qa_finding_count": body.finding_count,
@@ -121,7 +182,14 @@ async def save_qa_verdict(
         # Store the findings themselves so an admin can read the actual mistakes
         # on the review page instead of guessing from a count.
         "qa_findings": body.findings or [],
-    })
+        # Who signed it off (migration 015). Retried without it if the column
+        # is not there yet.
+        "qa_checked_by": user.get("email"),
+    }
+    saved = _patch_report(report_id, payload)
+    if not saved:
+        payload.pop("qa_checked_by", None)
+        saved = _patch_report(report_id, payload)
 
     # A failure here is a missing migration, not a failed check — say so plainly
     # instead of pretending the verdict was stored.
@@ -157,6 +225,15 @@ async def delivery_queue(user: Dict[str, Any] = Depends(get_current_user)):
             logger.error(f"[DELIVERY] {what} fetch failed: {exc}")
             raise HTTPException(status_code=500, detail="Could not load the delivery queue")
 
+    def _count(url: str) -> Optional[int]:
+        headers = {**get_headers(), "Prefer": "count=exact", "Range-Unit": "items", "Range": "0-0"}
+        try:
+            resp = requests.get(url, headers=headers, timeout=20)
+            total = (resp.headers.get("content-range") or "").rsplit("/", 1)[-1]
+            return int(total) if total.isdigit() else None
+        except requests.RequestException:
+            return None
+
     # A report is deliverable when the ANALYST says so (order_companies.status ==
     # 'completed', set by complete_company_work) — that is the human signal, and
     # it is the table the send path already walks for the client's address.
@@ -170,17 +247,21 @@ async def delivery_queue(user: Dict[str, Any] = Depends(get_current_user)):
 
     by_id: Dict[str, Dict[str, Any]] = {}
 
+    # Newest completions first, so the window always holds the recent work.
     linked = _get(
         f"{get_base_url()}/order_companies"
         "?select=report_id,analyst_assigned,updated_at"
-        "&status=eq.completed&report_id=not.is.null&limit=500",
+        "&status=eq.completed&report_id=not.is.null"
+        "&order=updated_at.desc.nullslast&limit=2000",
         "order_companies",
     )
-    linked_ids = [r["report_id"] for r in linked if r.get("report_id")]
-    if linked_ids:
-        ids = ",".join(quote(str(i), safe="") for i in linked_ids)
+    linked_ids = list(dict.fromkeys(r["report_id"] for r in linked if r.get("report_id")))
+    # Only undelivered reports are fetched (delivered_at=is.null), in chunks so
+    # the id list stays a sane URL length. Delivered ones never crowd the queue.
+    for start in range(0, len(linked_ids), 100):
+        ids = ",".join(quote(str(i), safe="") for i in linked_ids[start:start + 100])
         for r in _get(
-            f"{get_base_url()}/reports?select={report_fields}&id=in.({ids})&limit=500",
+            f"{get_base_url()}/reports?select={report_fields}&id=in.({ids})&delivered_at=is.null",
             "reports by order",
         ):
             by_id[r["id"]] = r
@@ -188,16 +269,19 @@ async def delivery_queue(user: Dict[str, Any] = Depends(get_current_user)):
     for r in _get(
         f"{get_base_url()}/reports?select={report_fields}"
         f"&status=in.({','.join(TERMINAL_REPORT_STATUSES)})"
-        "&order=updated_at.desc&limit=500",
+        "&delivered_at=is.null"
+        "&order=updated_at.desc.nullslast&limit=500",
         "reports by status",
     ):
         by_id.setdefault(r["id"], r)
 
+    delivered = _count(
+        f"{get_base_url()}/reports?select=id&delivered_at=not.is.null"
+    )
+
     items: List[Dict[str, Any]] = []
-    delivered = 0
     for r in by_id.values():
         if r.get("delivered_at"):
-            delivered += 1
             continue
         qa = _qa_state(r)
         items.append({
@@ -236,7 +320,7 @@ def _order_for_report(
     Raises the 404 itself so every caller reports the same thing."""
     resolved = order_id
     if not resolved:
-        url = f"{get_base_url()}/order_companies?select=order_id&report_id=eq.{report_id}&limit=1"
+        url = f"{get_base_url()}/order_companies?select=order_id&report_id=eq.{quote(str(report_id), safe='')}&limit=1"
         try:
             resp = requests.get(url, headers=get_headers(), timeout=15)
             resp.raise_for_status()
@@ -370,7 +454,7 @@ async def team_kpi(
         name = (r.get("analyst") or "").strip() or fallback.get(r.get("id"), "") or "Unassigned"
         a = by_analyst.setdefault(name, blank(name))
         a["reports"] += 1
-        if r.get("status") == "completed":
+        if r.get("status") in COMPLETE_REPORT_STATUSES:
             a["completed"] += 1
 
         verdict = r.get("qa_verdict")
@@ -439,7 +523,7 @@ async def delivery_review(report_id: str, user: Dict[str, Any] = Depends(get_cur
     the QA outcome with its actual findings, and the invoice. Admin only."""
     require_admin(user)
 
-    report = get_report(report_id)
+    report = _slim_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
@@ -476,14 +560,33 @@ async def delivery_invoice(
     """
     require_admin(user)
 
-    report = get_report(report_id)
-    if report is None:
+    if _slim_report(report_id, with_qa=False) is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
     resolved_order_id, order, client = _order_for_report(report_id, order_id)
     companies = get_order_companies(resolved_order_id)
 
-    invoice = calculate_invoice(order, client)
+    # The invoice the client is actually billed — the stored one — when it
+    # exists. Otherwise price it the way /invoices/generate would: with the
+    # client's invoice history (pilot pricing applies to the FIRST invoice
+    # only) and the real company names.
+    stored = get_order_invoice(resolved_order_id)
+    if stored:
+        invoice = {**stored, "line_items": stored.get("line_items") or [], "stored": True}
+    else:
+        pricing_order = {
+            **order,
+            "companies": [
+                {"company_name": c.get("company_name") or f"Company {i}"}
+                for i, c in enumerate(companies, start=1)
+            ],
+            "company_count": len(companies) or order.get("company_count"),
+        }
+        pricing_client = {
+            **client,
+            "invoice_count": len(get_all_invoices({"client_id": client.get("id")})) if client.get("id") else 0,
+        }
+        invoice = {**calculate_invoice(pricing_order, pricing_client), "stored": False}
 
     return {
         "order_id": resolved_order_id,
@@ -500,18 +603,56 @@ async def delivery_invoice(
     }
 
 
+def _header_safe(text: Any, limit: int = 200) -> str:
+    """Collapse CR/LF and other control characters — a newline in a company
+    name would otherwise break the Subject header (ValueError → 500)."""
+    return re.sub(r"[\x00-\x1f\x7f]+", " ", str(text or "")).strip()[:limit]
+
+
+def _attachment_name(company: str, ext: str) -> str:
+    stem = re.sub(r"[^\w\- ]+", "", company, flags=re.UNICODE).strip().replace(" ", "_")[:80]
+    return f"Valyze_Credit_Report_{stem or 'report'}{ext}"
+
+
+async def _rendered_report_html(report_id: str) -> Optional[bytes]:
+    """The report rendered by the same renderer as the PDF preview — the
+    document the client would print to PDF. None if it cannot be rendered."""
+    try:
+        from database.crud import get_report as crud_get_report
+        from pdf_generator import PDFGenerator
+
+        report = await crud_get_report(None, report_id)
+        if report is None:
+            return None
+        html_doc = PDFGenerator().get_html_preview(report.model_dump())
+    except Exception as exc:
+        logger.error(f"[DELIVERY] Could not render report {report_id} for attachment: {exc}")
+        return None
+    if not html_doc or len(html_doc) < 100:
+        return None
+    return html_doc.encode("utf-8")
+
+
 @router.post("/{report_id}/send")
 async def send_report(
     report_id: str,
+    resend: bool = False,
+    pdf: Optional[UploadFile] = File(None),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Deliver a report to its client.
 
-    Disabled unless DELIVERY_SEND_ENABLED is explicitly set. The email transport
-    is deliberately NOT implemented here — wire it to the provider this project
-    actually uses, verify it against a test address, and only then turn the flag
-    on. Shipping a guessed provider would either fail silently or mail the wrong
-    document to a paying customer.
+    Disabled unless DELIVERY_SEND_ENABLED is explicitly set.
+
+    What is attached (the email says exactly that):
+      * `pdf` (optional multipart upload) — the final PDF the admin produced
+        (Print → Save as PDF from the preview). Mind the ~4.5 MB request limit.
+      * otherwise the report rendered as an HTML document by the same renderer
+        as the PDF preview; the client opens it in a browser (and can print it
+        to PDF). There is no server-side PDF engine on Vercel.
+    Nothing is sent — and the report is not marked delivered — if no
+    attachment can be produced. A report already delivered is refused unless
+    `resend=true`.
     """
     require_admin(user)
 
@@ -524,7 +665,7 @@ async def send_report(
             ),
         )
 
-    report = get_report(report_id)
+    report = _slim_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
 
@@ -532,6 +673,12 @@ async def send_report(
         raise HTTPException(
             status_code=400,
             detail="This report has not passed QA. Run the QA check and resolve the findings first.",
+        )
+
+    if report.get("delivered_at") and not resend:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This report was already delivered on {report.get('delivered_at')}. Send again with resend=true.",
         )
 
     if configured_transport() is None:
@@ -545,22 +692,51 @@ async def send_report(
             detail="This client has no email address on file. Add one before sending.",
         )
 
-    company = report.get("company_name") or "your company"
-    subject = f"Valyze Credit Report — {company}"
+    company = _header_safe(report.get("company_name") or "your company")
+
+    if pdf is not None:
+        blob = await pdf.read()
+        if not blob.startswith(b"%PDF"):
+            raise HTTPException(status_code=400, detail="The uploaded file is not a PDF.")
+        attachment = (_attachment_name(company, ".pdf"), blob)
+        attached_as = "pdf"
+        attachment_note = "is attached as a PDF."
+    else:
+        blob = await _rendered_report_html(report_id)
+        if blob is None:
+            raise HTTPException(
+                status_code=422,
+                detail="The report could not be rendered for attachment, so nothing was sent.",
+            )
+        attachment = (_attachment_name(company, ".html"), blob)
+        attached_as = "html"
+        attachment_note = (
+            "is attached as an HTML document. Open it in any web browser to read it; "
+            "to keep a PDF copy, use your browser's Print &rarr; Save as PDF."
+        )
+    if len(attachment[1]) > MAX_ATTACHMENT_BYTES:
+        raise HTTPException(status_code=413, detail="The report attachment is too large to email.")
+
+    subject = _header_safe(f"Valyze Credit Report — {company}")
     html = (
-        f"<p>Dear {escape(str(client.get('client_name') or 'client'))},</p>"
-        f"<p>Your Valyze credit report for <strong>{escape(str(company))}</strong> is attached.</p>"
+        f"<p>Dear {escape(_header_safe(client.get('client_name') or 'client'))},</p>"
+        f"<p>Your Valyze credit report for <strong>{escape(company)}</strong> {attachment_note}</p>"
         f"<p>Order: {escape(str(order.get('order_number') or '—'))}</p>"
         "<p>Thank you for working with Valyze.</p>"
     )
 
     try:
-        transport = send_email(to=[recipient], subject=subject, html=html)
+        transport = send_email(to=[recipient], subject=subject, html=html, attachments=[attachment])
     except RuntimeError as exc:
         # These messages are written to be safe to show a user — they name the
         # remedy (app password, blocked SMTP port) and never echo upstream detail.
         raise HTTPException(status_code=502, detail=str(exc))
+    except ValueError as exc:
+        # e.g. an address or header the mail library refuses. Nothing was sent.
+        logger.error(f"[DELIVERY] Mail for report {report_id} rejected before sending: {exc}")
+        raise HTTPException(status_code=400, detail="The email could not be built (invalid address or header). Nothing was sent.")
 
+    # Only reached when the provider accepted the message.
     marked = _patch_report(report_id, {"delivered_at": datetime.now(timezone.utc).isoformat()})
     if not marked:
         logger.error(
@@ -572,6 +748,8 @@ async def send_report(
         "sent": True,
         "transport": transport,
         "to": recipient,
+        "attached_as": attached_as,
+        "resent": bool(report.get("delivered_at")),
         # Never silently imply the queue updated when it did not — a re-send
         # would email the client twice.
         "marked_delivered": marked,

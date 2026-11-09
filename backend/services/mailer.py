@@ -30,6 +30,7 @@ dashboard; this module only reads them.
 from __future__ import annotations
 
 import logging
+import mimetypes
 import os
 import smtplib
 import ssl
@@ -128,9 +129,9 @@ def _send_via_smtp(
     msg.add_alternative(html, subtype="html")
 
     for name, blob in attachments:
-        msg.add_attachment(
-            blob, maintype="application", subtype="octet-stream", filename=name
-        )
+        mime, _ = mimetypes.guess_type(name)
+        maintype, subtype = (mime or "application/octet-stream").split("/", 1)
+        msg.add_attachment(blob, maintype=maintype, subtype=subtype, filename=name)
 
     host = os.getenv("SMTP_HOST", "").strip()
     port = int(os.getenv("SMTP_PORT", "587"))

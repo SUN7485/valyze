@@ -11,8 +11,11 @@ needs no schema migration and cannot break any existing write path.
 Matching strategy (heuristic, v1):
 - The registration/CR number is the strong key: same CR ⇒ same company,
   whatever the name says.
-- Otherwise fall back to a normalized company name (legal suffixes stripped,
-  case-folded, punctuation and Arabic orthography normalized) scoped by country.
+- Otherwise fall back to a normalized company name (legal-form suffixes
+  stripped, case-folded, punctuation and Arabic orthography normalized) scoped
+  by country. Descriptive words such as "trading", "holding" or "group" are
+  KEPT: "X Trading" and "X Holding" are usually different legal entities, and
+  merging them would put one company's reports in another's dossier.
 """
 
 from __future__ import annotations
@@ -22,16 +25,25 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from services.supabase_client import get_base_url, get_headers, search_reports
+from services.supabase_client import (
+    encode_query,
+    get_base_url,
+    get_headers,
+    ilike_contains,
+    quote_or_value,
+    search_reports,
+)
 
 # Tokens that carry no identifying information — dropped before comparing names.
-# English + common MENA legal forms and generic descriptors.
+# Only legal-form markers and connective words: descriptive words that tell two
+# entities apart ("trading", "holding", "group", القابضة …) are deliberately NOT
+# here.
 _LEGAL_STOPWORDS = {
     "llc", "lc", "ltd", "limited", "co", "company", "corp", "corporation",
-    "inc", "incorporated", "plc", "wll", "est", "establishment", "group",
-    "holding", "holdings", "trading", "trade", "and", "the", "for", "of",
-    # Arabic generic/legal tokens (after punctuation is stripped to letters)
-    "شركة", "شركه", "ذمم", "ش", "ذ", "م", "مساهمة", "مساهمه", "القابضة", "القابضه",
+    "inc", "incorporated", "plc", "wll", "est", "establishment",
+    "and", "the", "for", "of",
+    # Arabic legal-form tokens (after punctuation is stripped to letters)
+    "شركة", "شركه", "ذمم", "ش", "ذ", "م", "مساهمة", "مساهمه",
 }
 
 
@@ -39,8 +51,9 @@ def normalize_company_name(name: Optional[str]) -> str:
     """Collapse a company name to a comparison key.
 
     Lowercases, normalizes Arabic orthography (hamza forms → ا, ى → ي, ة → ه),
-    turns punctuation into spaces, and drops legal-form / generic stopword
-    tokens. "ACME Trading L.L.C." and "acme trading co" both → "acme".
+    turns punctuation into spaces, and drops legal-form stopword tokens.
+    "ACME Trading L.L.C." and "acme trading co" both → "acme trading";
+    "ACME Holding" stays "acme holding" (a different entity).
     """
     if not name:
         return ""
@@ -94,25 +107,31 @@ def _search_order_companies(
     country: Optional[str] = None,
     limit: int = 100,
 ) -> List[Dict[str, Any]]:
+    """ilike search over order_companies.
+
+    `company_name` and `registration_no` are ORed (a row matching either is a
+    candidate — the caller tightens to one identity), `country` is ANDed.
+    Values go through encode_query so they are percent-encoded exactly once.
+    """
     select = "id,order_id,company_name,country,registration_no,client_ref,status,created_at,updated_at"
-    parts = [f"select={select}"]
+    params: List[tuple] = [("select", select)]
 
-    def _ilike(col: str, val: str) -> None:
-        parts.append(f"{col}=ilike.%{requests.utils.quote(str(val).strip(), safe='')}%")
-
-    if company_name:
-        _ilike("company_name", company_name)
-    if registration_no:
-        _ilike("registration_no", registration_no)
-    if country:
-        _ilike("country", country)
+    alternatives: List[str] = []
+    if company_name and str(company_name).strip():
+        alternatives.append(f"company_name.ilike.{quote_or_value(ilike_contains(company_name))}")
+    if registration_no and str(registration_no).strip():
+        alternatives.append(f"registration_no.ilike.{quote_or_value(ilike_contains(registration_no))}")
     if q and q.strip():
-        qq = requests.utils.quote(q.strip(), safe="")
-        parts.append(f"or=(company_name.ilike.%{qq}%,registration_no.ilike.%{qq}%)")
-    parts.append("order=updated_at.desc.nullslast")
-    parts.append(f"limit={int(limit)}")
+        qq = quote_or_value(ilike_contains(q))
+        alternatives.extend([f"company_name.ilike.{qq}", f"registration_no.ilike.{qq}"])
+    if alternatives:
+        params.append(("or", f"({','.join(alternatives)})"))
+    if country and str(country).strip():
+        params.append(("country", f"ilike.{ilike_contains(country)}"))
+    params.append(("order", "updated_at.desc.nullslast"))
+    params.append(("limit", int(limit)))
 
-    url = f"{get_base_url()}/order_companies?{'&'.join(parts)}"
+    url = f"{get_base_url()}/order_companies?{encode_query(params)}"
     try:
         resp = requests.get(url, headers=get_headers(), timeout=30)
         if resp.status_code >= 400:
@@ -120,6 +139,49 @@ def _search_order_companies(
         return resp.json() or []
     except Exception:
         return []
+
+
+# Letters that normalize_company_name folds together. In a DB prefilter they
+# become the SQL single-character wildcard `_`, so "احمد" still finds "أحمد".
+_FOLDED_LETTERS = set("اأإآيىئهةوؤ")
+
+_GENERIC_TOKENS = {
+    "trading", "trade", "holding", "holdings", "group", "international",
+    "general", "services", "industries", "industrial", "contracting",
+    "investment", "investments", "enterprises", "global", "national",
+    "للتجاره", "التجاريه", "القابضه", "مجموعه", "موسسه", "للمقاولات", "العامه",
+}
+
+
+def distinctive_token(name: Optional[str]) -> str:
+    """The most identifying word of a company name, for a broad DB prefilter.
+
+    The raw typed name ("acme trading co.") rarely matches the stored spelling
+    ("ACME Trading L.L.C.") as a substring; its longest normalized token does.
+    """
+    tokens = normalize_company_name(name).split()
+    if not tokens:
+        return ""
+    # Common descriptors are kept in the identity key but make poor search
+    # terms ("trading" matches half the table) — prefer any other word.
+    specific = [t for t in tokens if t not in _GENERIC_TOKENS] or tokens
+    token = max(specific, key=len)
+    return "".join("_" if ch in _FOLDED_LETTERS else ch for ch in token)
+
+
+def _same_company(row: Dict[str, Any], ncr: str, nname: str, ncountry: str) -> bool:
+    """Does `row` describe the queried company?
+
+    Two CRs decide it on their own. Otherwise the normalized names must agree,
+    and the countries too when both sides state one.
+    """
+    row_cr = normalize_cr(row.get("cr_number"))
+    if ncr and row_cr:
+        return row_cr == ncr
+    if not nname or normalize_company_name(row.get("company_name")) != nname:
+        return False
+    row_country = _norm_country(row.get("country"))
+    return not ncountry or not row_country or row_country == ncountry
 
 
 # ---------------------------------------------------------------------------
@@ -183,30 +245,36 @@ def find_company_dossier(
     """
     reports: List[Dict[str, Any]] = []
     orders: List[Dict[str, Any]] = []
+    # Prefilter broadly — the CR on its own, and/or the name's most distinctive
+    # token (never the raw typed name, whose spelling rarely matches) — then
+    # tighten to one identity in Python with _same_company.
+    token = distinctive_token(company_name)
     try:
-        if cr_number:
-            reports = search_reports(cr_number=cr_number, limit=100)
-        if not reports and company_name:
-            reports = search_reports(company_name=company_name, country=country, limit=100)
+        by_id: Dict[Any, Dict[str, Any]] = {}
+        if cr_number and str(cr_number).strip():
+            for r in search_reports(cr_number=cr_number, limit=100):
+                by_id[r.get("id")] = r
+        if token:
+            for r in search_reports(company_name=token, limit=100):
+                by_id.setdefault(r.get("id"), r)
+        reports = list(by_id.values())
     except Exception:
         reports = []
 
-    orders = _search_order_companies(
-        company_name=company_name,
-        registration_no=cr_number,
-        country=country,
-        limit=100,
-    )
+    if cr_number or token:
+        orders = _search_order_companies(
+            company_name=token or None,
+            registration_no=cr_number,
+            limit=100,
+        )
 
     target_key = canonical_key(company_name, cr_number, country)
+    ncr = normalize_cr(cr_number)
+    nname = normalize_company_name(company_name)
+    ncountry = _norm_country(country)
     rows = [_report_row(r) for r in reports] + [_order_row(c) for c in orders]
 
-    # Keep only rows that resolve to the same canonical identity as the query
-    # (the ilike search is deliberately broad; this tightens it to one company).
-    matched = [
-        row for row in rows
-        if canonical_key(row.get("company_name"), row.get("cr_number"), row.get("country")) == target_key
-    ] if target_key else rows
+    matched = [row for row in rows if _same_company(row, ncr, nname, ncountry)] if target_key else []
 
     if not matched:
         return {

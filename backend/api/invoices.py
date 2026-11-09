@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import html
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from api.auth import get_current_user
-from services.pricing_engine import calculate_invoice, generate_invoice_number
+from api.auth import get_current_user, require_admin
+from services.pricing_engine import calculate_invoice, create_numbered_invoice, recompute_totals
 from services.supabase_client import (
-    create_invoice as sb_create_invoice,
     get_all_invoices as sb_get_all_invoices,
     get_client,
     get_invoice as sb_get_invoice,
@@ -19,9 +19,12 @@ from services.supabase_client import (
     get_order_companies,
     get_order_invoice,
     get_order_with_client,
+    get_rows_by_ids,
     update_invoice as sb_update_invoice,
     update_order,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["invoices"])
 
@@ -36,11 +39,13 @@ class UpdateInvoiceRequest(BaseModel):
     status: Optional[Literal["draft", "sent", "paid"]] = None
     notes: Optional[str] = None
     line_items: Optional[List[Dict[str, Any]]] = None
-    subtotal: Optional[float] = None
-    discount_amount: Optional[float] = None
-    total: Optional[float] = None
-    unit_price: Optional[float] = None
-    company_count: Optional[int] = None
+    # subtotal/total are accepted for compatibility but IGNORED: the server
+    # recomputes both from line_items and discount_amount.
+    subtotal: Optional[float] = Field(default=None, ge=0)
+    discount_amount: Optional[float] = Field(default=None, ge=0)
+    total: Optional[float] = Field(default=None, ge=0)
+    unit_price: Optional[float] = Field(default=None, ge=0)
+    company_count: Optional[int] = Field(default=None, ge=0)
     service_level: Optional[str] = None
     report_type: Optional[str] = None
 
@@ -79,8 +84,8 @@ def _pricing_order(order: Dict[str, Any], companies: List[Dict[str, Any]]) -> Di
 
 
 def _invoice_payload(order: Dict[str, Any], client: Dict[str, Any], pricing: Dict[str, Any]) -> Dict[str, Any]:
+    # invoice_number is allocated by create_numbered_invoice (collision-safe).
     return {
-        "invoice_number": generate_invoice_number(),
         "order_id": order.get("id"),
         "client_id": client.get("id"),
         "service_level": order.get("service_level"),
@@ -119,9 +124,11 @@ def _enrich_invoice_summary(invoice: Dict[str, Any]) -> Dict[str, Any]:
     client = invoice.get("client")
     order = invoice.get("order")
 
-    if not client and invoice.get("client_id"):
+    # The list endpoint pre-loads both (a dict, possibly empty for a dangling
+    # id); only fetch when nothing was supplied at all.
+    if client is None and invoice.get("client_id"):
         client = get_client(invoice["client_id"])
-    if not order and invoice.get("order_id"):
+    if order is None and invoice.get("order_id"):
         order = get_order(invoice["order_id"])
 
     if isinstance(client, dict):
@@ -272,34 +279,7 @@ def _render_invoice_html(invoice: Dict[str, Any]) -> str:
 """
 
 
-@router.post("/generate/{order_id}")
-async def generate_invoice(
-    order_id: str = PathParam(..., description="Order id"),
-    user: Dict[str, Any] = Depends(get_current_user),
-):
-    order, client = _get_order_and_client(order_id)
-    if order.get("status") != "completed":
-        raise HTTPException(status_code=400, detail="Only completed orders can be invoiced")
-
-    company_count = int(order.get("company_count") or 0)
-    completed_count = int(order.get("completed_count") or 0)
-    if company_count <= 0 or completed_count < company_count:
-        raise HTTPException(status_code=400, detail="Order is not fully completed")
-
-    if get_order_invoice(order_id):
-        raise HTTPException(status_code=409, detail="Invoice already exists for this order")
-
-    companies = get_order_companies(order_id)
-    existing_invoices = sb_get_all_invoices({"client_id": client.get("id")})
-    pricing_order = _pricing_order(order, companies)
-    pricing_client = _pricing_client(client, len(existing_invoices))
-    pricing = calculate_invoice(pricing_order, pricing_client)
-    payload = _invoice_payload(order, client, pricing)
-
-    created = sb_create_invoice(payload)
-    if not created:
-        raise HTTPException(status_code=500, detail="Failed to create invoice")
-
+def _mark_order_invoiced(order_id: str) -> None:
     updated = update_order(
         order_id,
         {
@@ -310,6 +290,46 @@ async def generate_invoice(
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update order status")
 
+
+@router.post("/generate/{order_id}")
+async def generate_invoice(
+    order_id: str = PathParam(..., description="Order id"),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    require_admin(user)
+    order, client = _get_order_and_client(order_id)
+
+    # Idempotent: an order has at most one invoice. If it already exists (e.g.
+    # auto-created when the last company was completed), adopt it — make sure
+    # the order says "invoiced" and return it — instead of a 409 dead end.
+    existing = get_order_invoice(order_id)
+    if existing:
+        if order.get("status") == "completed":
+            _mark_order_invoiced(order_id)
+        return _enrich_invoice_detail(existing)
+
+    if order.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="Only completed orders can be invoiced")
+
+    # Derive completion from the companies themselves, not stored counters.
+    companies = get_order_companies(order_id)
+    if not companies or any(c.get("status") != "completed" for c in companies):
+        raise HTTPException(status_code=400, detail="Order is not fully completed")
+
+    existing_invoices = sb_get_all_invoices({"client_id": client.get("id")})
+    pricing_order = _pricing_order(order, companies)
+    pricing_order["company_count"] = len(companies)
+    pricing_client = _pricing_client(client, len(existing_invoices))
+    pricing = calculate_invoice(pricing_order, pricing_client)
+    payload = _invoice_payload(order, client, pricing)
+
+    try:
+        created = create_numbered_invoice(payload)
+    except Exception as exc:
+        logger.error(f"[INVOICES] Invoice creation failed for order {order_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to create invoice")
+
+    _mark_order_invoiced(order_id)
     return _enrich_invoice_detail(created)
 
 
@@ -324,7 +344,19 @@ async def list_invoices(
         filters["status"] = status
     if client_id:
         filters["client_id"] = client_id
-    invoices = sb_get_all_invoices(filters)
+    invoices = sb_get_all_invoices(filters, embed=True)
+
+    # One embedded request normally carries client + order. If this database
+    # rejected the embed, batch-load them (two requests) — never one per row.
+    missing_clients = [i.get("client_id") for i in invoices if not isinstance(i.get("client"), dict) and i.get("client_id")]
+    missing_orders = [i.get("order_id") for i in invoices if not isinstance(i.get("order"), dict) and i.get("order_id")]
+    clients = {c.get("id"): c for c in get_rows_by_ids("clients", missing_clients, "id,client_name,valyze_id,email")} if missing_clients else {}
+    orders = {o.get("id"): o for o in get_rows_by_ids("orders", missing_orders, "id,order_number")} if missing_orders else {}
+    for invoice in invoices:
+        if not isinstance(invoice.get("client"), dict):
+            invoice["client"] = clients.get(invoice.get("client_id")) or {}
+        if not isinstance(invoice.get("order"), dict):
+            invoice["order"] = orders.get(invoice.get("order_id")) or {}
     return [_enrich_invoice_summary(invoice) for invoice in invoices]
 
 
@@ -345,6 +377,7 @@ async def update_invoice_status(
     body: UpdateInvoiceStatusRequest,
     user: Dict[str, Any] = Depends(get_current_user),
 ):
+    require_admin(user)
     invoice = sb_get_invoice(invoice_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
@@ -359,7 +392,7 @@ async def update_invoice_status(
         },
     )
     if not updated:
-        raise HTTPException(status_code=500, detail="Failed to update invoice")
+        raise HTTPException(status_code=404, detail="Invoice not found")
     return _enrich_invoice_detail(updated)
 
 
@@ -369,6 +402,7 @@ async def update_invoice(
     body: UpdateInvoiceRequest,
     user: Dict[str, Any] = Depends(get_current_user),
 ):
+    require_admin(user)
     invoice = sb_get_invoice(invoice_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
@@ -378,14 +412,18 @@ async def update_invoice(
         updates["status"] = body.status
     if body.notes is not None:
         updates["notes"] = body.notes
-    if body.line_items is not None:
-        updates["line_items"] = body.line_items
-    if body.subtotal is not None:
-        updates["subtotal"] = body.subtotal
-    if body.discount_amount is not None:
-        updates["discount_amount"] = body.discount_amount
-    if body.total is not None:
-        updates["total"] = body.total
+
+    # Money is computed here, never taken from the client: subtotal and total
+    # are derived from the line items and the (non-negative) discount, so an
+    # edited invoice always adds up. Client-sent subtotal/total are ignored.
+    if body.line_items is not None or body.discount_amount is not None:
+        line_items = body.line_items if body.line_items is not None else (invoice.get("line_items") or [])
+        discount = body.discount_amount if body.discount_amount is not None else (invoice.get("discount_amount") or 0)
+        try:
+            totals = recompute_totals(line_items, discount)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid invoice amounts: {exc}")
+        updates.update(totals)
     if body.unit_price is not None:
         updates["unit_price"] = body.unit_price
     if body.company_count is not None:
@@ -398,7 +436,7 @@ async def update_invoice(
 
     updated = sb_update_invoice(invoice_id, updates)
     if not updated:
-        raise HTTPException(status_code=500, detail="Failed to update invoice")
+        raise HTTPException(status_code=404, detail="Invoice not found")
     return _enrich_invoice_detail(updated)
 
 
