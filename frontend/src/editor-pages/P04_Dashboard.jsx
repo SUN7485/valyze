@@ -19,7 +19,7 @@ export default function P04_ExecutiveSummary() {
     }
   }
 
-  const RegenButton = ({ section }) => (
+  const renderRegenButton = (section) => (
     <button
       onClick={() => handleRegenerate(section)}
       className="flex items-center gap-1 text-[10px] font-bold text-blue-600 dark:text-blue-400
@@ -44,7 +44,7 @@ export default function P04_ExecutiveSummary() {
           <h3 className="text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em]">
             Company Overview
           </h3>
-          <RegenButton section="executive_summary" />
+          {renderRegenButton('executive_summary')}
         </div>
         <FieldInput
           label=""
@@ -62,7 +62,7 @@ export default function P04_ExecutiveSummary() {
           <h3 className="text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em]">
             Company History
           </h3>
-          <RegenButton section="company_history" />
+          {renderRegenButton('company_history')}
         </div>
         <FieldInput
           label=""

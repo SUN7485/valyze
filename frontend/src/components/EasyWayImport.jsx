@@ -29,7 +29,7 @@ export default function EasyWayImport({
   }
 
   // ── STEP: INTRO ──
-  const IntroStep = () => (
+  const renderIntroStep = () => (
     <div className="text-center py-6">
       <div className="text-7xl mb-4">⚡</div>
       <h2 className="text-2xl font-bold text-gray-800 mb-3">
@@ -110,7 +110,7 @@ export default function EasyWayImport({
   )
 
   // ── STEP: PASTE ──
-  const PasteStep = () => (
+  const renderPasteStep = () => (
     <div>
       <div className="flex items-center gap-3 mb-4">
         <button 
@@ -175,7 +175,7 @@ export default function EasyWayImport({
   )
 
   // ── STEP: PREVIEW ──
-  const PreviewStep = () => {
+  const renderPreviewStep = () => {
     if (!parsed) return null
 
     // ── Pull top-level sections from JSON ──────────────────────────
@@ -474,7 +474,7 @@ export default function EasyWayImport({
   }
 
   // ── STEP: DONE ──
-  const DoneStep = () => (
+  const renderDoneStep = () => (
     <div className="text-center py-8">
       <div className="text-7xl mb-4">🎉</div>
       <h3 className="text-2xl font-bold text-gray-800 mb-2">
@@ -583,10 +583,10 @@ export default function EasyWayImport({
                       w-full max-w-2xl max-h-[90vh] 
                       overflow-y-auto">
         <div className="p-6">
-          {step === 'intro'   && <IntroStep />}
-          {step === 'paste'   && <PasteStep />}
-          {step === 'preview' && <PreviewStep />}
-          {step === 'done'    && <DoneStep />}
+          {step === 'intro'   && renderIntroStep()}
+          {step === 'paste'   && renderPasteStep()}
+          {step === 'preview' && renderPreviewStep()}
+          {step === 'done'    && renderDoneStep()}
         </div>
       </div>
     </div>
