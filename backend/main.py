@@ -1,9 +1,10 @@
 """
-Valyze Credit Backend — Main Application
+Valyze Credit Backend — local development server.
+
+Production runs api/index.py on Vercel; this file is only for local dev.
 
 How to run:
     pip install -r requirements.txt
-    docker compose up -d gotenberg
     uvicorn main:app --reload --port 8000
 
 The API will be available at http://localhost:8000

@@ -1,3 +1,4 @@
+-- (Formerly backend/migrations/004. Skip if constraint invoices_order_id_unique already exists.)
 -- Migration: Add unique constraint on invoices.order_id
 -- Purpose: Prevent duplicate invoices for the same order (FIX 4)
 -- Run this in Supabase SQL Editor before deploying the backend changes

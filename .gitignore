@@ -86,3 +86,9 @@ valyze-extractor/dist/
 
 # Local planning artifacts (handoff missions for /qc) — keep out of the repo
 .claude/handoffs/
+
+# Local AI-tool / scratch state — never commit
+.kilo/
+.playwright-mcp/
+*.db
+backend/outputs/

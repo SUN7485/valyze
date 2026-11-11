@@ -13,17 +13,5 @@ outputs/
 *.pdf
 *.log
 
-# Tests and local scripts
+# Tests are not needed in the serverless bundle
 tests/
-patch_report.py
-patch_report.cjs
-fix_install.cjs
-fix_layout.cjs
-# Heavy optional AI/extraction modules not registered by the Vercel entrypoint
-ai/
-calculations/
-engines/
-api/extract.py
-api/extract_backup.py
-api/extract_clean.py
-api/generate.py
