@@ -143,10 +143,12 @@ class TestIsSectionEmpty:
         assert is_section_empty(fields, ["a", "b", "c"]) is False
 
     def test_with_hidden(self):
+        # "a" has data but is hidden, "b" is empty -> nothing visible -> section empty
+        fields = {"a": "val", "b": ""}
+        assert is_section_empty(fields, ["a", "b"], ["a"]) is True
+        # ...but if "b" has data the section is still visible
         fields = {"a": "val", "b": "other"}
-        hidden = ["a"]  # a is hidden
-        # Section is empty if only a was visible but hidden, and b is empty? Actually b empty → hidden → section empty
-        assert is_section_empty(fields, ["a", "b"], hidden) is True
+        assert is_section_empty(fields, ["a", "b"], ["a"]) is False
 
     def test_non_empty_visible(self):
         fields = {"a": "val", "b": "N/A"}
