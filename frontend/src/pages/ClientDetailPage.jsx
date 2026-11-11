@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Search, Plus, Eye, Edit3, Trash2, X, Loader2, Copy, CheckCircle, Clock, AlertTriangle, Key, ExternalLink, CopyCheck, FileText } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { Search, Plus, Edit3, Trash2, X, Loader2, Copy, AlertTriangle, Key, ExternalLink, CopyCheck, FileText } from 'lucide-react'
 import { clientsAPI, invoicesAPI } from '../api/client'
 
 function Modal({ isOpen, onClose, title, children }) {

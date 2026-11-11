@@ -1,5 +1,4 @@
 // ============ P02_OrderSummary.jsx ============
-import React from 'react'
 import FieldInput from '../components/FieldInput'
 
 export default function P02_OrderSummary() {

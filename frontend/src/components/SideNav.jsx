@@ -1,6 +1,5 @@
-import React from 'react'
 import { useReport } from '../context/ReportContext'
-import { CheckCircle, Circle, AlertCircle, Trash2, LayoutDashboard, FileText, Settings, Database, ShieldCheck, Activity, Search, Bell, Paperclip, User, Globe, Newspaper, Scale, AlertTriangle, Landmark, PiggyBank, Briefcase, Users, Building, ClipboardCheck } from 'lucide-react'
+import { CheckCircle, Circle, AlertCircle, Trash2, LayoutDashboard, FileText, Database, ShieldCheck, Activity, Search, Bell, Paperclip, Globe, Newspaper, Scale, AlertTriangle, Landmark, PiggyBank, Briefcase, Users, Building, ClipboardCheck } from 'lucide-react'
 
 const PAGES = [
     { id: 1, label: "Cover Page", icon: <FileText size={18} /> },

@@ -1,5 +1,4 @@
 // ============ P08_Operations.jsx ============
-import React from 'react'
 import FieldInput from '../components/FieldInput'
 
 export default function P08_Operations() {

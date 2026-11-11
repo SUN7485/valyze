@@ -5,7 +5,7 @@
 //
 // Three QA states, deliberately never collapsed into two:
 //   Passed / Failed / Not checked. "Not checked" is NOT a pass and blocks sending.
-import React, { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { deliveryAPI } from '../api/client'
 import {

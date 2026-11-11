@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Search, Plus, Edit3, Trash2, X, Loader2, CheckSquare, Square,
@@ -166,7 +166,7 @@ function ClientFormModal({ isOpen, onClose, onSubmit, client }) {
                             className="w-full px-3 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white"
                         >
                             {CLIENT_TYPES.map(t => (
-                                <option key={t} value={t}>{t}</option>
+                                <option key={t} value={t}>{CLIENT_TYPE_LABELS[t]}</option>
                             ))}
                         </select>
                     </div>

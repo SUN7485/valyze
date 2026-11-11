@@ -1,4 +1,3 @@
-import React from 'react'
 import { CheckCircle2, AlertTriangle, XCircle, Calculator, UserRoundPen, Settings2, Sparkles } from 'lucide-react'
 
 export default function ConfidenceBadge({ confidence, fieldSource }) {

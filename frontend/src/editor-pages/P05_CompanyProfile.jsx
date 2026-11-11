@@ -1,5 +1,5 @@
 // ============ P05_CompanyProfile.jsx ============
-import React, { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
 import PhoneNumbersEditor from '../components/PhoneNumbersEditor'

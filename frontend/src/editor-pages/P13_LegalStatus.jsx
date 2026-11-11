@@ -1,5 +1,4 @@
 // ============ P13_LegalStatus.jsx ============
-import React from 'react'
 import FieldInput from '../components/FieldInput'
 import GenericTableEditor from '../components/GenericTableEditor'
 import { useReport } from '../context/ReportContext'

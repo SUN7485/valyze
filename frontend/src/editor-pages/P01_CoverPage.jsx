@@ -1,5 +1,4 @@
 // ============ P01_CoverPage.jsx ============
-import React from 'react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
 

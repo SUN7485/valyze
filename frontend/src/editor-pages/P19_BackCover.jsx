@@ -1,5 +1,4 @@
 // ============ P19_BackCover.jsx ============
-import React from 'react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
 import { ShieldCheck, Lock, CheckCircle2 } from 'lucide-react'

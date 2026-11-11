@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { useReport } from '../context/ReportContext'
 import ConfidenceBadge from './ConfidenceBadge'
 import { Trash2, Eye, EyeOff, Info, Wand2, ShieldCheck, Lock, CheckCircle, Activity, AlertTriangle } from 'lucide-react'

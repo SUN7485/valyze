@@ -1,5 +1,4 @@
 // ============ P14_News.jsx ============
-import React from 'react'
 import { useReport } from '../context/ReportContext'
 import GenericTableEditor from '../components/GenericTableEditor'
 

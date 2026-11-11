@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-    AlertTriangle, ArrowLeft, Ban, CalendarClock, CheckCircle2, Clock, Download,
+    AlertTriangle, ArrowLeft, CalendarClock, CheckCircle2, Clock, Download,
     FileText, Gauge, History, Loader2, MapPin, PencilLine, Phone, PlayCircle,
     RefreshCw, Trash2, User, UserCheck,
 } from 'lucide-react'

@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { Plus, Edit2, Trash2, X, Check, Database, ListPlus } from 'lucide-react'
+import { useState } from 'react'
+import { Edit2, Trash2, X, Check, Database, ListPlus } from 'lucide-react'
 
 export default function ArrayEditor({
     arrayName,

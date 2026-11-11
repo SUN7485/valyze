@@ -1,5 +1,4 @@
 // ============ P17_Monitoring.jsx ============
-import React from 'react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
 import GenericTableEditor from '../components/GenericTableEditor'

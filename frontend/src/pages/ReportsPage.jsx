@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Download, Trash2, Edit3, ChevronDown, X, FileText, Database, Loader2, Cloud, RefreshCw, FolderOutput, CheckSquare, Square, HardDrive } from 'lucide-react'
 import { reportAPI } from '../api/client'
@@ -27,7 +27,6 @@ const EXPORT_FORMATS = [
     { id: 'docx', label: 'Word', ext: 'docx' },
 ]
 
-const PAGE_SIZE = 50
 
 function LocationBadge({ location }) {
     if (location === 'cloud' || location === 'both') {

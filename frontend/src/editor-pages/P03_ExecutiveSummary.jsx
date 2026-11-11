@@ -1,5 +1,5 @@
 // ============ P03_ExecutiveSummary.jsx ============
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { AlertCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'

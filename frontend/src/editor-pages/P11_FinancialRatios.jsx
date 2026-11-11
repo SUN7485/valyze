@@ -1,8 +1,7 @@
 // ============ P11_FinancialRatios.jsx ============
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
-import RatioStatusBadge from '../components/RatioStatusBadge'
 import { Info, ChevronDown, ChevronUp } from 'lucide-react'
 
 const STATUS_OPTIONS = [

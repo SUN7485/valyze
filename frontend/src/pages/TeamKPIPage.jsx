@@ -6,7 +6,7 @@
 // as their own column, never folded into "passed". A coverage figure sits next to
 // every quality number so nobody reads a score built on three reviewed reports as
 // if it described thirty.
-import React, { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { deliveryAPI } from '../api/client'
 import {
     TrendingUp, AlertCircle, Loader2, Lock, RefreshCw,

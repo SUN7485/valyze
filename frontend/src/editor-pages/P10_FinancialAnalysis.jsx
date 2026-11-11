@@ -1,5 +1,4 @@
 // ============ P10_FinancialHighlights.jsx ============
-import React from 'react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
 import { FileText, TrendingUp, TrendingDown, DollarSign, Info } from 'lucide-react'

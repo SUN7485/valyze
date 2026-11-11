@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { Plus, Edit2, Trash2, X, Check } from 'lucide-react'
+import { useState } from 'react'
+import { Plus, Edit2, Trash2 } from 'lucide-react'
 
 const COUNTRY_OPTIONS = [
   { value: '🇦🇪', label: '🇦🇪 UAE (+971)', code: '+971' },

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, CalendarClock, Download, Loader2, RefreshCw, Search, Settings2, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { clientsAPI, ordersAPI } from '../api/client'
@@ -103,28 +103,6 @@ function getDueDateState(value) {
     if (diffDays === 0) return { label: 'Due today', className: 'text-orange-500 dark:text-orange-400 font-bold' }
     if (diffDays <= 2) return { label: `Due in ${diffDays}d`, className: 'text-orange-500 dark:text-orange-400 font-bold' }
     return { label: formatDate(value), className: 'text-slate-500 dark:text-slate-400' }
-}
-
-function StatusBadge({ status, dueDate }) {
-    const normalized = normalizeStatus(status)
-    const dueState = dueDate ? getDueDateState(dueDate) : null
-    
-    const getBadgeStyle = () => {
-        if (normalized === 'completed') return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800/40'
-        if (normalized === 'in_progress') return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/40'
-        if (dueState && dueState.label.startsWith('Overdue')) return 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800/40'
-        if (dueState && dueState.label.startsWith('Due in')) return 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800/40'
-        return 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800/40'
-    }
-
-    const label = normalized === 'in_progress' ? 'In Progress' : normalized === 'completed' ? 'Complete' : normalized.charAt(0).toUpperCase() + normalized.slice(1)
-
-    return (
-        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${getBadgeStyle()}`}>
-            <span className="w-1.5 h-1.5 rounded-full bg-current" />
-            {label}
-        </span>
-    )
 }
 
 function SpeedBadge({ level, dueDate }) {

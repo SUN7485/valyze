@@ -1,11 +1,9 @@
 // ============ P12_RiskAssessment.jsx ============
-import React from 'react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
-import ArrayEditor from '../components/ArrayEditor'
 import {
     ShieldCheck, ShieldAlert, TrendingDown,
-    Target, Zap, Info
+    Target, Zap
 } from 'lucide-react'
 
 const COLOR_PRESETS = [

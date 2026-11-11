@@ -1,5 +1,4 @@
 // ============ P04_ExecutiveSummary.jsx ============
-import React from 'react'
 import FieldInput from '../components/FieldInput'
 
 export default function P04_ExecutiveSummary() {

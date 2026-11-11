@@ -6,7 +6,7 @@
 // values and formatting breaks, and to return machine-applyable corrections.
 // Applying a finding writes exactly ONE field through ReportContext — never a
 // wholesale report replacement.
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useReport } from '../context/ReportContext'
 import { deliveryAPI } from '../api/client'

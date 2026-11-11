@@ -1,9 +1,8 @@
 // ============ P16_CreditRecommendation.jsx ============
-import React from 'react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
 import GenericTableEditor from '../components/GenericTableEditor'
-import { ShieldCheck, CheckCircle, TrendingUp } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 
 const COLOR_PRESETS = [
     { label: '🟢 Good', value: '#27ae60' },

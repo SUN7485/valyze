@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, ArrowRight, CalendarClock, CheckCircle2, Loader2, RefreshCw, Search, User, X } from 'lucide-react'
 import { clientsAPI, ordersAPI } from '../api/client'
@@ -61,18 +61,6 @@ function formatShortDate(value) {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-function getInitials(value) {
-    const clean = String(value || 'Valyze')
-        .replace('@valyze.com', '')
-        .split(/[\s._-]+/)
-        .filter(Boolean)
-        .map(part => part[0])
-        .join('')
-        .toUpperCase()
-
-    return clean.slice(0, 2) || 'VA'
-}
-
 function getAnalystLabel(value) {
     const analyst = ANALYST_FILTERS.find(item => item.value === value)
     return analyst?.label || value || 'Unassigned'
@@ -115,14 +103,6 @@ function ServiceLevelBadge({ level }) {
         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${config.className}`}>
             {config.label}
         </span>
-    )
-}
-
-function Avatar({ value }) {
-    return (
-        <div className="w-9 h-9 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 flex items-center justify-center text-[10px] font-black shadow-lg shadow-slate-900/10">
-            {getInitials(value)}
-        </div>
     )
 }
 

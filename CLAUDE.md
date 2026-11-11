@@ -29,6 +29,8 @@ extraction), edit in the **Editor**, generate narratives/PDF, and bill via **Inv
   Extractor loads them via `/api/upload/download/...`. Don't rely on `UPLOAD_DIR` persisting.
 - **Extraction is client-side.** `ExtractorPage.jsx` calls Anthropic in the browser
   (via `/api/proxy`) using the user's own API key. There is no server-side extractor.
+  The system prompt and prior-report block live in `frontend/src/lib/extractor/prompt.js`;
+  proxy headers/error decoding in `lib/extractor/proxy.js`; file reading in `lib/extractor/files.js`.
 - **Vercel body limit ~4.5 MB.** Large payloads 413. The proxy path gzips requests.
 - **Model ids live only in `frontend/src/config/ai.js`.** Changing one is not a config
   tweak: Opus 5 thinks by default and `max_tokens` caps thinking *plus* the answer, and
@@ -56,7 +58,7 @@ extraction), edit in the **Editor**, generate narratives/PDF, and bill via **Inv
 
 ## Commands
 - Frontend: `cd frontend && npm run dev` · lint: `npm run lint` · build: `npx vite build`
-- Claude-call tests (no API key needed): `cd frontend && npm test`
+- Frontend tests (no API key needed): `cd frontend && npm test` (Claude-call loop + Extractor helpers)
 - Backend local: `cd backend && uvicorn main:app --reload`
 - Backend tests: `cd backend && python -m pytest -q` (includes a check that every router in
   `api/index.py` registers; `_safe_register` would otherwise hide a broken import in prod).

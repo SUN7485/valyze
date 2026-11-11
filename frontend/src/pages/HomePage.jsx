@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { 
-    PlayCircle, History, FileText, ArrowRight, Upload, Database, Info, 
-    PlusCircle, Zap, ArrowLeft, AlertCircle, ClipboardCheck, Sparkles, 
-    Activity, Search, User, ShieldCheck, Users, Briefcase, FileSignature, 
-    Coins, Loader2, Plus, CheckCircle, Clock, ChevronRight
+    PlayCircle, FileText, ArrowRight, Database, Info, 
+    Zap, ArrowLeft, ClipboardCheck, Sparkles, 
+    Activity, User, Users, Briefcase, FileSignature, 
+    Coins, Loader2, Plus, Clock, ChevronRight
 } from 'lucide-react'
 import { useReport } from '../context/ReportContext'
 import { useAuth } from '../context/AuthContext'
