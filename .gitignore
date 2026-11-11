@@ -39,7 +39,6 @@ node_modules/
 
 # Frontend dependencies
 frontend/node_modules/
-frontend/package-lock.json
 
 # Environment variables
 .env
@@ -72,8 +71,8 @@ build/
 *.swo
 *~
 
-# Root package-lock (causes Vercel build confusion)
-package-lock.json
+# Root package-lock (causes Vercel build confusion). frontend/package-lock.json IS committed.
+/package-lock.json
 # Explicit project env files
 backend/.env
 backend/services/.env
