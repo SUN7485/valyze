@@ -26,6 +26,18 @@ BUNDLE_PRICES = {
     "full_suite": 65,
 }
 
+# Order speed -> priced service tier. Tier promises (2026-08 revision): Basic 5-7 days ·
+# Standard 3 days · Express 1-2 days · Urgent 24 hours. The six speed keys are
+# effectively a DB enum (orders.speed): never rename or remove one, only remap.
+SPEED_TIER_MAP = {
+    "7_days": "basic",
+    "5_days": "basic",
+    "3_days": "standard",
+    "2_days": "express",
+    "1_day": "express",
+    "24_hours": "urgent",
+}
+
 PILOT_PRICE = 25.0
 DEFAULT_CURRENCY = "USD"
 
@@ -39,6 +51,29 @@ def calculate_volume_discount_pct(monthly_volume_avg: Any) -> float:
     if volume >= 200:
         return 15.0
     return 0.0
+
+
+def resolve_service_level(order: Dict[str, Any]) -> str:
+    """The priced tier for an order.
+
+    orders.service_level lost its CHECK constraint in migration 005, so it can
+    hold NULL, odd casing, or a speed key ("3_days"). Map those; fall back to
+    orders.speed; default to "standard" only when neither is set. An unknown
+    non-empty value raises ValueError: guessing a price would bill the client
+    the wrong amount.
+    """
+    raw = order.get("service_level")
+    level = str(raw or "").strip().lower()
+    if level in SERVICE_LEVEL_PRICES:
+        return level
+    if level in SPEED_TIER_MAP:
+        return SPEED_TIER_MAP[level]
+    speed = str(order.get("speed") or "").strip().lower()
+    if not level and speed in SPEED_TIER_MAP:
+        return SPEED_TIER_MAP[speed]
+    if not level and not speed:
+        return "standard"
+    raise ValueError(f"Cannot price order: unknown service level {raw!r} (speed {order.get('speed')!r})")
 
 
 def _base_unit_price(service_level: str, report_type: str) -> float:
@@ -61,8 +96,8 @@ def calculate_unit_price(
 
 
 def calculate_invoice(order: Dict[str, Any], client: Dict[str, Any]) -> Dict[str, Any]:
-    service_level = order.get("service_level", "standard")
-    report_type = order.get("report_type", "standard")
+    service_level = resolve_service_level(order)
+    report_type = order.get("report_type") or "standard"
     companies = _company_names(order)
     company_count = int(order.get("company_count") or len(companies) or 0)
     is_pilot = bool(client.get("is_pilot")) and int(client.get("invoice_count") or 0) == 0

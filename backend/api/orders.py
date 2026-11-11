@@ -388,7 +388,9 @@ def _trigger_invoice_creation(order: Dict[str, Any], companies: List[Dict[str, A
         pricing = calculate_invoice(pricing_order, pricing_client)
     except Exception as exc:
         print(f"[ORDERS] Pricing calculation failed for order {order.get('id')}: {exc}")
-        # Fallback to a basic invoice without pricing
+        # Still create the draft so the completed order isn't left without an
+        # invoice, but say loudly that it is unpriced: it must not go out at $0.
+        pricing_error = str(exc)
         payload = {
             "id": str(uuid.uuid4()),
             "invoice_number": generate_invoice_number(),
@@ -406,7 +408,7 @@ def _trigger_invoice_creation(order: Dict[str, Any], companies: List[Dict[str, A
             "currency": "USD",
             "line_items": [],
             "status": "draft",
-            "notes": "Auto-generated when order was marked completed.",
+            "notes": f"UNPRICED: automatic pricing failed ({pricing_error}). Set the service level and price before sending.",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }

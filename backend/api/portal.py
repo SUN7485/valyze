@@ -53,18 +53,9 @@ security = HTTPBearer(auto_error=False)
 SERVICE_LEVELS = {"basic", "standard", "express", "urgent"}
 REPORT_TYPES = {"standard", "full"}
 
-# Speed-to-service-level mapping.
-# Tier promises (2026-08 revision): Basic 5-7 days · Standard 3 days ·
-# Express 1-2 days · Urgent 24 hours. The six speed keys are effectively a DB
-# enum (orders.speed) — never rename or remove one, only remap.
-SPEED_TIER_MAP = {
-    "7_days": "basic",
-    "5_days": "basic",
-    "3_days": "standard",
-    "2_days": "express",
-    "1_day": "express",
-    "24_hours": "urgent",
-}
+# Speed -> tier mapping lives with the prices, so the tier a client is promised
+# and the tier they are billed for can't drift apart.
+from services.pricing_engine import SPEED_TIER_MAP  # noqa: E402
 VALID_SPEEDS = set(SPEED_TIER_MAP.keys())
 VALID_REPORT_TYPES_ARRAY = {"credit_report", "registration", "owners", "ubo", "legal", "analysis_financial"}
 

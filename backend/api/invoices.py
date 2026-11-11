@@ -293,7 +293,10 @@ async def generate_invoice(
     existing_invoices = sb_get_all_invoices({"client_id": client.get("id")})
     pricing_order = _pricing_order(order, companies)
     pricing_client = _pricing_client(client, len(existing_invoices))
-    pricing = calculate_invoice(pricing_order, pricing_client)
+    try:
+        pricing = calculate_invoice(pricing_order, pricing_client)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     payload = _invoice_payload(order, client, pricing)
 
     created = sb_create_invoice(payload)
