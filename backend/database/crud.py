@@ -25,7 +25,6 @@ from services.supabase_client import (
 )
 from models.report_schema import FullReport, build_empty_report, FieldData
 from models.field_meta import FIELD_REGISTRY
-from database.exceptions import DuplicateReportError
 
 
 # ---------------------------------------------------------------------------
@@ -146,9 +145,7 @@ async def update_report_fields_bulk(
 
 
 async def save_report_json(db, report_id: str, json_data: Any) -> bool:
-    """Save raw JSON data to report. Accepts FullReport object, dict, or JSON string.
-    Raises DuplicateReportError if the update would create a duplicate cr_number.
-    """
+    """Save raw JSON data to report. Accepts FullReport object, dict, or JSON string."""
     # Parse and validate input
     if isinstance(json_data, str):
         try:

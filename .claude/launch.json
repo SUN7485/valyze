@@ -4,14 +4,28 @@
     {
       "name": "frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "dev"
+      ],
       "port": 1573
     },
     {
-      "name": "portal",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "valyze-portal", "run", "dev"],
-      "port": 3000
+      "name": "backend",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "--app-dir",
+        "backend",
+        "main:app",
+        "--reload",
+        "--port",
+        "8000"
+      ],
+      "port": 8000
     }
   ]
 }

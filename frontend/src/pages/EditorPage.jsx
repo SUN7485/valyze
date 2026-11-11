@@ -3,7 +3,6 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useReport } from '../context/ReportContext'
 import { FileText, Eye, Wand2, ChevronLeft, ChevronRight, Info, Cloud, HardDrive, Loader2, ChevronDown, ShieldCheck } from 'lucide-react'
 import SideNav from '../components/SideNav'
-import EasyWayImport from '../components/EasyWayImport'
 import {
     P01_CoverPage, P02_OrderSummary,
     P03_ExecutiveSummary, P04_Dashboard,
@@ -59,7 +58,6 @@ export default function EditorPage() {
 
     const [currentPage, setCurrentPage]   = useState(1)
     const [generatingPDF, setGeneratingPDF] = useState(false)
-    const [showEasyWay, setShowEasyWay]   = useState(false)
     const [pdfError, setPdfError]         = useState('')
     const [pdfSuccess, setPdfSuccess]     = useState(false)
     const [exportingFormat, setExportingFormat] = useState('')
@@ -156,7 +154,7 @@ export default function EditorPage() {
         setPdfSuccess(false)
 
         if (!hasData) {
-            setPdfError('No company data found. Please use Easy Way Import first.')
+            setPdfError('No company data found. Import it first with the Extractor or Easy Way Import (Home page).')
             return
         }
 
@@ -207,7 +205,7 @@ export default function EditorPage() {
 
     const handleExport = async (format) => {
         if (!hasData) {
-            setExportError(prev => ({ ...prev, [format]: 'No company data found. Please use Easy Way Import first.' }))
+            setExportError(prev => ({ ...prev, [format]: 'No company data found. Import it first with the Extractor or Easy Way Import (Home page).' }))
             return
         }
 
@@ -457,7 +455,7 @@ export default function EditorPage() {
                                             ${!hasData ? 'bg-slate-200 dark:bg-white/5 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none' : 
                                               'bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-emerald-900/20'}`}
                                 disabled={!hasData}
-                                title={!hasData ? 'Import data first using Easy Way Import' : 'Export in various formats'}
+                                title={!hasData ? 'Import data first (Extractor or Easy Way Import): nothing to export yet' : 'Export in various formats'}
                             >
                                 Export
                                 <ChevronDown size={14} className={`transition-transform ${showExportMenu ? 'rotate-180' : ''}`} />
@@ -627,17 +625,6 @@ export default function EditorPage() {
                 </div>
             </div>
 
-            {/* Easy Way Import Modal */}
-            {showEasyWay && (
-                <EasyWayImport
-                    reportId={reportId}
-                    onComplete={() => {
-                        setShowEasyWay(false)
-                        loadReport(reportId)
-                    }}
-                    onClose={() => setShowEasyWay(false)}
-                />
-            )}
         </div>
     )
 }

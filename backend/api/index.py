@@ -19,18 +19,11 @@ from fastapi.responses import JSONResponse
 
 app = FastAPI(title="ValyzeCredit", version="1.0.0")
 
-# CORS — allow configured Vercel/frontend origins.
+# CORS — local Vite dev (1573, see frontend/vite.config.js) and preview (4173) servers,
+# plus the deployed origins from the environment.
 CORS_ORIGINS = [
     "http://localhost:1573",
-    "http://localhost:1574",
-    "http://localhost:1575",
-    "http://localhost:5173",
-    "http://localhost:5175",
-    "http://localhost:5176",
-    "http://localhost:5177",
-    "http://localhost:5178",
-    "http://localhost:5179",
-    "http://localhost:3000",
+    "http://localhost:4173",
 ]
 FRONTEND_URL = os.getenv("FRONTEND_URL", "").strip()
 PORTAL_URL = os.getenv("PORTAL_URL", "").strip()

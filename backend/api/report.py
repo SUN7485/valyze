@@ -19,9 +19,6 @@ from pydantic import BaseModel, Field
 import re
 
 
-# Note: db dependency retained for backward compatibility but not used
-# from database.db import get_db  # removed
-
 from database.crud import (
     delete_report as crud_delete_report,
     get_all_reports,

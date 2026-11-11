@@ -12,8 +12,7 @@ limit, and where model ids live.
 
 | Path | What |
 |---|---|
-| `frontend/` | Staff app: React 19 + Vite + Tailwind. Also serves the in-app client portal at `/portal`. |
-| `valyze-portal/` | Standalone client-portal app (React 18 + Vite). |
+| `frontend/` | React 19 + Vite + Tailwind. The staff app, plus the client portal at `/portal?token=…`. |
 | `backend/` | FastAPI. `api/index.py` is the Vercel entry point; `main.py` is for local dev only. |
 | `backend/api/` | One router per area (auth, orders, portal, report, pdf, export, …). |
 | `backend/services/` | Supabase REST client, mailer, pricing, company de-duplication. |
@@ -30,17 +29,14 @@ cp .env.example .env          # fill in SUPABASE_URL / SUPABASE_SERVICE_KEY
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 
-# staff frontend (http://localhost:1573)
+# frontend (http://localhost:1573, client portal at /portal?token=…)
 cd frontend
 cp .env.example .env
 npm install
 npm run dev
-
-# standalone portal (http://localhost:3000)
-cd valyze-portal && npm install && npm run dev
 ```
 
-`./startall.sh` (or `startall.bat`) starts all three.
+Shortcuts: `./install.sh` then `./startall.sh` (Windows: `install.bat`, `startall.bat`, `stop-all.bat`).
 
 ## Checks
 
@@ -49,18 +45,19 @@ These run in CI on every push and PR (`.github/workflows/ci.yml`):
 ```bash
 cd frontend && npm run lint && npm test && npx vite build
 cd backend  && python -m pytest -q
-cd valyze-portal && npx vite build
 ```
 
 ## Deploying
 
-Each app is its own Vercel project pointing at the same repo:
+Two Vercel projects pointing at the same repo:
 
 | Vercel project | Root directory | Env vars |
 |---|---|---|
 | backend | `backend` | see `backend/.env.example` (at minimum `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `JWT_SECRET`, `FRONTEND_URL`, `PORTAL_URL`) |
 | frontend | `frontend` | `VITE_API_BASE_URL`: backend URL, no trailing slash |
-| portal | `valyze-portal` | `VITE_API_URL`: backend URL |
+
+Client portal links are `{PORTAL_URL}/portal?token=…`. Leave `PORTAL_URL` unset (it falls
+back to `FRONTEND_URL`) or set it to the frontend's URL.
 
 After a deploy, `GET /health` on the backend should return `{"status": "ok"}` and `/ready`
 should report the Supabase connection.

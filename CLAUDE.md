@@ -3,7 +3,8 @@
 Guidance for working in this repo. Keep it accurate; update it when these facts change.
 
 ## What this is
-A credit-report platform. Clients submit orders through a public **portal**; analysts
+A credit-report platform. Clients submit orders through a public **portal** (`/portal?token=…`
+in the same frontend, `PortalPage.jsx`; there is no separate portal app); analysts
 pick up per-company work from the **Work Queue** (`/queue`; the old `/orderds` URL redirects), run the **Extractor** (client-side AI
 extraction), edit in the **Editor**, generate narratives/PDF, and bill via **Invoices**.
 
@@ -57,7 +58,7 @@ extraction), edit in the **Editor**, generate narratives/PDF, and bill via **Inv
 - Backend local: `cd backend && uvicorn main:app --reload`
 - Backend tests: `cd backend && python -m pytest -q` (includes a check that every router in
   `api/index.py` registers; `_safe_register` would otherwise hide a broken import in prod)
-- CI (`.github/workflows/ci.yml`) runs all of the above plus the portal build. Keep it green.
+- CI (`.github/workflows/ci.yml`) runs all of the above. Keep it green.
 
 ## Keeping it clean
 - No scratch scripts, one-off `test*.py`, DB files, generated PDFs or tool state in the repo.

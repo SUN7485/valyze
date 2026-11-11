@@ -1,67 +1,20 @@
 #!/bin/bash
+# Install backend + frontend dependencies for local development (macOS / Linux).
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
-echo "============================================"
-echo "VALYZE - INSTALLATION SCRIPT (macOS)"
-echo "============================================"
-echo ""
+command -v python3 >/dev/null || { echo "ERROR: python3 not found (3.12+ recommended)"; exit 1; }
+command -v npm >/dev/null     || { echo "ERROR: Node.js/npm not found (Node 22 recommended)"; exit 1; }
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$SCRIPT_DIR"
+echo "[1/3] Backend Python packages..."
+python3 -m pip install -r backend/requirements.txt
 
-# Check for Homebrew
-if ! command -v brew &> /dev/null; then
-    echo "Installing Homebrew..."
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-fi
+echo "[2/3] Frontend Node packages..."
+(cd frontend && npm install)
 
-echo ""
-echo "[1/6] Installing system dependencies..."
-brew install python@3.12 node ghostscript tesseract poppler
+echo "[3/3] Local env files..."
+[ -f backend/.env ]  || cp backend/.env.example backend/.env
+[ -f frontend/.env ] || cp frontend/.env.example frontend/.env
 
-echo ""
-echo "[2/5] Installing Python dependencies..."
-if ! python3 --version > /dev/null 2>&1; then
-    echo "ERROR: Python 3 not found."
-    exit 1
-fi
-cd backend
-python3 -m pip install --upgrade pip
-python3 -m pip install -r requirements.txt
-cd ..
-
-echo ""
-echo "[3/6] Installing Frontend dependencies..."
-if ! command -v node > /dev/null 2>&1; then
-    echo "ERROR: Node.js not found."
-    exit 1
-fi
-cd frontend
-npm install
-cd ..
-
-echo ""
-echo "[4/6] Installing Valyze Portal dependencies..."
-cd valyze-portal
-npm install
-cd ..
-
-echo ""
-echo "[5/6] Installing Playwright browsers..."
-cd backend
-python3 -m playwright install chromium
-cd ..
-
-echo ""
-echo "[6/6] Creating required directories..."
-mkdir -p backend/uploads
-mkdir -p backend/outputs
-
-echo ""
-echo "============================================"
-echo "  INSTALLATION COMPLETE!"
-echo "============================================"
-echo ""
-echo "Run './startall.sh' to start the system"
-echo ""
-echo "If you get permission errors, run:"
-echo "  chmod +x startall.sh startbackend.sh install.sh"
+echo
+echo "Done. Fill in SUPABASE_URL / SUPABASE_SERVICE_KEY in backend/.env, then run ./startall.sh"
