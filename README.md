@@ -44,7 +44,7 @@ These run in CI on every push and PR (`.github/workflows/ci.yml`):
 
 ```bash
 cd frontend && npm run lint && npm test && npx vite build
-cd backend  && python -m pytest -q
+cd backend  && python -m pytest -q && python -m pyflakes api services utils models database tests pdf_generator.py main.py
 ```
 
 ## Deploying

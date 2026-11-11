@@ -6,7 +6,8 @@ import { useReport } from '../context/ReportContext'
 import { Scale, Gavel, FileWarning, ShieldAlert } from 'lucide-react'
 
 function LegalCountCard({ label, countField, amountField, dateField,
-    badgeField, statusField, icon: Icon }) {
+    badgeField, statusField, icon }) {
+    const Icon = icon
     return (
         <div className="bg-white dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-white/10 p-6 shadow-sm">
             <div className="flex items-center gap-3 mb-4">

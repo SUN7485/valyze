@@ -18,14 +18,8 @@ export default [
       ...js.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
-      'no-unused-vars': ['warn', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^_' }],
-      // Style/perf rules from react-hooks v7 that flag existing, working patterns
-      // (fetch-on-mount setState, effects referencing later-declared handlers).
-      // Kept visible as warnings; promote to 'error' once the backlog is cleared.
-      'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/immutability': 'warn',
-      'react-hooks/purity': 'warn',
-      'no-empty': ['warn', { allowEmptyCatch: true }],
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^_' }],
+      'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },
 ]

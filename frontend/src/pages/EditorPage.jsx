@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useReport } from '../context/ReportContext'
 import { FileText, Eye, Wand2, ChevronLeft, ChevronRight, Info, Cloud, HardDrive, Loader2, ChevronDown, ShieldCheck } from 'lucide-react'
 import SideNav from '../components/SideNav'
@@ -16,6 +16,7 @@ import {
     P19_BackCover
 } from '../editor-pages'
 import { reportAPI } from '../api/client'
+import { printReportPdf, downloadReportExport } from '../lib/reportFiles'
 
 const PAGE_COMPONENTS = {
     1: P01_CoverPage,
@@ -49,7 +50,6 @@ export default function EditorPage() {
         loadReport,
         saveReportId,
         getFieldValue,
-        getFieldCounts,
         getCompletionPercentage,
         hasRealData,
         updateField,
@@ -72,6 +72,8 @@ export default function EditorPage() {
             saveReportId(reportId)
             loadReport(reportId)
         }
+    // Only re-run when the route id changes: saveReportId updates the context id, which gives loadReport a new identity and would trigger a second fetch
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [reportId])
 
     if (loading && !report) {
@@ -139,16 +141,6 @@ export default function EditorPage() {
         getFieldValue('cr_number')
     )
 
-    const handleGenerateAI = () => {
-        if (window.confirm(
-            'This will generate AI narratives (executive summary, ' +
-            'SWOT, recommendations etc).\n\n' +
-            'Make sure you have reviewed all fields first.'
-        )) {
-            navigate(`/generating/${reportId}`)
-        }
-    }
-
     const handleGeneratePDF = async () => {
         setPdfError('')
         setPdfSuccess(false)
@@ -158,40 +150,13 @@ export default function EditorPage() {
             return
         }
 
+        setGeneratingPDF(true)
         try {
-            setGeneratingPDF(true)
-
-            // Fetch rendered HTML from backend
-            const res = await reportAPI.generatePDF(reportId)
-            const html = res.data?.html
-
-            if (html) {
-                // Create iframe to avoid about:blank and browser header issues
-                const iframe = document.createElement('iframe')
-                iframe.style.position = 'fixed'
-                iframe.style.left = '-9999px'
-                document.body.appendChild(iframe)
-
-                const doc = iframe.contentDocument || iframe.contentWindow.document
-                doc.open()
-                doc.write(html)
-                doc.close()
-
-                // Wait for content to load, then trigger print
-                setTimeout(() => {
-                    iframe.contentWindow.focus()
-                    iframe.contentWindow.print()
-                    setPdfSuccess(true)
-                    setTimeout(() => setPdfSuccess(false), 3000)
-                    // Clean up iframe after print dialog
-                    setTimeout(() => document.body.removeChild(iframe), 1000)
-                }, 1000)
-            } else {
-                setPdfError('Failed to generate PDF — no HTML returned.')
-            }
+            await printReportPdf(reportId)
+            setPdfSuccess(true)
+            setTimeout(() => setPdfSuccess(false), 3000)
         } catch (err) {
-            const msg = err.message || 'PDF generation failed'
-            setPdfError(msg)
+            setPdfError(err.message || 'PDF generation failed')
             console.error('[PDF] Generation error:', err)
         } finally {
             setGeneratingPDF(false)
@@ -213,42 +178,7 @@ export default function EditorPage() {
         setExportingFormat(format)
 
         try {
-            const exportAPI = {
-                json: reportAPI.exportJSON,
-                xml: reportAPI.exportXML,
-                xlsx: reportAPI.exportExcel,
-                csv: reportAPI.exportCSV,
-                docx: reportAPI.exportWord,
-            }[format]
-
-            // Excel/Word return JSON with base64; JSON/XML/CSV return file content
-            const res = await exportAPI(reportId, {
-                responseType: (format === 'xlsx' || format === 'docx') ? 'json' : 'blob'
-            })
-
-            let blob, filename
-            if (res.data?.base64) {
-                // base64 response (Excel / Word)
-                const binary = atob(res.data.base64)
-                const bytes = new Uint8Array(binary.length)
-                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-                const mimeMap = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }
-                blob = new Blob([bytes], { type: mimeMap[format] || 'application/octet-stream' })
-                filename = res.data.filename || `CreditReport.${format}`
-            } else {
-                // Direct file response (JSON / XML / CSV)
-                blob = res.data instanceof Blob ? res.data : new Blob([res.data])
-                filename = `CreditReport_${companyName.replace(/\s+/g, '_').slice(0,30)}.${format}`
-            }
-
-            const url = window.URL.createObjectURL(blob)
-            const link = document.createElement('a')
-            link.href = url
-            link.download = filename
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-            window.URL.revokeObjectURL(url)
+            await downloadReportExport(reportId, format, companyName)
             setExportSuccess(prev => ({ ...prev, [format]: true }))
             setTimeout(() => setExportSuccess(prev => ({ ...prev, [format]: false })), 2000)
         } catch (err) {
@@ -532,6 +462,13 @@ export default function EditorPage() {
                             </div>
                             </>
 )}
+
+                        {/* Success display */}
+                        {(pdfSuccess || Object.values(exportSuccess).some(Boolean)) && !pdfError && (
+                            <div role="status" className="absolute right-0 top-full mt-3 w-72 bg-emerald-600 text-white text-[9px] uppercase tracking-wider font-semibold rounded-xl p-4 z-50 shadow-xl animate-in slide-in-from-top-2 duration-300">
+                                {pdfSuccess ? 'Print dialog opened: choose "Save as PDF"' : 'Export downloaded'}
+                            </div>
+                        )}
 
                         {/* Error display */}
                         {(pdfError || Object.keys(exportError).some(k => exportError[k])) && (

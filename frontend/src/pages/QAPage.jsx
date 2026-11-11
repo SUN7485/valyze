@@ -100,6 +100,17 @@ const validateQaResult = (obj) => {
 
 const keyOf = (finding, index) => `${index}:${finding.field}`
 
+// The last QA run cached for a report, or null when there is none (or it is corrupt).
+const readCachedQa = (storageKey) => {
+    try {
+        const raw = sessionStorage.getItem(storageKey)
+        if (!raw) return null
+        const parsed = JSON.parse(raw)
+        return validateQaResult(parsed.qa) ? null : parsed
+    } catch { /* a corrupt cache is not worth an error banner */ }
+    return null
+}
+
 export default function QAPage() {
     const { reportId } = useParams()
     const navigate = useNavigate()
@@ -123,6 +134,7 @@ export default function QAPage() {
     const clockRef = useRef(null)
     const abortRef = useRef(null)
     const storageKey = `valyze_qa_${reportId}`
+    const [restoredKey, setRestoredKey] = useState(null)
 
     useEffect(() => {
         if (!reportId) return
@@ -132,20 +144,17 @@ export default function QAPage() {
 
     useEffect(() => () => clearInterval(clockRef.current), [])
 
-    // Restore the last QA run for this report so a refresh does not lose it.
-    useEffect(() => {
-        if (!reportId) return
-        try {
-            const raw = sessionStorage.getItem(storageKey)
-            if (!raw) return
-            const parsed = JSON.parse(raw)
-            if (!validateQaResult(parsed.qa)) {
-                setQa(parsed.qa)
-                setApplied(parsed.applied || {})
-                setStatus('done')
-            }
-        } catch { /* a corrupt cache is not worth an error banner */ }
-    }, [reportId, storageKey])
+    // Restore the last QA run for this report so a refresh does not lose it
+    // (once per report id, adjusted during render rather than in an effect).
+    if (reportId && restoredKey !== storageKey) {
+        setRestoredKey(storageKey)
+        const cached = readCachedQa(storageKey)
+        if (cached) {
+            setQa(cached.qa)
+            setApplied(cached.applied || {})
+            setStatus('done')
+        }
+    }
 
     const persist = useCallback((nextQa, nextApplied) => {
         try {

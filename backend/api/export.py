@@ -10,7 +10,6 @@ import io
 import json as json_mod
 import base64
 from datetime import datetime, timezone
-from pathlib import Path
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -202,38 +201,6 @@ async def export_report_word(report_id: str, user: dict = Depends(get_current_us
     except Exception as e:
         print(f"[EXPORT] Word export failed: {e}")
         raise HTTPException(500, "Word export failed")
-
-
-# ---------------------------------------------------------------------------
-# Legacy download endpoint (kept for backward compatibility)
-# ---------------------------------------------------------------------------
-
-OUTPUT_DIR = Path("/tmp/outputs")
-
-
-@router.get("/download/{report_id}/{format}")
-async def download_export(report_id: str, format: str):
-    """Download previously generated export file."""
-    filename = f"{report_id}.{format}"
-    file_path = OUTPUT_DIR / filename
-    if not file_path.exists():
-        raise HTTPException(404, "Export file not found")
-    from fastapi.responses import FileResponse
-    return FileResponse(
-        path=str(file_path),
-        filename=filename,
-        media_type="application/octet-stream",
-    )
-
-
-@router.get("/status/{report_id}")
-async def export_status(report_id: str):
-    """Check export generation status."""
-    return {
-        "report_id": report_id,
-        "engine": "inline",
-        "message": "Exports are generated on-demand",
-    }
 
 
 # ---------------------------------------------------------------------------

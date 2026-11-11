@@ -3,15 +3,19 @@ import { authAPI } from '../api/client'
 
 const AuthContext = createContext(null)
 
+const hasStoredToken = () => {
+    const token = localStorage.getItem('valyze_token')
+    return Boolean(token && token !== 'null' && token !== 'undefined')
+}
+
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null)
-    const [loading, setLoading] = useState(true)
+    // Only show the loading state when there is a token to verify
+    const [loading, setLoading] = useState(hasStoredToken)
 
     // On mount, check if token exists and verify it
     useEffect(() => {
-        const token = localStorage.getItem('valyze_token')
-        const isValid = token && token !== 'null' && token !== 'undefined'
-        if (isValid) {
+        if (hasStoredToken()) {
             authAPI.me()
                 .then(res => {
                     const data = res.data
@@ -28,9 +32,8 @@ export function AuthProvider({ children }) {
                 })
                 .finally(() => setLoading(false))
         } else {
+            // user already starts null and loading already starts false
             localStorage.removeItem('valyze_token')
-            setUser(null)
-            setLoading(false)
         }
     }, [])
 
@@ -58,6 +61,7 @@ export function AuthProvider({ children }) {
     )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- hook is colocated with its provider; splitting would touch every consumer's import
 export function useAuth() {
     const ctx = useContext(AuthContext)
     if (!ctx) throw new Error('useAuth must be used within AuthProvider')

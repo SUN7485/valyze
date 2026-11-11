@@ -12,7 +12,7 @@ const STATUS_TABS = [
 ]
 
 /* One colour per service-level tier, so the analyst badge and the badge the
-   client saw in the portal agree. Mirrors SPEED_TIER_MAP in api/portal.py. */
+   client saw in the portal agree. Mirrors SPEED_TIER_MAP in backend/services/pricing_engine.py. */
 const TIER_CLASS = {
     Basic: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-700',
     Standard: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800/40',
@@ -85,13 +85,6 @@ function formatDate(value) {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-function formatDateTime(value) {
-    if (!value) return '-'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return '-'
-    return date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
 function getCountryFlag(country) {
     if (!country) return '🌍'
     const key = String(country).trim().toLowerCase().replace(/\s+/g, ' ')
@@ -157,8 +150,13 @@ function SpeedBadge({ level, dueDate }) {
         )
     }
 
+    // Colour by service tier so this badge matches the one the client saw in the portal.
+    const tier = level ? String(level).charAt(0).toUpperCase() + String(level).slice(1).toLowerCase() : ''
     return (
-        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-700">
+        <span
+            title={tier ? `${tier} service` : undefined}
+            className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${TIER_CLASS[tier] || TIER_CLASS.Basic}`}
+        >
             <CalendarClock size={10} className="mr-1" />
             {daysLeft || '-'}
         </span>
@@ -311,22 +309,29 @@ export default function WorkQueuePage() {
         }
     }, [])
 
-    const fetchOrderCompanies = useCallback(async () => {
-        try {
-            setLoading(true)
-            setError('')
-            const response = await ordersAPI.getAllOrderCompanies({ status: statusFilter, country: countryFilter, search })
-            setOrders(response.data || [])
-        } catch (e) {
-            setError(e.message || 'Failed to load reports')
-        } finally {
-            setLoading(false)
-        }
-    }, [statusFilter, countryFilter, search])
+    // Reset loading/error when a server-side filter changes (the effect below refetches).
+    const [loadedFilters, setLoadedFilters] = useState({ statusFilter, countryFilter, search })
+    if (loadedFilters.statusFilter !== statusFilter || loadedFilters.countryFilter !== countryFilter || loadedFilters.search !== search) {
+        setLoadedFilters({ statusFilter, countryFilter, search })
+        setLoading(true)
+        setError('')
+    }
+
+    // Promise chain (not try/catch) so the effect below only sets state asynchronously.
+    const loadOrderCompanies = useCallback(() => ordersAPI.getAllOrderCompanies({ status: statusFilter, country: countryFilter, search })
+        .then(response => setOrders(response.data || []))
+        .catch(e => setError(e.message || 'Failed to load reports'))
+        .finally(() => setLoading(false)), [statusFilter, countryFilter, search])
+
+    const fetchOrderCompanies = useCallback(() => {
+        setLoading(true)
+        setError('')
+        return loadOrderCompanies()
+    }, [loadOrderCompanies])
 
     useEffect(() => {
-        fetchOrderCompanies()
-    }, [fetchOrderCompanies])
+        loadOrderCompanies()
+    }, [loadOrderCompanies])
 
     useEffect(() => {
         clientsAPI.getAll().then(res => {

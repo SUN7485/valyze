@@ -155,22 +155,23 @@ export default function SideNav({ currentPage, onPageChange, report, onDeletePag
                                     {status === 'partial' && <Circle size={13} className={active ? 'text-white/50' : 'text-amber-500 opacity-50'} />}
                                     {status === 'error' && <AlertCircle size={13} className={active ? 'text-white' : 'text-rose-500'} />}
                                     
-                                    {status === 'none' && canDeletePage(page.id) && onDeletePage && (
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                if (window.confirm(`Delete module "${page.label}"?`)) {
-                                                    onDeletePage(page.id)
-                                                }
-                                            }}
-                                            className="p-1 hover:bg-rose-100 dark:hover:bg-rose-500/20 rounded text-slate-400 dark:text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"
-                                            title="Delete empty module"
-                                        >
-                                            <Trash2 size={11} />
-                                        </button>
-                                    )}
                                 </div>
                             </button>
+                            {/* Sibling, not child: a <button> inside a <button> is invalid HTML. */}
+                            {status === 'none' && canDeletePage(page.id) && onDeletePage && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (window.confirm(`Delete module "${page.label}"?`)) {
+                                            onDeletePage(page.id)
+                                        }
+                                    }}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-rose-100 dark:hover:bg-rose-500/20 rounded text-slate-400 dark:text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"
+                                    title="Delete empty module"
+                                >
+                                    <Trash2 size={11} />
+                                </button>
+                            )}
                         </div>
                     )
                 })}

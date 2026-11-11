@@ -1,5 +1,5 @@
 // ============ P05_CompanyProfile.jsx ============
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
 import PhoneNumbersEditor from '../components/PhoneNumbersEditor'
@@ -16,12 +16,13 @@ const COUNTRY_OPTIONS = [
 
 export default function P05_CompanyProfile() {
   const { getFieldValue, updateField, updateArray, report, getArray } = useReport()
-  const [initialized, setInitialized] = useState(false)
+  // One-shot guard: auto-detect country flags only the first time a report is available
+  const initializedRef = useRef(false)
   const [crDuplicateWarning, setCrDuplicateWarning] = useState(null)
   const [companyDuplicateWarning, setCompanyDuplicateWarning] = useState(null)
 
   useEffect(() => {
-    if (!report || initialized) return
+    if (!report || initializedRef.current) return
     
     const country = getFieldValue('country') || ''
     
@@ -43,15 +44,16 @@ export default function P05_CompanyProfile() {
       updateField('show_zakat', true)
     }
     
-    setInitialized(true)
-  }, [report, initialized])
+    initializedRef.current = true
+  }, [report, getFieldValue, updateField])
+
+  const crNumber = getFieldValue('cr_number')
+  const companyName = getFieldValue('company_name')
+  const currentReportId = report?.report_id
 
   // Check for duplicate CR number
   useEffect(() => {
     const checkCrNumber = async () => {
-      const crNumber = getFieldValue('cr_number')
-      const currentReportId = report?.report_id
-      
       if (!crNumber || !currentReportId) {
         setCrDuplicateWarning(null)
         return
@@ -64,21 +66,18 @@ export default function P05_CompanyProfile() {
         } else {
           setCrDuplicateWarning(null)
         }
-      } catch (error) {
+      } catch {
         setCrDuplicateWarning(null)
       }
     }
 
     const debounceTimer = setTimeout(checkCrNumber, 500)
     return () => clearTimeout(debounceTimer)
-  }, [getFieldValue('cr_number'), report?.report_id])
+  }, [crNumber, currentReportId])
 
   // Check for duplicate company name
   useEffect(() => {
     const checkCompanyName = async () => {
-      const companyName = getFieldValue('company_name')
-      const currentReportId = report?.report_id
-      
       if (!companyName || !currentReportId) {
         setCompanyDuplicateWarning(null)
         return
@@ -91,14 +90,14 @@ export default function P05_CompanyProfile() {
         } else {
           setCompanyDuplicateWarning(null)
         }
-      } catch (error) {
+      } catch {
         setCompanyDuplicateWarning(null)
       }
     }
 
     const debounceTimer = setTimeout(checkCompanyName, 500)
     return () => clearTimeout(debounceTimer)
-  }, [getFieldValue('company_name'), report?.report_id])
+  }, [companyName, currentReportId])
 
   const handleCountryChange = (val) => {
     updateField('country', val)

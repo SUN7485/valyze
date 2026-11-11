@@ -114,13 +114,6 @@ export function ReportProvider({ children }) {
         setError(null)
         try {
             const res = await reportAPI.getReport(targetId)
-            console.log('[ReportContext] Report data loaded:', res.data)
-            console.log('[ReportContext] Total fields:', Object.keys(res.data.fields || {}).length)
-            const allFields = res.data.fields || {}
-            console.log('[ReportContext] Cash flow fields:', Object.entries(allFields).filter(([k]) =>
-                k.includes('cash') || k.includes('flow') || k.includes('cfo') || k.includes('cfi') || k.includes('cff') || k.includes('operating') || k.includes('investing') || k.includes('financing')
-            ).map(([k, v]) => ({ name: k, value: v?.value, source: v?.source })))
-            console.log('[ReportContext] All field names:', Object.keys(allFields).sort())
             setReport(res.data)
             setExtractionStats(res.data.extraction_stats)
             return res.data
@@ -307,16 +300,6 @@ export function ReportProvider({ children }) {
         return report?.arrays?.[arrayName] || []
     }, [report])
 
-    // Get hidden fields list (user-hidden via eye icon)
-    const getHiddenFields = useCallback(() => {
-        return getArray('hidden_fields') || []
-    }, [report])
-
-    // Check if a field is visible (not hidden)
-    const isFieldVisible = useCallback((fieldName) => {
-        return !getHiddenFields().includes(fieldName)
-    }, [report])
-
     // Count fields by confidence
     const getFieldCounts = useCallback(() => {
         if (!report?.fields) return {}
@@ -403,7 +386,7 @@ export function ReportProvider({ children }) {
         if (currency) return currency
         const country = getFieldValue('country')
         return getCurrencyFromCountry(country)
-    }, [report])
+    }, [getFieldValue])
 
     const contextValue = {
         reportId,
@@ -440,6 +423,7 @@ export function ReportProvider({ children }) {
     )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- hook is colocated with its provider; splitting would touch every consumer's import
 export function useReport() {
     const context = useContext(ReportContext)
     if (!context) {

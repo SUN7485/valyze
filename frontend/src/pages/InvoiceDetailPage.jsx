@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Download, Loader2, RefreshCw, Shield, X, Edit3, Save } from 'lucide-react'
 import { invoicesAPI } from '../api/client'
@@ -76,13 +76,6 @@ function getTotals(invoice, lineItems) {
     const discountAmount = Number.isFinite(explicitDiscount) ? explicitDiscount : Math.max(0, subtotal - total)
     return { subtotal, discountAmount, discountPct: getDiscountPct(invoice, subtotal, discountAmount), total }
 }
-function extractHtml(response) {
-    if (typeof response.data === 'string') return response.data
-    if (typeof response.data?.html === 'string') return response.data.html
-    if (response.data?.invoice_html) return response.data.invoice_html
-    return ''
-}
-
 export default function InvoiceDetailPage() {
     const { invoiceId } = useParams()
     const navigate = useNavigate()
@@ -99,21 +92,32 @@ export default function InvoiceDetailPage() {
     const status = String(invoice?.status || '').toLowerCase()
     const invoiceNumber = getInvoiceNumber(invoice)
 
-    const fetchInvoice = async () => {
-        if (!invoiceId) return
-        try {
+    // Reset loading/error when the route switches to another invoice (the effect below refetches).
+    const [loadedInvoiceId, setLoadedInvoiceId] = useState(invoiceId)
+    if (loadedInvoiceId !== invoiceId) {
+        setLoadedInvoiceId(invoiceId)
+        if (invoiceId) {
             setLoading(true)
             setError('')
-            const response = await invoicesAPI.getOne(invoiceId)
-            setInvoice(response.data)
-        } catch (e) {
-            setError(e.message || 'Failed to load invoice')
-        } finally {
-            setLoading(false)
         }
     }
 
-    useEffect(() => { fetchInvoice() }, [invoiceId])
+    const loadInvoice = useCallback(() => {
+        if (!invoiceId) return Promise.resolve()
+        return invoicesAPI.getOne(invoiceId)
+            .then(response => setInvoice(response.data))
+            .catch(e => setError(e.message || 'Failed to load invoice'))
+            .finally(() => setLoading(false))
+    }, [invoiceId])
+
+    const fetchInvoice = async () => {
+        if (!invoiceId) return
+        setLoading(true)
+        setError('')
+        await loadInvoice()
+    }
+
+    useEffect(() => { loadInvoice() }, [loadInvoice])
 
     const startEdit = () => {
         if (!invoice) return
@@ -199,7 +203,7 @@ export default function InvoiceDetailPage() {
                 win.document.close()
                 win.focus()
                 setTimeout(() => {
-                    try { win.print() } catch (err) { /* user can Ctrl+P */ }
+                    try { win.print() } catch { /* user can Ctrl+P */ }
                 }, 500)
             }
         } catch (e) {

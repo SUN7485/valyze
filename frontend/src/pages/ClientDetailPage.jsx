@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { Search, Plus, Eye, Edit3, Trash2, X, Loader2, Copy, CheckCircle, Clock, AlertTriangle, Key, ExternalLink, CopyCheck, FileText } from 'lucide-react'
-import { clientsAPI, ordersAPI, invoicesAPI } from '../api/client'
+import { clientsAPI, invoicesAPI } from '../api/client'
 
 function Modal({ isOpen, onClose, title, children }) {
   if (!isOpen) return null
@@ -156,6 +156,11 @@ function DeleteConfirm({ isOpen, onClose, onConfirm, name }) {
   )
 }
 
+// Compared against the clock at call time (i.e. on every render), as before.
+function isPastDate(value) {
+  return new Date(value).getTime() < Date.now()
+}
+
 export default function ClientDetailPage() {
   const { clientId } = useParams()
   const navigate = useNavigate()
@@ -174,28 +179,40 @@ export default function ClientDetailPage() {
   const [editError, setEditError]       = useState('')
   const [deleteTarget, setDeleteTarget] = useState({ open: false, clientId: null, name: '' })
 
-  const fetchClient = async () => {
-    try {
-      setLoading(true)
-      const [cRes, sRes, iRes] = await Promise.all([
-        clientsAPI.getOne(clientId).catch(() => ({ data: {} })),
-        clientsAPI.getSessions(clientId).catch(() => ({ data: [] })),
-        invoicesAPI.getAll({ client_id: clientId }).catch(() => ({ data: [] })),
-      ])
+  // Show the full-page spinner again when the route switches to another client.
+  const [loadedClientId, setLoadedClientId] = useState(clientId)
+  if (clientId !== loadedClientId) {
+    setLoadedClientId(clientId)
+    setLoading(true)
+  }
+
+  // Promise chain (not try/catch) so the effect below only sets state asynchronously.
+  const loadClient = useCallback(() => Promise.all([
+    clientsAPI.getOne(clientId).catch(() => ({ data: {} })),
+    clientsAPI.getSessions(clientId).catch(() => ({ data: [] })),
+    invoicesAPI.getAll({ client_id: clientId }).catch(() => ({ data: [] })),
+  ])
+    .then(([cRes, sRes, iRes]) => {
       const clientData = cRes.data || {}
       const invoicesData = Array.isArray(iRes.data) ? iRes.data : (iRes.data?.invoices || [])
       setClient(clientData)
       setOrders(clientData.orders || [])
       setInvoices(invoicesData)
       setSessions(Array.isArray(sRes.data) ? sRes.data : (sRes.data?.sessions || []))
-    } catch (e) {
+    })
+    .catch((e) => {
       setError(e.message || 'Failed to load client')
-    } finally {
+    })
+    .finally(() => {
       setLoading(false)
-    }
+    }), [clientId])
+
+  const fetchClient = async () => {
+    setLoading(true)
+    await loadClient()
   }
 
-  useEffect(() => { fetchClient() }, [clientId])
+  useEffect(() => { loadClient() }, [loadClient])
 
   const invoiceByOrderId = useMemo(() => new Map(invoices.map(invoice => [invoice.order_id, invoice])), [invoices])
 
@@ -387,7 +404,7 @@ export default function ClientDetailPage() {
                       const unlimited = maxUses >= 1000000
                       const status = session.disabled ? 'disabled'
                         : session.revoked_at ? 'revoked'
-                        : (!neverExpires && new Date(session.expires_at).getTime() < Date.now()) ? 'expired'
+                        : (!neverExpires && isPastDate(session.expires_at)) ? 'expired'
                         : (!unlimited && used >= maxUses) ? 'full'
                         : 'active'
                       return (

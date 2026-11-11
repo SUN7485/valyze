@@ -64,37 +64,6 @@ function getTotal(invoice) {
     return invoice.total_amount ?? invoice.total ?? invoice.grand_total ?? ''
 }
 
-function extractHtml(response) {
-    if (typeof response.data === 'string') return response.data
-    if (typeof response.data?.html === 'string') return response.data.html
-    if (response.data?.invoice_html) return response.data.invoice_html
-    return ''
-}
-
-function downloadHtmlFile(html, filename) {
-    try {
-        const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = filename
-        link.style.display = 'none'
-        document.body.appendChild(link)
-        link.click()
-        setTimeout(() => {
-            document.body.removeChild(link)
-            URL.revokeObjectURL(url)
-        }, 200)
-    } catch (e) {
-        console.error('[InvoiceDownload] Blob download failed:', e)
-        const win = window.open('', '_blank')
-        if (win) {
-            win.document.write(html)
-            win.document.close()
-        }
-    }
-}
-
 export default function InvoicesPage() {
     const navigate = useNavigate()
     const [invoices, setInvoices] = useState([])
@@ -123,21 +92,20 @@ export default function InvoicesPage() {
         return { total: invoices.length, outstanding, collected, drafts }
     }, [invoices])
 
-    const fetchInvoices = async () => {
-        try {
-            setLoading(true)
-            setError('')
-            const response = await invoicesAPI.getAll()
-            setInvoices(Array.isArray(response.data) ? response.data : response.data.invoices || [])
-        } catch (e) {
-            setError(e.message || 'Failed to load invoices')
-        } finally {
-            setLoading(false)
-        }
+    // Promise chain (not try/catch) so the mount effect only sets state asynchronously.
+    const loadInvoices = () => invoicesAPI.getAll()
+        .then(response => setInvoices(Array.isArray(response.data) ? response.data : response.data.invoices || []))
+        .catch(e => setError(e.message || 'Failed to load invoices'))
+        .finally(() => setLoading(false))
+
+    const fetchInvoices = () => {
+        setLoading(true)
+        setError('')
+        return loadInvoices()
     }
 
     useEffect(() => {
-        fetchInvoices()
+        loadInvoices()
     }, [])
 
     const handleDownload = async (invoice) => {
@@ -167,7 +135,7 @@ export default function InvoicesPage() {
                 try {
                     iframe.contentWindow.focus()
                     iframe.contentWindow.print()
-                } catch (err) {
+                } catch {
                     // Fallback: open in new tab
                     const win = window.open('', '_blank')
                     if (win) { win.document.write(html); win.document.close() }
@@ -224,17 +192,20 @@ export default function InvoicesPage() {
                     { icon: Wallet,       label: 'Outstanding',    value: formatCurrency(stats.outstanding), tint: 'bg-amber-400/15 text-amber-500' },
                     { icon: CheckCircle2, label: 'Collected',      value: formatCurrency(stats.collected),   tint: 'bg-emerald-500/10 text-emerald-500' },
                     { icon: Clock,        label: 'Drafts',         value: stats.drafts,                      tint: 'bg-slate-400/15 text-slate-500' },
-                ].map(({ icon: Icon, label, value, tint }) => (
-                    <div key={label} className="flex items-center gap-3 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] px-4 py-3.5">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${tint}`}>
-                            <Icon size={18} />
+                ].map(({ icon, label, value, tint }) => {
+                    const Icon = icon
+                    return (
+                        <div key={label} className="flex items-center gap-3 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] px-4 py-3.5">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${tint}`}>
+                                <Icon size={18} />
+                            </div>
+                            <div className="min-w-0">
+                                <div className="text-lg font-black text-slate-800 dark:text-white leading-none truncate">{value}</div>
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mt-1">{label}</div>
+                            </div>
                         </div>
-                        <div className="min-w-0">
-                            <div className="text-lg font-black text-slate-800 dark:text-white leading-none truncate">{value}</div>
-                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mt-1">{label}</div>
-                        </div>
-                    </div>
-                ))}
+                    )
+                })}
             </div>
 
             {error && (

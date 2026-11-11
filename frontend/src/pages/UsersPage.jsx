@@ -142,22 +142,21 @@ export default function UsersPage() {
         return result
     }, [users])
 
-    const fetchUsers = useCallback(async () => {
-        try {
-            setLoading(true)
-            setError('')
-            const response = await usersAPI.getAll()
-            setUsers(response.data?.users || [])
-        } catch (e) {
-            setError(e.message || 'Failed to load users')
-        } finally {
-            setLoading(false)
-        }
-    }, [])
+    // Promise chain (not try/catch) so the mount effect only sets state asynchronously.
+    const loadUsers = useCallback(() => usersAPI.getAll()
+        .then(response => setUsers(response.data?.users || []))
+        .catch(e => setError(e.message || 'Failed to load users'))
+        .finally(() => setLoading(false)), [])
+
+    const fetchUsers = useCallback(() => {
+        setLoading(true)
+        setError('')
+        return loadUsers()
+    }, [loadUsers])
 
     useEffect(() => {
-        fetchUsers()
-    }, [fetchUsers])
+        loadUsers()
+    }, [loadUsers])
 
     const updateField = (field, value) => {
         setForm(current => ({ ...current, [field]: value }))

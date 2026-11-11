@@ -190,7 +190,6 @@ function OrderCard({ order }) {
 }
 
 export default function OrdersPage() {
-    const navigate = useNavigate()
     const [orders, setOrders] = useState([])
     const [clients, setClients] = useState([])
     const [statusFilter, setStatusFilter] = useState('all')
@@ -202,23 +201,31 @@ export default function OrdersPage() {
 
     const search = useDebounce(searchInput, 300)
 
-    const fetchOrders = useCallback(async () => {
-        try {
-            setLoading(true)
-            setError('')
-            const response = await ordersAPI.getAll({ status: statusFilter, analyst: analystFilter })
+    // Reset loading/error when a server-side filter changes (the effect below refetches).
+    const [loadedFilters, setLoadedFilters] = useState({ statusFilter, analystFilter })
+    if (loadedFilters.statusFilter !== statusFilter || loadedFilters.analystFilter !== analystFilter) {
+        setLoadedFilters({ statusFilter, analystFilter })
+        setLoading(true)
+        setError('')
+    }
+
+    const loadOrders = useCallback(() => ordersAPI.getAll({ status: statusFilter, analyst: analystFilter })
+        .then(response => {
             const data = Array.isArray(response.data) ? response.data : response.data.orders || []
             setOrders(data)
-        } catch (e) {
-            setError(e.message || 'Failed to load orders')
-        } finally {
-            setLoading(false)
-        }
-    }, [statusFilter, analystFilter])
+        })
+        .catch(e => setError(e.message || 'Failed to load orders'))
+        .finally(() => setLoading(false)), [statusFilter, analystFilter])
+
+    const fetchOrders = useCallback(() => {
+        setLoading(true)
+        setError('')
+        return loadOrders()
+    }, [loadOrders])
 
     useEffect(() => {
-        fetchOrders()
-    }, [fetchOrders])
+        loadOrders()
+    }, [loadOrders])
 
     useEffect(() => {
         clientsAPI.getAll().then(res => {

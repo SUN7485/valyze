@@ -3,6 +3,11 @@ import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import Layout from './components/Layout'
 import { AuthProvider, useAuth } from './context/AuthContext'
 
+function LegacyEditorRedirect() {
+  const { reportId } = useParams()
+  return <Navigate to={`/editor/${reportId}`} replace />
+}
+
 function LegacyQueueRedirect() {
   const { companyId } = useParams()
   return <Navigate to={`/queue/${companyId}`} replace />
@@ -11,11 +16,7 @@ function LegacyQueueRedirect() {
 // Lazy load pages
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const HomePage = lazy(() => import('./pages/HomePage'))
-const UploadPage = lazy(() => import('./pages/UploadPage'))
-const ProcessingPage = lazy(() => import('./pages/ProcessingPage'))
 const EditorPage = lazy(() => import('./pages/EditorPage'))
-const GeneratingPage = lazy(() => import('./pages/GeneratingPage'))
-const DonePage = lazy(() => import('./pages/DonePage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const OrdersPage = lazy(() => import('./pages/OrdersPage'))
 const OrderDetailPage = lazy(() => import('./pages/OrderDetailPage'))
@@ -75,11 +76,13 @@ function AppRoutes() {
         <Route path="/clients/:clientId" element={<ProtectedRoute><ClientDetailPage /></ProtectedRoute>} />
         <Route path="/invoices" element={<ProtectedRoute><InvoicesPage /></ProtectedRoute>} />
         <Route path="/invoices/:invoiceId" element={<ProtectedRoute><InvoiceDetailPage /></ProtectedRoute>} />
-        <Route path="/upload" element={<ProtectedRoute><UploadPage /></ProtectedRoute>} />
-        <Route path="/processing/:reportId" element={<ProtectedRoute><ProcessingPage /></ProtectedRoute>} />
         <Route path="/editor/:reportId" element={<ProtectedRoute><EditorPage /></ProtectedRoute>} />
-        <Route path="/generating/:reportId" element={<ProtectedRoute><GeneratingPage /></ProtectedRoute>} />
-        <Route path="/done/:reportId" element={<ProtectedRoute><DonePage /></ProtectedRoute>} />
+        {/* Retired server-side pipeline (upload -> processing -> generating -> done). Its backend
+            routes were never deployed; extraction now happens in the Extractor. */}
+        <Route path="/upload" element={<Navigate to="/extractor" replace />} />
+        <Route path="/processing/:reportId" element={<LegacyEditorRedirect />} />
+        <Route path="/generating/:reportId" element={<LegacyEditorRedirect />} />
+        <Route path="/done/:reportId" element={<LegacyEditorRedirect />} />
         <Route path="/extractor" element={<ProtectedRoute><ExtractorPage /></ProtectedRoute>} />
         <Route path="/extractor/:reportId" element={<ProtectedRoute><ExtractorPage /></ProtectedRoute>} />
         <Route path="/qa/:reportId" element={<ProtectedRoute><QAPage /></ProtectedRoute>} />

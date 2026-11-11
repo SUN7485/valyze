@@ -213,35 +213,6 @@ export const reportAPI = {
     startReport: (data) =>
         api.post('/upload/start', data),
 
-    uploadFiles: (reportId, files) => {
-        const formData = new FormData()
-        files.forEach(file =>
-            formData.append('files', file)
-        )
-        return api.post(
-            `/upload/files/${reportId}`,
-            formData,
-            { headers: { 'Content-Type': 'multipart/form-data' } }
-        )
-    },
-
-    getUploadStatus: (reportId) =>
-        api.get(`/upload/status/${reportId}`),
-
-    deleteFile: (reportId, filename) =>
-        api.delete(`/upload/file/${reportId}/${filename}`),
-
-    // -- Extraction ------------------------------
-
-    startExtraction: (reportId) =>
-        api.post(`/extract/start/${reportId}`),
-
-    getExtractionProgress: (reportId) =>
-        api.get(`/extract/progress/${reportId}`),
-
-    getExtractedFields: (reportId) =>
-        api.get(`/extract/fields/${reportId}`),
-
     // -- Report CRUD -----------------------------
 
     getReport: (reportId) =>
@@ -254,11 +225,6 @@ export const reportAPI = {
             source: 'user'
         }),
 
-    updateFieldsBulk: (reportId, fields) =>
-        api.patch(`/report/${reportId}/fields`, {
-            fields: fields
-        }),
-
     updateArray: (reportId, arrayName, data) =>
         api.patch(`/report/${reportId}/array`, {
             array_name: arrayName,
@@ -267,25 +233,6 @@ export const reportAPI = {
 
     recalculate: (reportId) =>
         api.post(`/report/${reportId}/recalculate`),
-
-    getAllReports: () =>
-        api.get('/report/'),
-
-    deleteReport: (reportId) =>
-        api.delete(`/report/${reportId}`),
-
-    // -- Generation ------------------------------
-
-    generateNarratives: (reportId) =>
-        api.post(`/generate/narratives/${reportId}`),
-
-    getGenerationProgress: (reportId) =>
-        api.get(`/generate/progress/${reportId}`),
-
-    regenerateSection: (reportId, sections) =>
-        api.post(`/generate/regenerate/${reportId}`, {
-            sections: sections
-        }),
 
     // -- Easy Way Import -------------------------
     easyWayImport: (reportId, data) =>
@@ -296,14 +243,8 @@ export const reportAPI = {
     generatePDF: (reportId) =>
         api.post(`/pdf/generate/${reportId}`),
 
-    getPDFStatus: (reportId) =>
-        api.get(`/pdf/status/${reportId}`),
-
     getPreviewURL: (reportId) =>
         withToken(`${API_BASE}/pdf/preview/${reportId}`),
-
-    getDownloadURL: (reportId) =>
-        withToken(`${API_BASE}/pdf/download/${reportId}`),
 
     // -- Export -----------------------------------
 
@@ -322,39 +263,15 @@ export const reportAPI = {
     exportWord: (reportId, opts) =>
         api.post(`/export/word/${reportId}`, null, opts),
 
-    getExportStatus: (reportId) =>
-        api.get(`/export/status/${reportId}`),
-
-    getExportDownloadURL: (reportId, format) =>
-        withToken(`${API_BASE}/export/download/${reportId}/${format}`),
-
     // -- Cloud / Supabase ------------------------
 
     saveToCloud: (reportId) =>
         api.post(`/cloud/save/${reportId}`),
 
-    getCloudStatus: (reportId) =>
-        api.get(`/cloud/status/${reportId}`),
-
-    getReports: () =>
-        api.get('/search/reports'),
-
     deleteCloudReport: (reportId) =>
         api.delete(`/cloud/${reportId}`),
 
     // -- Local Reports
-    getLocalReports: (skip = 0, limit = 50, status = null, search = null) => {
-        const params = new URLSearchParams()
-        params.append('skip', skip)
-        params.append('limit', limit)
-        if (status) params.append('status', status)
-        if (search) params.append('search', search)
-        return api.get(`/search/local?${params}`)
-    },
-
-    getLocalReportsCount: () =>
-        api.get('/search/local/count'),
-
     deleteLocalReport: (reportId) =>
         api.delete(`/search/local/${reportId}`),
 
@@ -420,10 +337,6 @@ export const invoicesAPI = {
     updateStatus: (id, status) =>
         api.patch(`/invoices/${id}/status`, { status }),
 
-    getHtml: (id) =>
-        api.get(`/invoices/${id}/html`, {
-            responseType: 'text'
-        }),
 }
 
 // ---------------------------------------------------------------------------
@@ -441,9 +354,6 @@ export const deliveryAPI = {
         api.get('/delivery/queue'),
 
     // Admin only — why is a page empty? Counts only, no report content.
-    diagnose: () =>
-        api.get('/delivery/diagnose'),
-
     // Admin only — QA findings + invoice for one report (the review page).
     getReview: (reportId) =>
         api.get(`/delivery/${reportId}/review`),

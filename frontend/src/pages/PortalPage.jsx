@@ -60,7 +60,7 @@ const ERROR_CLS = 'bg-red-500/10 border border-red-500/30 rounded-xl text-red-60
 /* Constants */
 /* Tier promises (2026-08 revision): Basic 5-7 days · Standard 3 days ·
    Express 1-2 days · Urgent 24 hours. Keys mirror backend SPEED_TIER_MAP in
-   api/portal.py — the two must not drift. One colour per tier. */
+   backend/services/pricing_engine.py — the two must not drift. One colour per tier. */
 const TIER_CLASS = {
   Basic: 'bg-slate-200 text-slate-600 dark:bg-slate-100/10 dark:text-slate-300',
   Standard: 'bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-400',
@@ -716,22 +716,33 @@ function MyOrdersScreen({ clientName, portalToken, onNewOrder, onOpenOrder, onSe
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const load = useCallback(async () => {
+  // Reset loading/error when the inputs of the fetch change (the effect below refetches).
+  const [loadedFor, setLoadedFor] = useState({ portalToken, onSessionExpired })
+  if (loadedFor.portalToken !== portalToken || loadedFor.onSessionExpired !== onSessionExpired) {
+    setLoadedFor({ portalToken, onSessionExpired })
     setLoading(true); setError('')
-    try {
-      setData(await portalRequest('/api/portal/orders', {
-        headers: { Authorization: `Bearer ${portalToken}` },
-      }))
-    } catch (err) {
+  }
+
+  // Promise chain (not try/catch) so the effect below only sets state asynchronously.
+  const fetchOrders = useCallback(() => portalRequest('/api/portal/orders', {
+    headers: { Authorization: `Bearer ${portalToken}` },
+  })
+    .then(res => setData(res))
+    .catch(err => {
       if (err.status === 401) { onSessionExpired?.(); return }
       // 5xx bodies carry internal detail (PostgREST text) a client shouldn't see.
       setError(err.status >= 500
         ? "We couldn't load your orders just now. Please try again in a moment."
         : err.message || 'Could not load your orders.')
-    } finally { setLoading(false) }
-  }, [portalToken, onSessionExpired])
+    })
+    .finally(() => setLoading(false)), [portalToken, onSessionExpired])
 
-  useEffect(() => { load() }, [load])
+  const load = useCallback(() => {
+    setLoading(true); setError('')
+    return fetchOrders()
+  }, [fetchOrders])
+
+  useEffect(() => { fetchOrders() }, [fetchOrders])
 
   const summary = data?.summary
   const orders = data?.orders || []
@@ -902,15 +913,23 @@ function SuccessScreen({ result, portalToken, onViewSummary, onSubmitAnother, on
 function OrderSummaryScreen({ orders, portalToken, onBack, onMyOrders, onSubmitAnother, onSessionExpired }) {
   const list = orders?.length ? orders : []
   const [selected, setSelected] = useState(0)
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const current = list[selected]
+  const orderNumber = current?.order_number
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(Boolean(orderNumber))
+  const [error, setError] = useState('')
+
+  // Reset loading/error when the selected order (or token) changes; the effect below fetches.
+  const [statusFor, setStatusFor] = useState({ orderNumber, portalToken })
+  if (statusFor.orderNumber !== orderNumber || statusFor.portalToken !== portalToken) {
+    setStatusFor({ orderNumber, portalToken })
+    if (!orderNumber) setLoading(false)
+    else { setLoading(true); setError('') }
+  }
 
   useEffect(() => {
-    if (!current?.order_number) { setLoading(false); return undefined }
+    if (!current?.order_number) return undefined
     let cancelled = false
-    setLoading(true); setError('')
     portalRequest(`/api/portal/order-status/${encodeURIComponent(current.order_number)}`, {
       headers: { Authorization: `Bearer ${portalToken}` },
     })

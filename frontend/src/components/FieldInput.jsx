@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useRef } from 'react'
 import { useReport } from '../context/ReportContext'
 import ConfidenceBadge from './ConfidenceBadge'
 import { Trash2, Eye, EyeOff, Info, Wand2, ShieldCheck, Lock, CheckCircle, Activity, AlertTriangle } from 'lucide-react'
@@ -31,13 +31,16 @@ export default function FieldInput({
     const isHidden = hiddenFields.includes(fieldName)
 
     const [localValue, setLocalValue] = useState(value)
+    const [prevValue, setPrevValue] = useState(value)
     const [saving, setSaving] = useState(false)
     const [saved, setSaved] = useState(false)
     const debounceRef = useRef(null)
 
-    useEffect(() => {
+    // Re-sync the local value when the stored value changes (adjusted during render)
+    if (!Object.is(value, prevValue)) {
+        setPrevValue(value)
         setLocalValue(value)
-    }, [value])
+    }
 
     const handleChange = (newValue) => {
         setLocalValue(newValue)

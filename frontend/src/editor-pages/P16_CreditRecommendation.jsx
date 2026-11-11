@@ -3,8 +3,7 @@ import React from 'react'
 import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
 import GenericTableEditor from '../components/GenericTableEditor'
-import { RotateCcw, ShieldCheck, CheckCircle, TrendingUp } from 'lucide-react'
-import { reportAPI } from '../api/client'
+import { ShieldCheck, CheckCircle, TrendingUp } from 'lucide-react'
 
 const COLOR_PRESETS = [
     { label: '🟢 Good', value: '#27ae60' },
@@ -14,23 +13,13 @@ const COLOR_PRESETS = [
 ]
 
 export default function P16_CreditRecommendation() {
-    const { reportId, getFieldValue, updateField, updateArray, getArray, loadReport } = useReport()
+    const { getFieldValue, updateField, updateArray, getArray } = useReport()
 
     const ratingColor = getFieldValue('rating_color') || '#1a5f7a'
     const finalRiskColor = getFieldValue('final_risk_color') || '#e67e22'
     const creditRating = getFieldValue('final_credit_rating') || 'N/A'
     const finalRiskLevel = getFieldValue('final_risk_level') || '--'
 
-    const handleRegenerate = async (section) => {
-        try {
-            if (!window.confirm(`Regenerate "${section.replace(/_/g, ' ')}"? Current edits will be lost.`)) return
-            await reportAPI.regenerateSection(reportId, [section])
-            await loadReport(reportId)
-        } catch (err) {
-            console.error('Regenerate failed:', err)
-            alert('Failed to regenerate. Check backend connection.')
-        }
-    }
 
     return (
         <div className="p-6 space-y-6 animate-in fade-in duration-500">
@@ -44,7 +33,7 @@ export default function P16_CreditRecommendation() {
             </div>
 
             {/* Final Decision Hero */}
-            <div className="bg-[#1a5f7a] dark:bg-blue-600/90 rounded-2xl p-10 text-white shadow-xl relative overflow-hidden">
+            <div style={{ backgroundColor: ratingColor }} className="rounded-2xl p-10 text-white shadow-xl relative overflow-hidden">
                 <div className="absolute inset-0 bg-blue-900/20 dark:bg-black/20 pointer-events-none" />
                 <div className="relative z-10 flex items-start justify-between gap-8">
                     {/* Left: Rating */}
@@ -192,13 +181,6 @@ export default function P16_CreditRecommendation() {
                     <h3 className="text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em]">
                         Credit Opinion
                     </h3>
-                    <button
-                        onClick={() => handleRegenerate('credit_opinion')}
-                        className="flex items-center gap-1 text-[10px] font-bold text-blue-600 dark:text-blue-400
-                       hover:text-blue-800 dark:hover:text-blue-300 transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                        <RotateCcw size={12} /> REGENERATE WITH AI
-                    </button>
                 </div>
                 <FieldInput
                     label=""

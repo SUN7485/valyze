@@ -38,7 +38,8 @@ const CASH_FLOW_ROWS = [
     { label: 'Cash at End of Period', base: 'cash_end', highlight: true },
 ]
 
-function FinancialTable({ title, rows, icon: Icon, iconBg, iconColor }) {
+function FinancialTable({ title, rows, icon, iconBg, iconColor }) {
+    const Icon = icon
     const { getFieldValue } = useReport()
     const y1 = getFieldValue('year_1') || 'Year 1'
     const y2 = getFieldValue('year_2') || 'Year 2'

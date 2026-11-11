@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Search, Plus, Edit3, Trash2, X, Loader2, CheckSquare, Square,
@@ -86,34 +86,37 @@ function DeleteConfirm({ isOpen, onClose, onConfirm, name }) {
 const CLIENT_TYPES = ['company', 'bank', 'third_party']
 const CLIENT_TYPE_LABELS = { company: 'Company', bank: 'Bank', third_party: 'Third Party' }
 
-function ClientFormModal({ isOpen, onClose, onSubmit, client }) {
-    const [form, setForm] = useState({
+function clientToForm(client) {
+    if (client) {
+        return {
+            client_name: client.client_name || '',
+            client_type: client.client_type || 'company',
+            contact_person: client.contact_person || '',
+            email: client.email || '',
+            phone: client.phone || '',
+            country: client.country || '',
+            address: client.address || '',
+            is_pilot: client.is_pilot || false,
+            notes: client.notes || ''
+        }
+    }
+    return {
         client_name: '', client_type: 'company', contact_person: '',
         email: '', phone: '', country: '', address: '', is_pilot: false, notes: ''
-    })
+    }
+}
+
+function ClientFormModal({ isOpen, onClose, onSubmit, client }) {
+    const [form, setForm] = useState(() => clientToForm(client))
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState('')
 
-    useEffect(() => {
-        if (client) {
-            setForm({
-                client_name: client.client_name || '',
-                client_type: client.client_type || 'company',
-                contact_person: client.contact_person || '',
-                email: client.email || '',
-                phone: client.phone || '',
-                country: client.country || '',
-                address: client.address || '',
-                is_pilot: client.is_pilot || false,
-                notes: client.notes || ''
-            })
-        } else {
-            setForm({
-                client_name: '', client_type: 'company', contact_person: '',
-                email: '', phone: '', country: '', address: '', is_pilot: false, notes: ''
-            })
-        }
-    }, [client, isOpen])
+    // Reset the form whenever the modal opens/closes or switches client.
+    const [formFor, setFormFor] = useState({ client, isOpen })
+    if (formFor.client !== client || formFor.isOpen !== isOpen) {
+        setFormFor({ client, isOpen })
+        setForm(clientToForm(client))
+    }
 
     const handleSubmit = async (e) => {
         e.preventDefault()
@@ -383,7 +386,8 @@ function ClientCard({ client, selected, onToggleSelect, onView, onEdit, onDelete
 // KPI stat card
 // ---------------------------------------------------------------------------
 
-function StatCard({ icon: Icon, label, value, tint }) {
+function StatCard({ icon, label, value, tint }) {
+    const Icon = icon
     return (
         <div className="flex items-center gap-3 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] px-4 py-3.5">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${tint}`}>
@@ -422,22 +426,29 @@ export default function ClientsPage() {
         return { totalClients: clients.length, totalOrders, reportsDone, pilots }
     }, [clients])
 
-    const fetchClients = async () => {
-        try {
-            setLoading(true)
-            const res = await clientsAPI.getAll(search || '')
+    // Show the spinner again when the search changes (the effect below refetches).
+    const [loadedSearch, setLoadedSearch] = useState(search)
+    if (loadedSearch !== search) {
+        setLoadedSearch(search)
+        setLoading(true)
+    }
+
+    const loadClients = useCallback(() => clientsAPI.getAll(search || '')
+        .then(res => {
             setClients(res.data || [])
             setError('')
-        } catch (e) {
-            setError(e.message || 'Failed to load clients')
-        } finally {
-            setLoading(false)
-        }
+        })
+        .catch(e => setError(e.message || 'Failed to load clients'))
+        .finally(() => setLoading(false)), [search])
+
+    const fetchClients = () => {
+        setLoading(true)
+        return loadClients()
     }
 
     useEffect(() => {
-        fetchClients()
-    }, [search])
+        loadClients()
+    }, [loadClients])
 
     const handleCreate = async (formData) => {
         const res = await clientsAPI.create(formData)

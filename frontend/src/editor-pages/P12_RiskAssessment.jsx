@@ -15,11 +15,11 @@ const COLOR_PRESETS = [
 ]
 
 function ScoreDeepDive({ label, scoreField, levelField, colorField,
-    badgeField, probField, meaningField, icon: Icon }) {
+    badgeField, probField, meaningField, icon }) {
+    const Icon = icon
     const { getFieldValue, updateField } = useReport()
     const score = getFieldValue(scoreField) || '0'
     const color = getFieldValue(colorField) || '#e67e22'
-    const level = getFieldValue(levelField) || '--'
 
     return (
         <div className="bg-white dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-white/10 p-6 shadow-sm">
@@ -72,7 +72,8 @@ function ScoreDeepDive({ label, scoreField, levelField, colorField,
     )
 }
 
-function SWOTPanel({ title, arrayName, colorClass, borderClass, headerClass, icon: Icon }) {
+function SWOTPanel({ title, arrayName, colorClass, borderClass, headerClass, icon }) {
+    const Icon = icon
     const { getArray, updateArray } = useReport()
     const items = getArray(arrayName)
 
@@ -125,8 +126,6 @@ function SWOTPanel({ title, arrayName, colorClass, borderClass, headerClass, ico
 }
 
 export default function P12_RiskAssessment() {
-    const { getFieldValue } = useReport()
-
     return (
         <div className="p-6 space-y-6 animate-in fade-in duration-500">
             <div className="border-b border-gray-100 dark:border-white/5 pb-4">

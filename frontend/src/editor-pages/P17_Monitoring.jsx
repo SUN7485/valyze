@@ -11,8 +11,8 @@ const COLOR_PRESETS = [
     { label: '🔴 Critical', value: '#c0392b' },
 ]
 
-function EWICard({ label, valueField, colorField, subtextField, subtext }) {
-    const { getFieldValue, updateField, updateArray, getArray } = useReport()
+function EWICard({ label, valueField, colorField, subtext }) {
+    const { getFieldValue, updateField } = useReport()
     const color = getFieldValue(colorField) || '#e67e22'
     const value = getFieldValue(valueField) || '--'
 
@@ -57,7 +57,7 @@ function EWICard({ label, valueField, colorField, subtextField, subtext }) {
 }
 
 export default function P17_Monitoring() {
-    const { getFieldValue, getArray, updateArray } = useReport()
+    const { getArray, updateArray } = useReport()
 
     return (
         <div className="p-6 space-y-6 animate-in fade-in duration-500">

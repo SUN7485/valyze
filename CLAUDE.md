@@ -15,8 +15,10 @@ extraction), edit in the **Editor**, generate narratives/PDF, and bill via **Inv
 - **Backend** — FastAPI in `backend/`. Vercel serverless entry is **`backend/api/index.py`**
   (registers each router with `_safe_register` so one bad import can't take down the app).
   `backend/main.py` is for local dev only.
-- **Data** — Supabase, accessed via the **PostgREST REST API** (no SDK), all in
-  `backend/services/supabase_client.py`. Direct HTTP with the service-role key.
+- **Data** — Supabase, accessed via the **PostgREST REST API** (no SDK), all in the
+  `backend/services/supabase_client/` package (one module per table group). Direct HTTP
+  with the service-role key. Always import from the package (`from services.supabase_client
+  import get_order`), never a submodule: tests monkeypatch names on the package.
 
 ## Hard constraints / gotchas (read before changing things)
 - **DB migrations are manual.** No runner. Paste `supabase/migrations/*.sql` into the
@@ -57,17 +59,21 @@ extraction), edit in the **Editor**, generate narratives/PDF, and bill via **Inv
 - Claude-call tests (no API key needed): `cd frontend && npm test`
 - Backend local: `cd backend && uvicorn main:app --reload`
 - Backend tests: `cd backend && python -m pytest -q` (includes a check that every router in
-  `api/index.py` registers; `_safe_register` would otherwise hide a broken import in prod)
+  `api/index.py` registers; `_safe_register` would otherwise hide a broken import in prod).
+  Tests never touch a real database: monkeypatch the Supabase calls (see `tests/test_order_invoicing.py`).
+- Backend lint: `cd backend && python -m pyflakes api services utils models database tests pdf_generator.py main.py`
 - CI (`.github/workflows/ci.yml`) runs all of the above. Keep it green.
 
 ## Keeping it clean
 - No scratch scripts, one-off `test*.py`, DB files, generated PDFs or tool state in the repo.
   Put throwaway work outside the tree; real tests go in `backend/tests/` or next to the JS module.
-- ESLint errors fail CI. `react-hooks/static-components` matters most: never define a component
+- Lint runs with `--max-warnings 0`: any ESLint warning fails CI. `react-hooks/static-components` matters most: never define a component
   inside another component (inputs remount and lose focus on every keystroke). Hoist it, or call
   it as a plain render function.
 - New env var → add it to the relevant `.env.example` in the same change.
 - New migration → next number in `supabase/migrations/`, never a second migrations folder.
+- Every frontend API call must hit a route the backend registers. Exporting/printing a report
+  goes through `frontend/src/lib/reportFiles.js`; there is no server-side PDF file to download.
 
 ## Required env vars (Vercel)
 - Backend: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `JWT_SECRET`, `FRONTEND_URL`, `PORTAL_URL`

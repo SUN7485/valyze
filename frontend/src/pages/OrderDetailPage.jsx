@@ -91,18 +91,6 @@ function getCountryFlag(country) {
     return COUNTRY_FLAGS[key] || '🌍'
 }
 
-function getInitials(value) {
-    const clean = String(value || 'Valyze')
-        .replace('@valyze.com', '')
-        .split(/[\s._-]+/)
-        .filter(Boolean)
-        .map(part => part[0])
-        .join('')
-        .toUpperCase()
-
-    return clean.slice(0, 2) || 'VA'
-}
-
 function getStatusBadgeClass(status) {
     return STATUS_COLORS[normalizeStatus(status)] || STATUS_COLORS.pending
 }
@@ -127,9 +115,12 @@ function getInvoiceId(order) {
 function NotesModal({ order, isOpen, onClose, onSave, saving }) {
     const [notes, setNotes] = useState(order?.notes || '')
 
-    useEffect(() => {
+    // Reload the saved notes whenever the modal opens or the order changes while open.
+    const [notesFor, setNotesFor] = useState({ isOpen, order })
+    if (notesFor.isOpen !== isOpen || notesFor.order !== order) {
+        setNotesFor({ isOpen, order })
         if (isOpen) setNotes(order?.notes || '')
-    }, [isOpen, order])
+    }
 
     useEffect(() => {
         if (!isOpen) return undefined
@@ -334,7 +325,6 @@ function OrderFilesSection({ files, onDownloadAll, downloading }) {
 
 function CompanyCard({ orderId, company, index, onStarted, onCompleted }) {
     const navigate = useNavigate()
-    const [confirmingComplete, setConfirmingComplete] = useState(false)
     const [actionLoading, setActionLoading] = useState(false)
     const status = normalizeStatus(company.status)
     const reportId = company.report_id
@@ -364,7 +354,6 @@ function CompanyCard({ orderId, company, index, onStarted, onCompleted }) {
             alert(e.message || 'Failed to mark company report complete')
         } finally {
             setActionLoading(false)
-            setConfirmingComplete(false)
         }
     }
 
@@ -742,27 +731,38 @@ export default function OrderDetailPage() {
     const [savingNotes, setSavingNotes] = useState(false)
     const [notesOpen, setNotesOpen] = useState(false)
     const [generatingInvoice, setGeneratingInvoice] = useState(false)
-    const [companyActions, setCompanyActions] = useState({})
     const [downloading, setDownloading] = useState(false)
+
+    // Reset loading/error when the route switches to another order (the effect below refetches).
+    const [loadedOrderId, setLoadedOrderId] = useState(orderId)
+    if (loadedOrderId !== orderId) {
+        setLoadedOrderId(orderId)
+        if (orderId) {
+            setLoading(true)
+            setError('')
+        }
+    }
+
+    const loadOrder = useCallback(() => {
+        if (!orderId) return Promise.resolve()
+
+        return ordersAPI.getOne(orderId)
+            .then(response => setOrder(response.data))
+            .catch(e => setError(e.message || 'Failed to load order'))
+            .finally(() => setLoading(false))
+    }, [orderId])
 
     const fetchOrder = useCallback(async () => {
         if (!orderId) return
 
-        try {
-            setLoading(true)
-            setError('')
-            const response = await ordersAPI.getOne(orderId)
-            setOrder(response.data)
-        } catch (e) {
-            setError(e.message || 'Failed to load order')
-        } finally {
-            setLoading(false)
-        }
-    }, [orderId])
+        setLoading(true)
+        setError('')
+        await loadOrder()
+    }, [orderId, loadOrder])
 
     useEffect(() => {
-        fetchOrder()
-    }, [fetchOrder])
+        loadOrder()
+    }, [loadOrder])
 
     const updateCompany = useCallback((companyId, patch) => {
         setOrder(current => ({

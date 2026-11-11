@@ -7,7 +7,6 @@
 // every quality number so nobody reads a score built on three reviewed reports as
 // if it described thirty.
 import React, { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { deliveryAPI } from '../api/client'
 import {
     TrendingUp, AlertCircle, Loader2, Lock, RefreshCw,
@@ -35,7 +34,6 @@ const pct = (v) => (v === null || v === undefined ? '—' : `${v}%`)
 const num = (v) => (v === null || v === undefined ? '—' : String(v))
 
 export default function TeamKPIPage() {
-    const navigate = useNavigate()
     const [days, setDays] = useState(30)
     // Empty strings mean "use the rolling preset above". Filling either one
     // switches the page to an explicit range.
@@ -46,22 +44,32 @@ export default function TeamKPIPage() {
     const [error, setError] = useState('')
     const [forbidden, setForbidden] = useState(false)
 
-    const load = useCallback(async (period, from, to) => {
+    // Reset the request state when the period changes (the effect below refetches).
+    const [loadedPeriod, setLoadedPeriod] = useState({ days, dateFrom, dateTo })
+    if (loadedPeriod.days !== days || loadedPeriod.dateFrom !== dateFrom || loadedPeriod.dateTo !== dateTo) {
+        setLoadedPeriod({ days, dateFrom, dateTo })
         setLoading(true)
         setError('')
         setForbidden(false)
-        try {
-            const res = await deliveryAPI.getKpi({ days: period, dateFrom: from, dateTo: to })
-            setData(res.data)
-        } catch (e) {
+    }
+
+    // Promise chain (not try/catch) so the effect below only sets state asynchronously.
+    const fetchKpi = useCallback((period, from, to) => deliveryAPI.getKpi({ days: period, dateFrom: from, dateTo: to })
+        .then(res => setData(res.data))
+        .catch(e => {
             if (e?.response?.status === 403) setForbidden(true)
             else setError(e?.response?.data?.detail || e.message || 'Could not load team metrics.')
-        } finally {
-            setLoading(false)
-        }
-    }, [])
+        })
+        .finally(() => setLoading(false)), [])
 
-    useEffect(() => { load(days, dateFrom, dateTo) }, [load, days, dateFrom, dateTo])
+    const load = useCallback((period, from, to) => {
+        setLoading(true)
+        setError('')
+        setForbidden(false)
+        return fetchKpi(period, from, to)
+    }, [fetchKpi])
+
+    useEffect(() => { fetchKpi(days, dateFrom, dateTo) }, [fetchKpi, days, dateFrom, dateTo])
 
     if (forbidden) {
         return (

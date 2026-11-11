@@ -23,6 +23,30 @@ const money = (n, currency) => {
     return `${currency || 'USD'} ${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+// Review + invoice for one report, as the state the page should show.
+// A 403 on the review means the viewer is not an admin.
+const fetchDelivery = async (reportId) => {
+    try {
+        const [rev, inv] = await Promise.allSettled([
+            deliveryAPI.getReview(reportId),
+            deliveryAPI.getInvoice(reportId),
+        ])
+        if (rev.status !== 'fulfilled') {
+            if (rev.reason?.response?.status === 403) return { forbidden: true }
+            throw rev.reason
+        }
+        return {
+            review: rev.value.data,
+            // A missing invoice is not fatal — the QA half is still worth showing.
+            invoice: inv.status === 'fulfilled'
+                ? inv.value.data
+                : { _error: inv.reason?.response?.data?.detail || 'No invoice is linked to this report.' },
+        }
+    } catch (e) {
+        return { error: e?.response?.data?.detail || e.message || 'Could not load this report.' }
+    }
+}
+
 export default function DeliveryReviewPage() {
     const { reportId } = useParams()
     const navigate = useNavigate()
@@ -35,28 +59,36 @@ export default function DeliveryReviewPage() {
     const [sending, setSending] = useState(false)
     const [sent, setSent] = useState(null)
 
+    // Applies a fetchDelivery() result to the page state.
+    const applyDelivery = useCallback((result) => {
+        if (result.forbidden) { setForbidden(true); return }
+        if (result.error !== undefined) { setError(result.error); return }
+        setReview(result.review)
+        setInvoice(result.invoice)
+    }, [])
+
     const load = useCallback(async () => {
         setLoading(true); setError(''); setForbidden(false)
         try {
-            const [rev, inv] = await Promise.allSettled([
-                deliveryAPI.getReview(reportId),
-                deliveryAPI.getInvoice(reportId),
-            ])
-            if (rev.status === 'fulfilled') setReview(rev.value.data)
-            else if (rev.reason?.response?.status === 403) { setForbidden(true); return }
-            else throw rev.reason
-
-            // A missing invoice is not fatal — the QA half is still worth showing.
-            if (inv.status === 'fulfilled') setInvoice(inv.value.data)
-            else setInvoice({ _error: inv.reason?.response?.data?.detail || 'No invoice is linked to this report.' })
-        } catch (e) {
-            setError(e?.response?.data?.detail || e.message || 'Could not load this report.')
+            applyDelivery(await fetchDelivery(reportId))
         } finally {
             setLoading(false)
         }
-    }, [reportId])
+    }, [reportId, applyDelivery])
 
-    useEffect(() => { load() }, [load])
+    // Initial state already matches a fresh load; when the id changes, reset it
+    // during render so the effect below only has to fetch.
+    const [loadedId, setLoadedId] = useState(reportId)
+    if (loadedId !== reportId) {
+        setLoadedId(reportId)
+        setLoading(true); setError(''); setForbidden(false)
+    }
+
+    useEffect(() => {
+        fetchDelivery(reportId)
+            .then(applyDelivery)
+            .finally(() => setLoading(false))
+    }, [reportId, applyDelivery])
 
     const doSend = useCallback(async () => {
         if (!review?.sendable) return

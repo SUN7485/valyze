@@ -118,11 +118,12 @@ function EasyWayModalWithOrder({ isOpen, onClose, onImport, savedOrder, prefillJ
         order_comment: savedOrder?.order_comment || ''
     })
 
-    useEffect(() => {
-        if (prefillJson) {
-            setLocalJsonInput(prefillJson)
-        }
-    }, [prefillJson])
+    // Pick up a new non-empty prefill while the modal is mounted.
+    const [lastPrefillJson, setLastPrefillJson] = useState(prefillJson)
+    if (prefillJson !== lastPrefillJson) {
+        setLastPrefillJson(prefillJson)
+        if (prefillJson) setLocalJsonInput(prefillJson)
+    }
 
     if (!isOpen) return null
 
@@ -261,7 +262,7 @@ function EasyWayModalWithOrder({ isOpen, onClose, onImport, savedOrder, prefillJ
 export default function HomePage() {
     const navigate = useNavigate()
     const { user } = useAuth()
-    const { reportId, clearReport, saveReportId } = useReport()
+    const { clearReport, saveReportId } = useReport()
     
     // UI state
     const [loadingStats, setLoadingStats] = useState(true)
@@ -285,18 +286,22 @@ export default function HomePage() {
     const [showEasyWay, setShowEasyWay] = useState(false)
     const [prefillJson, setPrefillJson] = useState('')
 
-    // Fetch dashboard statistics and data
-    const fetchDashboardData = useCallback(async () => {
+    // Show the stat spinners again when the user changes (the effect below refetches).
+    const [statsUser, setStatsUser] = useState(user)
+    if (statsUser !== user) {
+        setStatsUser(user)
         setLoadingStats(true)
-        try {
-            // Load stats in parallel
-            const [ordersRes, clientsRes, invoicesRes, reportsRes] = await Promise.all([
-                ordersAPI.getAll().catch(() => ({ data: [] })),
-                clientsAPI.getAll().catch(() => ({ data: [] })),
-                invoicesAPI.getAll().catch(() => ({ data: [] })),
-                reportAPI.getAllReportsCombined(0, 10).catch(() => ({ data: { reports: [] } }))
-            ])
+    }
 
+    // Fetch dashboard statistics and data (stats load in parallel). A promise chain rather
+    // than try/catch so the mount effect only sets state asynchronously.
+    const loadDashboardData = useCallback(() => Promise.all([
+        ordersAPI.getAll().catch(() => ({ data: [] })),
+        clientsAPI.getAll().catch(() => ({ data: [] })),
+        invoicesAPI.getAll().catch(() => ({ data: [] })),
+        reportAPI.getAllReportsCombined(0, 10).catch(() => ({ data: { reports: [] } }))
+    ])
+        .then(([ordersRes, clientsRes, invoicesRes, reportsRes]) => {
             const ordersList = Array.isArray(ordersRes.data) ? ordersRes.data : ordersRes.data.orders || []
             const clientsList = Array.isArray(clientsRes.data) ? clientsRes.data : []
             const invoicesList = Array.isArray(invoicesRes.data) ? invoicesRes.data : invoicesRes.data.invoices || []
@@ -329,24 +334,33 @@ export default function HomePage() {
             setAssignedOrders(myOrders.length > 0 ? myOrders.slice(0, 5) : openOrders.slice(0, 5))
             setRecentReports(reportsList.slice(0, 4))
             setRecentInvoices(invoicesList.slice(0, 4))
-        } catch (e) {
+        })
+        .catch(e => {
             console.error('[Dashboard Error] Failed to aggregate system statistics:', e)
-        } finally {
+        })
+        .finally(() => {
             setLoadingStats(false)
-        }
-    }, [user])
+        }), [user])
+
+    const fetchDashboardData = () => {
+        setLoadingStats(true)
+        return loadDashboardData()
+    }
 
     useEffect(() => {
-        fetchDashboardData()
-    }, [fetchDashboardData])
+        loadDashboardData()
+    }, [loadDashboardData])
 
     // Load saved order from localStorage
     useEffect(() => {
         const saved = localStorage.getItem('valyze_order_summary')
         if (saved) {
             try {
+                // Kept in an effect on purpose: OrderSummaryModal is mounted before this runs and
+                // the Easy Way modal must mount after it, so initialising lazily would change both.
+                // eslint-disable-next-line react-hooks/set-state-in-effect
                 setSavedOrder(JSON.parse(saved))
-            } catch (e) {}
+            } catch {}
         }
     }, [])
 
@@ -356,10 +370,12 @@ export default function HomePage() {
         if (pending) {
             try {
                 const json = JSON.parse(pending)
+                // Same commit as setSavedOrder above, so the Easy Way modal mounts with the saved order.
+                // eslint-disable-next-line react-hooks/set-state-in-effect
                 setPrefillJson(JSON.stringify(json, null, 2))
                 setShowEasyWay(true)
                 localStorage.removeItem('valyze_pending_import')
-            } catch (e) {}
+            } catch {}
         }
     }, [])
 
@@ -375,9 +391,11 @@ export default function HomePage() {
 
     const handleOrderSubmit = async (orderData) => {
         setShowOrderSummary(false)
+        // The Easy Way modal mounts after this and prefills from savedOrder: give it what was just entered.
+        if (orderData) setSavedOrder(orderData)
         if (pendingAction === 'new') {
             clearReport()
-            navigate('/upload')
+            navigate('/extractor')
         } else if (pendingAction === 'easy') {
             setShowEasyWay(true)
         }

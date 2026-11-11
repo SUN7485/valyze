@@ -105,28 +105,56 @@ export default function OrderFocusPage() {
     const [prevReports, setPrevReports] = useState([])
     const [prevLoading, setPrevLoading] = useState(false)
 
+    // Reset loading/error when the route switches to another company (the effect below refetches).
+    const [loadedCompanyId, setLoadedCompanyId] = useState(companyId)
+    if (loadedCompanyId !== companyId) {
+        setLoadedCompanyId(companyId)
+        if (companyId) {
+            setLoading(true)
+            setError('')
+        }
+    }
+
+    const loadData = useCallback(() => {
+        if (!companyId) return Promise.resolve()
+        return ordersAPI.getCompany(companyId)
+            .then(res => {
+                setData(res.data)
+                setAnalyst(res.data?.analyst_assigned || res.data?.order?.auto_assigned_analyst || '')
+            })
+            .catch(e => setError(e.message || 'Failed to load order'))
+            .finally(() => setLoading(false))
+    }, [companyId])
+
     const fetchData = useCallback(async () => {
         if (!companyId) return
         setLoading(true)
         setError('')
-        try {
-            const res = await ordersAPI.getCompany(companyId)
-            setData(res.data)
-            setAnalyst(res.data?.analyst_assigned || res.data?.order?.auto_assigned_analyst || '')
-        } catch (e) { setError(e.message || 'Failed to load order') } finally { setLoading(false) }
-    }, [companyId])
+        await loadData()
+    }, [companyId, loadData])
 
-    useEffect(() => { fetchData() }, [fetchData])
+    useEffect(() => { loadData() }, [loadData])
 
     // Previous-reports check: after the main fetch, look up whether this company
     // already exists in the reports database (by name, falling back to CR number).
+    // The synchronous part (clear the list / start the spinner) runs during render
+    // when the lookup inputs change; the effect only does the async search.
+    const prevName = data?.company_name
+    const prevCr = data?.registration_no
+    const prevReportId = data?.report_id
+    const [prevLookupFor, setPrevLookupFor] = useState({ name: prevName, cr: prevCr, reportId: prevReportId })
+    if (prevLookupFor.name !== prevName || prevLookupFor.cr !== prevCr || prevLookupFor.reportId !== prevReportId) {
+        setPrevLookupFor({ name: prevName, cr: prevCr, reportId: prevReportId })
+        if (!prevName && !prevCr) setPrevReports([])
+        else setPrevLoading(true)
+    }
+
     useEffect(() => {
         const name = data?.company_name
         const cr = data?.registration_no
-        if (!name && !cr) { setPrevReports([]); return undefined }
+        if (!name && !cr) return undefined
 
         let cancelled = false
-        setPrevLoading(true)
         searchAPI.search(name ? { company_name: name } : { cr_number: cr })
             .then(res => {
                 if (cancelled) return

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Download, Trash2, Edit3, ChevronDown, X, FileText, Database, Loader2, Cloud, RefreshCw, FolderOutput, CheckSquare, Square, HardDrive } from 'lucide-react'
 import { reportAPI } from '../api/client'
+import { printReportPdf, downloadReportExport } from '../lib/reportFiles'
 
 // Custom hook for debouncing
 function useDebounce(value, delay) {
@@ -151,7 +152,6 @@ export default function ReportsPage() {
     const [searchInput, setSearchInput] = useState('')
     const [countries, setCountries] = useState([])
     const [countryFilter, setCountryFilter] = useState('')
-    const [crNumbers, setCrNumbers] = useState([])
     const [deleteModal, setDeleteModal] = useState({ open: false, reportId: null, reportName: '', location: '' })
     const [downloading, setDownloading] = useState({})
     const [loadingReportId, setLoadingReportId] = useState(null)
@@ -168,16 +168,22 @@ export default function ReportsPage() {
     // Debounce search input (300ms delay)
     const search = useDebounce(searchInput, 300)
 
-    const fetchReports = async () => {
-        try {
-            setLoading(true)
-            
-            // Fetch both DB reports and output reports in parallel
-            const [dbRes, outputRes] = await Promise.all([
-                reportAPI.getAllReportsCombined(0, 500, search, countryFilter),
-                reportAPI.getOutputReports(search)
-            ])
-            
+    // Show the spinner again when the debounced search changes (the effect below refetches).
+    const [loadedSearch, setLoadedSearch] = useState(search)
+    const [loadedCountry, setLoadedCountry] = useState(countryFilter)
+    if (loadedSearch !== search || loadedCountry !== countryFilter) {
+        setLoadedSearch(search)
+        setLoadedCountry(countryFilter)
+        setLoading(true)
+    }
+
+    // Fetch both DB reports and output reports in parallel. A promise chain rather than
+    // try/catch so the effect below only sets state asynchronously.
+    const loadReports = useCallback(() => Promise.all([
+        reportAPI.getAllReportsCombined(0, 500, search, countryFilter),
+        reportAPI.getOutputReports(search)
+    ])
+        .then(([dbRes, outputRes]) => {
             const allReports = dbRes.data.reports || []
             const allOutput = outputRes.data.reports || []
             
@@ -187,10 +193,11 @@ export default function ReportsPage() {
             setReports(allReports)
             setOutputReports(outputMarked)
             
-            const uniqueCountries = [...new Set(allReports.map(r => r.country).filter(Boolean))].sort()
-            const uniqueCrNumbers = [...new Set(allReports.map(r => r.cr_number).filter(Boolean))].sort()
-            setCountries(uniqueCountries)
-            setCrNumbers(uniqueCrNumbers)
+            // Only rebuild the country list from unfiltered results; otherwise it would
+            // shrink to the selected country and you couldn't switch to another.
+            if (!countryFilter) {
+                setCountries([...new Set(allReports.map(r => r.country).filter(Boolean))].sort())
+            }
             
             const cloudCount = allReports.filter(r => r.location === 'cloud' || r.location === 'both').length
             const localCount = allReports.filter(r => r.location === 'local').length
@@ -198,21 +205,24 @@ export default function ReportsPage() {
             setStats({ cloud: cloudCount, local: localCount, synced: syncedCount })
             
             console.log('[ReportsPage] DB Reports:', allReports.length, 'Output Reports:', allOutput.length)
-        } catch (e) {
+        })
+        .catch(e => {
             setError(e.message || 'Failed to load reports')
             console.error('[ReportsPage] Error fetching reports:', e)
-        } finally {
+        })
+        .finally(() => {
             setLoading(false)
-        }
+        }), [search, countryFilter])
+
+    const fetchReports = () => {
+        setLoading(true)
+        return loadReports()
     }
 
+    // Runs on mount and whenever the debounced search changes.
     useEffect(() => {
-        fetchReports()
-    }, [])
-
-    useEffect(() => {
-        fetchReports()
-    }, [search])
+        loadReports()
+    }, [loadReports])
 
     const filteredReports = useMemo(() => {
         let result = reports.filter(report => {
@@ -261,30 +271,12 @@ export default function ReportsPage() {
             setDownloading(prev => ({ ...prev, [reportId]: true }))
             setError('')
 
-            // Export directly — data is in Supabase
-            const exportAPI = {
-                pdf: reportAPI.generatePDF,
-                json: reportAPI.exportJSON,
-                xml: reportAPI.exportXML,
-                xlsx: reportAPI.exportExcel,
-                csv: reportAPI.exportCSV,
-                docx: reportAPI.exportWord,
-            }[format]
-
-            await exportAPI(reportId)
-
-            setTimeout(() => {
-                const downloadUrl = format === 'pdf' 
-                    ? reportAPI.getDownloadURL(reportId)
-                    : reportAPI.getExportDownloadURL(reportId, format)
-                const link = document.createElement('a')
-                link.href = downloadUrl
+            if (format === 'pdf') {
+                await printReportPdf(reportId)
+            } else {
                 const companyName = reports.find(r => r.id === reportId)?.company_name || reportId
-                link.download = `CreditReport_${companyName.replace(/\s+/g, '_').slice(0, 30)}.${format === 'xlsx' ? 'xlsx' : format === 'docx' ? 'docx' : format}`
-                document.body.appendChild(link)
-                link.click()
-                document.body.removeChild(link)
-            }, 500)
+                await downloadReportExport(reportId, format, companyName)
+            }
         } catch (e) {
             setError(`Failed to export: ${e.message}`)
             console.error('[ReportsPage] Export error:', e)
@@ -485,8 +477,8 @@ export default function ReportsPage() {
                     </div>
 
                     {/* Single search box */}
-                    <div className="glass-card p-4 mb-6">
-                        <div className="relative">
+                    <div className="glass-card p-4 mb-6 flex flex-col sm:flex-row gap-3">
+                        <div className="relative flex-1">
                             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input
                                 type="text"
@@ -496,6 +488,15 @@ export default function ReportsPage() {
                                 className="w-full pl-10 pr-3 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white placeholder-slate-400"
                             />
                         </div>
+                        <select
+                            aria-label="Filter by country"
+                            value={countryFilter}
+                            onChange={(e) => setCountryFilter(e.target.value)}
+                            className="sm:w-56 px-3 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm dark:text-white"
+                        >
+                            <option value="">All countries</option>
+                            {countries.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
                     </div>
                 </>
             )}

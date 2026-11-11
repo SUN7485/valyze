@@ -434,6 +434,23 @@ export default function ExtractorPage() {
      before any extraction has run. */
   const [orderContext, setOrderContext] = useState(null)
 
+  /* A prior Valyze report on the same company, pulled BEFORE extraction and fed
+     to the model as reference data so it can record history (former name,
+     former address, former owners) and flag conflicts. Reference only — it must
+     never populate a current field. */
+  const [priorRef, setPriorRef]         = useState({ status: "idle", data: null, meta: null });
+  const [usePriorRef, setUsePriorRef]   = useState(true);
+
+  // When the lookup inputs change, drop any previous prior-report result while the
+  // new lookup (effect below) runs. Adjusted during render rather than in the effect.
+  const [priorRefInputs, setPriorRefInputs] = useState({ orderContext, reportId })
+  if (priorRefInputs.orderContext !== orderContext || priorRefInputs.reportId !== reportId) {
+    setPriorRefInputs({ orderContext, reportId })
+    if (orderContext?.company_name || orderContext?.cr_number) {
+      setPriorRef({ status: "loading", data: null, meta: null })
+    }
+  }
+
   useEffect(() => {
     if (!reportId) return
     let cancelled = false
@@ -465,7 +482,6 @@ export default function ExtractorPage() {
     const cr = orderContext?.cr_number
     if (!cn && !cr) return
     let cancelled = false
-    setPriorRef({ status: "loading", data: null, meta: null })
     companiesAPI.lookup({ company_name: cn, cr_number: cr, country: orderContext?.country })
       .then((res) => {
         if (cancelled) return
@@ -508,23 +524,26 @@ export default function ExtractorPage() {
   const [apiKey, setApiKey]             = useState(() => localStorage.getItem("valyze_api_key") || "");
   const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem("valyze_api_key"));
   const [dupCheck, setDupCheck]         = useState({ status: "idle", dossier: null });
-  /* A prior Valyze report on the same company, pulled BEFORE extraction and fed
-     to the model as reference data so it can record history (former name,
-     former address, former owners) and flag conflicts. Reference only — it must
-     never populate a current field. */
-  const [priorRef, setPriorRef]         = useState({ status: "idle", data: null, meta: null });
-  const [usePriorRef, setUsePriorRef]   = useState(true);
 
   useEffect(() => { if (apiKey) localStorage.setItem("valyze_api_key", apiKey); }, [apiKey]);
 
   // After extraction, check whether Valyze already holds this company — surfaces
   // prior reports so the analyst doesn't create a duplicate and can reuse work.
+  // The idle/loading reset happens during render when the inputs change; the
+  // effect only runs the lookup.
+  const [dupCheckInputs, setDupCheckInputs] = useState({ status, result, reportId });
+  if (dupCheckInputs.status !== status || dupCheckInputs.result !== result || dupCheckInputs.reportId !== reportId) {
+    setDupCheckInputs({ status, result, reportId });
+    const cn = result?.company_name || result?.legal_name;
+    const cr = result?.cr_number;
+    setDupCheck({ status: status !== "done" || (!cn && !cr) ? "idle" : "loading", dossier: null });
+  }
+
   useEffect(() => {
     const cn = result?.company_name || result?.legal_name;
     const cr = result?.cr_number;
-    if (status !== "done" || (!cn && !cr)) { setDupCheck({ status: "idle", dossier: null }); return; }
+    if (status !== "done" || (!cn && !cr)) return;
     let cancelled = false;
-    setDupCheck({ status: "loading", dossier: null });
     companiesAPI.lookup({ company_name: cn, cr_number: cr, country: result?.country })
       .then((res) => {
         if (cancelled) return;
@@ -901,7 +920,6 @@ export default function ExtractorPage() {
     try {
       if (hasReportId) {
         // Save to backend immediately before navigating
-        const { default: api } = await import("../api/client");
         const token = localStorage.getItem("valyze_token") || "";
         const baseUrl = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
         const saveRes = await fetch(`${baseUrl}/api/report/${reportId}/easy-way`, {

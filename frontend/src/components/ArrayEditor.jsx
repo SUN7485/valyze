@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { Plus, Edit2, Trash2, X, Check, Database, ListPlus } from 'lucide-react'
 
 export default function ArrayEditor({
@@ -10,14 +10,16 @@ export default function ArrayEditor({
     onSave
 }) {
     const [items, setItems] = useState(data)
+    const [prevData, setPrevData] = useState(data)
     const [editingIndex, setEditingIndex] = useState(null)
     const [formData, setFormData] = useState({})
     const [isAdding, setIsAdding] = useState(false)
 
-    // Sync internal state with data prop when it changes
-    useEffect(() => {
+    // Sync internal state with data prop when it changes (adjusted during render)
+    if (!Object.is(data, prevData)) {
+        setPrevData(data)
         setItems(data)
-    }, [data])
+    }
 
     const handleStartAdd = () => {
         const emptyForm = {}

@@ -1,33 +1,10 @@
 // ============ P04_ExecutiveSummary.jsx ============
 import React from 'react'
-import { RotateCcw } from 'lucide-react'
-import { useReport } from '../context/ReportContext'
 import FieldInput from '../components/FieldInput'
-import { reportAPI } from '../api/client'
 
 export default function P04_ExecutiveSummary() {
-  const { getFieldValue, updateField, updateArray, getArray, reportId, loadReport } = useReport()
 
-  const handleRegenerate = async (section) => {
-    try {
-      if (!window.confirm(`Regenerate "${section.replace(/_/g, ' ')}"? Current edits will be lost.`)) return
-      await reportAPI.regenerateSection(reportId, [section])
-      await loadReport(reportId)
-    } catch (err) {
-      console.error('Regenerate failed:', err)
-      alert('Failed to regenerate. Check backend connection.')
-    }
-  }
 
-  const renderRegenButton = (section) => (
-    <button
-      onClick={() => handleRegenerate(section)}
-      className="flex items-center gap-1 text-[10px] font-bold text-blue-600 dark:text-blue-400
-                 hover:text-blue-800 dark:hover:text-blue-300 transition-colors opacity-0 group-hover:opacity-100"
-    >
-      <RotateCcw size={12} /> REGENERATE WITH AI
-    </button>
-  )
 
   return (
     <div className="p-6 space-y-6 animate-in fade-in duration-500">
@@ -44,7 +21,6 @@ export default function P04_ExecutiveSummary() {
           <h3 className="text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em]">
             Company Overview
           </h3>
-          {renderRegenButton('executive_summary')}
         </div>
         <FieldInput
           label=""
@@ -62,7 +38,6 @@ export default function P04_ExecutiveSummary() {
           <h3 className="text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em]">
             Company History
           </h3>
-          {renderRegenButton('company_history')}
         </div>
         <FieldInput
           label=""
