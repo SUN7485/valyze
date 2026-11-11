@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, Any, Set
 from datetime import datetime
 
-from utils.visibility import is_field_empty, filter_visible_fields, is_section_empty
+from utils.visibility import is_field_empty
 
 ICON_MAP = {
     "check-circle": "✅",
@@ -293,86 +293,6 @@ class PDFGenerator:
             return "yellow"
         return "yellow"
 
-    def _hex_to_css_class(self, color: Any) -> str:
-        """
-        Convert hex color values to CSS class names for template rendering.
-        Maps hex colors to: 'green', 'yellow', 'red'
-        Also passes through existing CSS class names unchanged.
-        """
-        if color is None or color == "" or color == "N/A":
-            return "yellow"
-        c = str(color).strip().lower()
-        # Already a CSS class name
-        if c in (
-            "green",
-            "yellow",
-            "red",
-            "orange",
-            "blue",
-            "info",
-            "success",
-            "warning",
-            "danger",
-        ):
-            return c
-        # Hex color mapping
-        green_hexes = {
-            "#27ae60",
-            "#2ecc71",
-            "#28a745",
-            "#20c997",
-            "#00b894",
-            "#00cec9",
-            "#55efc4",
-        }
-        yellow_hexes = {
-            "#f39c12",
-            "#e67e22",
-            "#ffa500",
-            "#fdcb6e",
-            "#ffeaa7",
-            "#fab1a0",
-            "#ff7675",
-        }
-        red_hexes = {"#e74c3c", "#c0392b", "#dc3545", "#d63031", "#ff6b6b", "#ee5a24"}
-        if c in green_hexes:
-            return "green"
-        if c in red_hexes:
-            return "red"
-        if c in yellow_hexes:
-            return "yellow"
-        # Fuzzy match by first 4 chars
-        if (
-            c.startswith("#27a")
-            or c.startswith("#2ec")
-            or c.startswith("#28a")
-            or c.startswith("#20c")
-            or c.startswith("#00b")
-            or c.startswith("#00c")
-            or c.startswith("#55e")
-        ):
-            return "green"
-        if (
-            c.startswith("#e74")
-            or c.startswith("#c03")
-            or c.startswith("#dc3")
-            or c.startswith("#d63")
-            or c.startswith("#ff6")
-            or c.startswith("#ee5")
-        ):
-            return "red"
-        if (
-            c.startswith("#f39")
-            or c.startswith("#e67")
-            or c.startswith("#ffa")
-            or c.startswith("#fdc")
-            or c.startswith("#ffe")
-            or c.startswith("#fab")
-            or c.startswith("#ff7")
-        ):
-            return "yellow"
-        return "yellow"
-
     def _status_to_label(self, status: Any) -> str:
         """
         Convert status values to proper display labels.
@@ -506,7 +426,6 @@ class PDFGenerator:
             hidden_fields_list = (
                 hidden_fields_list.get("value", []) if hidden_fields_list else []
             )
-        hidden_fields_set = set(hidden_fields_list or [])
 
         # Compute which fields are actually visible (non-empty AND not hidden)
         # We'll compute this early so section flags can use it
@@ -655,18 +574,6 @@ class PDFGenerator:
         # Registration license section: show only if Egypt flag is set AND there is license data
         show_registration = show_egypt_flag and has_licenses
 
-        # Show physical assets if there's any operations data (including the new asset fields)
-        show_physical_assets = has_ops or self._has_field_data(
-            fields,
-            [
-                "premises_type",
-                "premises_size",
-                "premises_owned_rental",
-                "vehicles",
-                "equipment",
-                "brands",
-            ],
-        )
 
         # Show supply chain sections if there's any purchasing/sales data OR the new number fields
         has_purchasing_data = has_purchasing or self._has_field_data(
@@ -762,10 +669,6 @@ class PDFGenerator:
             "gosi_registration": gf("gosi_registration"),
             "nitaqat_band": gf("nitaqat_band"),
             "municipality_license": gf("municipality_license"),
-            "zakat_certificate": gf("zakat_certificate"),
-            "zakat_number": gf("zakat_number"),
-            "zakat_status": gf("zakat_status", "N/A"),
-            "zakat_alert": gf("zakat_alert", "warning"),
             "zakat_certificate": gf("zakat_certificate"),
             "zakat_number": gf("zakat_number"),
             "zakat_status": gf("zakat_status", "N/A"),

@@ -132,7 +132,7 @@ async def export_report_excel(report_id: str, user: dict = Depends(get_current_u
 
     try:
         from openpyxl import Workbook
-        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.styles import Font, PatternFill
 
         wb = Workbook()
         ws = wb.active
@@ -175,8 +175,6 @@ async def export_report_word(report_id: str, user: dict = Depends(get_current_us
 
     try:
         from docx import Document
-        from docx.shared import Inches, Pt
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
 
         doc = Document()
         doc.add_heading(_company_name(report), level=0)

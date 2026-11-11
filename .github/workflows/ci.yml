@@ -36,6 +36,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements.txt
-      - run: pip install -r requirements.txt pytest
-      - run: python -m compileall -q api services utils models database
+      - run: pip install -r requirements.txt pytest pyflakes
+      # Undefined names, unused imports/variables, duplicate dict keys, redefinitions.
+      - run: python -m pyflakes api services utils models database tests pdf_generator.py main.py
       - run: python -m pytest -q

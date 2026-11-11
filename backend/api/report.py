@@ -9,13 +9,11 @@ SINGLE SOURCE OF TRUTH. NO AUTO-RECALCULATION. EVER.
 from __future__ import annotations
 
 import shutil
-from services.supabase_client import get_order_companies as sb_get_order_companies_for_report
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, Path as PathParam
-from pydantic import BaseModel, Field
 import re
 
 
@@ -348,16 +346,6 @@ async def easy_way_import(
     swot_analysis = data.get("swot_analysis", {}) or {}
     news_and_events = data.get("news_and_events", {}) or {}
     ci = data.get("company_identity", {}) or {}
-    os_ = data.get("ownership_structure", {}) or {}
-    fr = data.get("financial_ratios", {}) or {}
-    ta = data.get("trend_analysis", {}) or {}
-    op = (
-        data.get("operational_profile")
-        or data.get("operations")
-        or data.get("operational_details")
-        or {}
-    ) or {}
-    ia = data.get("industry_analysis", {}) or {}
     cr = (
         data.get("credit_risk_assessment")
         or data.get("risk_assessment")
@@ -370,7 +358,6 @@ async def easy_way_import(
         or data.get("recommendation")
         or {}
     ) or {}
-    dq = data.get("data_quality", {}) or {}
 
     # -- Initialize updates dict FIRST -------------------------------------
     updates: Dict[str, Any] = {}
@@ -1168,19 +1155,7 @@ async def easy_way_import(
     report.updated_at = now_ts
     await save_report_json(None, report_id, report)
     await update_report_status(None, report_id, "ready")
-    # -- Check linked order_companies --
-    try:
-        order_companies = sb_get_order_companies_for_report(report_id)
-        if order_companies:
-            linked = [oc for oc in order_companies if oc.get("report_id") == report_id]
-            if linked:
-                statuses = [oc.get("status", "") for oc in linked]
-                if "completed" not in statuses:
-                    print("[EASY WAY] Linked order_companies not completed - keeping in_progress")
-                    await update_report_status(None, report_id, "in_progress")
-    except Exception as exc:
-        print("[EASY WAY] order_companies check failed: " + exc)
-    print(f"[DEBUG] Report saved successfully")
+    print("[DEBUG] Report saved successfully")
 
     return {
         "success": True,

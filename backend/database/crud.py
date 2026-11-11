@@ -8,7 +8,6 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from types import SimpleNamespace
 
 from services.supabase_client import (
     create_report as sb_create_report,
@@ -19,9 +18,6 @@ from services.supabase_client import (
     add_uploaded_file as sb_add_uploaded_file,
     get_uploaded_files as sb_get_uploaded_files,
     delete_uploaded_file_by_report_and_filename as sb_delete_uploaded_file_fn,
-    get_report_by_cr_number as sb_get_report_by_cr_number,
-    get_report_by_client_reference as sb_get_report_by_client_reference,
-    get_report_by_company_name as sb_get_report_by_company_name,
 )
 from models.report_schema import FullReport, build_empty_report, FieldData
 from models.field_meta import FIELD_REGISTRY

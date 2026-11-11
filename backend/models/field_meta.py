@@ -2,7 +2,7 @@
 Field metadata definitions for the Valyze Credit report system.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 

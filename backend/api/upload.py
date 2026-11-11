@@ -123,7 +123,7 @@ async def start_upload(body: StartUploadRequest):
     report_id = str(uuid.uuid4())
     print(f"[UPLOAD] Creating report: {report_id}")
     try:
-        report = await create_report(None, report_id)
+        await create_report(None, report_id)
         print(f"[UPLOAD] Report created: {report_id}")
     except Exception as e:
         print(f"[UPLOAD] Error creating report: {e}")

@@ -19,7 +19,6 @@ import gzip
 import json as _json
 import os
 import traceback
-from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request

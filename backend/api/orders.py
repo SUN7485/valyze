@@ -8,7 +8,6 @@ Each order_company becomes one Valyze report.
 from __future__ import annotations
 
 import io
-import json
 import uuid
 import re
 import zipfile
@@ -36,7 +35,6 @@ from services.supabase_client import (
     get_all_orders as sb_get_all_orders,
     get_all_order_companies as sb_get_all_order_companies,
     get_analyst_workload as sb_get_analyst_workload,
-    get_active_order_assignments as sb_get_active_order_assignments,
     get_client,
     get_max_order_number,
     get_order as sb_get_order,
@@ -296,7 +294,6 @@ def _progress_from_companies(companies: List[Dict[str, Any]]) -> Dict[str, int]:
     total = len(companies)
     completed = sum(1 for company in companies if company.get("status") == "completed")
     in_progress = sum(1 for company in companies if company.get("status") == "in_progress")
-    pending = sum(1 for company in companies if company.get("status") == "pending")
     return {
         "total": total,
         "completed": completed,
@@ -721,7 +718,6 @@ async def download_order(order_id: str, user: dict = Depends(get_current_user)):
     Supabase Storage — no reliance on the ephemeral local disk)."""
     order = _get_order_or_404(order_id)
     companies = sb_get_order_companies(order_id)
-    client = get_client(order.get("client_id", "")) or {}
     files = get_order_files(order_id)
 
     order_label = order.get("order_number") or order.get("id") or "order"
@@ -1091,7 +1087,7 @@ async def reassign_order(
 ):
     """Reassign an order (all companies) to a different analyst."""
     require_admin(user)
-    order = _get_order_or_404(order_id)
+    _get_order_or_404(order_id)
     analyst = body.get("analyst")
     if not analyst:
         raise HTTPException(status_code=400, detail="Analyst email is required")
