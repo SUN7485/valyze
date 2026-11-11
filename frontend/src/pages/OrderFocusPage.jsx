@@ -153,7 +153,7 @@ export default function OrderFocusPage() {
     const status = norm(data?.status)
     const reportId = data?.report_id
 
-    const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/orderds'))
+    const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/queue'))
 
     const start = async () => {
         setBusy('start')
@@ -190,7 +190,7 @@ export default function OrderFocusPage() {
         setError('')
         try {
             await ordersAPI.deleteCompany(data.id)
-            navigate('/orderds')
+            navigate('/queue')
         } catch (e) { setError(e.message || 'Failed to delete report'); setBusy(null) }
     }
 

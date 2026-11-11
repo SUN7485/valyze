@@ -1,7 +1,12 @@
 import React, { lazy, Suspense } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import Layout from './components/Layout'
 import { AuthProvider, useAuth } from './context/AuthContext'
+
+function LegacyQueueRedirect() {
+  const { companyId } = useParams()
+  return <Navigate to={`/queue/${companyId}`} replace />
+}
 
 // Lazy load pages
 const LoginPage = lazy(() => import('./pages/LoginPage'))
@@ -14,7 +19,7 @@ const DonePage = lazy(() => import('./pages/DonePage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const OrdersPage = lazy(() => import('./pages/OrdersPage'))
 const OrderDetailPage = lazy(() => import('./pages/OrderDetailPage'))
-const OrderdsPage = lazy(() => import('./pages/OrderdsPage'))
+const WorkQueuePage = lazy(() => import('./pages/WorkQueuePage'))
 const OrderFocusPage = lazy(() => import('./pages/OrderFocusPage'))
 const InvoicesPage = lazy(() => import('./pages/InvoicesPage'))
 const InvoiceDetailPage = lazy(() => import('./pages/InvoiceDetailPage'))
@@ -59,10 +64,13 @@ function AppRoutes() {
         <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
         <Route path="/reports" element={<ProtectedRoute><ReportsPage /></ProtectedRoute>} />
         <Route path="/companies" element={<ProtectedRoute><CompaniesPage /></ProtectedRoute>} />
-<Route path="/orders" element={<ProtectedRoute><OrdersPage /></ProtectedRoute>} />
-                        <Route path="/orders/:orderId" element={<ProtectedRoute><OrderDetailPage /></ProtectedRoute>} />
-                        <Route path="/orderds" element={<ProtectedRoute><OrderdsPage /></ProtectedRoute>} />
-                        <Route path="/orderds/:companyId" element={<ProtectedRoute><OrderFocusPage /></ProtectedRoute>} />
+        <Route path="/orders" element={<ProtectedRoute><OrdersPage /></ProtectedRoute>} />
+        <Route path="/orders/:orderId" element={<ProtectedRoute><OrderDetailPage /></ProtectedRoute>} />
+        <Route path="/queue" element={<ProtectedRoute><WorkQueuePage /></ProtectedRoute>} />
+        <Route path="/queue/:companyId" element={<ProtectedRoute><OrderFocusPage /></ProtectedRoute>} />
+        {/* Legacy URLs: the Work Queue used to live at the misspelt /orderds. Keep old bookmarks working. */}
+        <Route path="/orderds" element={<Navigate to="/queue" replace />} />
+        <Route path="/orderds/:companyId" element={<LegacyQueueRedirect />} />
         <Route path="/clients" element={<ProtectedRoute><ClientsPage /></ProtectedRoute>} />
         <Route path="/clients/:clientId" element={<ProtectedRoute><ClientDetailPage /></ProtectedRoute>} />
         <Route path="/invoices" element={<ProtectedRoute><InvoicesPage /></ProtectedRoute>} />

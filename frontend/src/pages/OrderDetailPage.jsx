@@ -879,7 +879,7 @@ export default function OrderDetailPage() {
     return (
         <div className="py-8 px-6 max-w-7xl mx-auto pb-36">
             <button
-                onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/orderds'))}
+                onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/queue'))}
                 className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-primary transition-colors"
             >
                 <ArrowLeft size={16} /> Back
@@ -902,7 +902,7 @@ export default function OrderDetailPage() {
                         <AlertTriangle size={32} />
                     </div>
                     <h3 className="text-lg font-black text-slate-600 dark:text-slate-300 mb-2">Order Not Found</h3>
-                    <button onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/orderds'))} className="mt-4 text-primary font-black uppercase tracking-widest text-xs">Go Back</button>
+                    <button onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/queue'))} className="mt-4 text-primary font-black uppercase tracking-widest text-xs">Go Back</button>
                 </div>
             ) : (
                 <>

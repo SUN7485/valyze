@@ -270,7 +270,7 @@ function OrderRow({ order, onManage, onDownload, downloading }) {
     )
 }
 
-export default function OrderdsPage() {
+export default function WorkQueuePage() {
     const navigate = useNavigate()
     const [orders, setOrders] = useState([])
     const [clients, setClients] = useState([])
@@ -291,7 +291,7 @@ export default function OrderdsPage() {
 
     const search = useDebounce(searchInput, 300)
 
-    const handleManage = useCallback((companyId) => navigate(`/orderds/${companyId}`), [navigate])
+    const handleManage = useCallback((companyId) => navigate(`/queue/${companyId}`), [navigate])
 
     const handleDownload = useCallback(async (orderId, orderNumber) => {
         setDownloadingId(orderId)
@@ -401,7 +401,7 @@ export default function OrderdsPage() {
         }).length,
     }), [filteredOrders])
 
-    const SortableHeader = ({ column, label }) => (
+    const renderSortableHeader = (column, label) => (
         <th className="px-4 py-4">
             <button
                 onClick={() => {
@@ -610,16 +610,16 @@ export default function OrderdsPage() {
                     <table className="w-full border-collapse">
                         <thead className="sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm z-10">
                             <tr className="border-b border-slate-200 dark:border-white/10">
-                                <SortableHeader column="order_number" label="Order ID" />
-                                <SortableHeader column="client_name" label="Client Name" />
-                                <SortableHeader column="client_ref" label="Client Ref" />
-                                <SortableHeader column="company_name" label="Company Name" />
-                                <SortableHeader column="country" label="Country" />
-                                <SortableHeader column="report_id" label="Report ID" />
-                                <SortableHeader column="date_received" label="Order Date" />
-                                <SortableHeader column="due_date" label="Due Date" />
+                                {renderSortableHeader('order_number', 'Order ID')}
+                                {renderSortableHeader('client_name', 'Client Name')}
+                                {renderSortableHeader('client_ref', 'Client Ref')}
+                                {renderSortableHeader('company_name', 'Company Name')}
+                                {renderSortableHeader('country', 'Country')}
+                                {renderSortableHeader('report_id', 'Report ID')}
+                                {renderSortableHeader('date_received', 'Order Date')}
+                                {renderSortableHeader('due_date', 'Due Date')}
                                 <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Report Type</th>
-                                <SortableHeader column="analyst_assigned" label="Researcher" />
+                                {renderSortableHeader('analyst_assigned', 'Researcher')}
                                 <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Speed</th>
                                 <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap text-right">Actions</th>
                             </tr>
