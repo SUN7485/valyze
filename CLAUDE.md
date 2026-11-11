@@ -4,7 +4,7 @@ Guidance for working in this repo. Keep it accurate; update it when these facts 
 
 ## What this is
 A credit-report platform. Clients submit orders through a public **portal**; analysts
-pick up per-company work from the **Work Queue**, run the **Extractor** (client-side AI
+pick up per-company work from the **Work Queue** (`/queue`; the old `/orderds` URL redirects), run the **Extractor** (client-side AI
 extraction), edit in the **Editor**, generate narratives/PDF, and bill via **Invoices**.
 
 ## Architecture
@@ -25,7 +25,7 @@ extraction), edit in the **Editor**, generate narratives/PDF, and bill via **Inv
   gone in the next. Portal files live in Supabase Storage (`storage://bucket/path`); the
   Extractor loads them via `/api/upload/download/...`. Don't rely on `UPLOAD_DIR` persisting.
 - **Extraction is client-side.** `ExtractorPage.jsx` calls Anthropic in the browser
-  (via `/api/proxy`) using the user's own API key. `backend/api/extract.py` is legacy.
+  (via `/api/proxy`) using the user's own API key. There is no server-side extractor.
 - **Vercel body limit ~4.5 MB.** Large payloads 413. The proxy path gzips requests.
 - **Model ids live only in `frontend/src/config/ai.js`.** Changing one is not a config
   tweak: Opus 5 thinks by default and `max_tokens` caps thinking *plus* the answer, and
@@ -52,10 +52,21 @@ extraction), edit in the **Editor**, generate narratives/PDF, and bill via **Inv
   `report_json` is huge); use the count header (`Range: 0-0`) instead of fetching all rows.
 
 ## Commands
-- Frontend: `cd frontend && npm run dev` · build/verify: `npx vite build`
-- Claude-call tests (no API key needed): `cd frontend && node --test src/lib/claudeTurns.test.mjs`
+- Frontend: `cd frontend && npm run dev` · lint: `npm run lint` · build: `npx vite build`
+- Claude-call tests (no API key needed): `cd frontend && npm test`
 - Backend local: `cd backend && uvicorn main:app --reload`
-- Backend syntax check: `python -c "import ast; ast.parse(open('api/<f>.py').read())"`
+- Backend tests: `cd backend && python -m pytest -q` (includes a check that every router in
+  `api/index.py` registers; `_safe_register` would otherwise hide a broken import in prod)
+- CI (`.github/workflows/ci.yml`) runs all of the above plus the portal build. Keep it green.
+
+## Keeping it clean
+- No scratch scripts, one-off `test*.py`, DB files, generated PDFs or tool state in the repo.
+  Put throwaway work outside the tree; real tests go in `backend/tests/` or next to the JS module.
+- ESLint errors fail CI. `react-hooks/static-components` matters most: never define a component
+  inside another component (inputs remount and lose focus on every keystroke). Hoist it, or call
+  it as a plain render function.
+- New env var → add it to the relevant `.env.example` in the same change.
+- New migration → next number in `supabase/migrations/`, never a second migrations folder.
 
 ## Required env vars (Vercel)
 - Backend: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `JWT_SECRET`, `FRONTEND_URL`, `PORTAL_URL`
